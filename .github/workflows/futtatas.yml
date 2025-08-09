@@ -1,0 +1,33 @@
+name: Adatgyujto Motor
+
+on:
+  # Időzítés: Minden nap reggel 8-kor (UTC időzóna szerint) fusson le
+  schedule:
+    - cron: '0 8 * * *'
+  # Manuális indítás: Lehetővé teszi, hogy a GitHub felületéről gombnyomásra is elindítsd
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kód letöltése
+        uses: actions/checkout@v3
+
+      - name: Python beállítása
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Függőségek telepítése
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Szkript futtatása
+        run: python main.py
+        env:
+          # A titkok átadása a Python szkriptnek
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          GSERVICE_ACCOUNT_CREDS: ${{ secrets.GSERVICE_ACCOUNT_CREDS }}
