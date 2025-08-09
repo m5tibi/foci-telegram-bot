@@ -13,7 +13,7 @@ WORKSHEET_NAME = 'meccsek'
 # Annak a ligának az azonosítója, amiből a meccseket kérjük (39 = Angol Premier League)
 LEAGUE_ID = '39'
 # A jelenlegi szezon
-SEASON = '2025'
+SEASON = '2024'
 
 
 def setup_google_sheets_client():
