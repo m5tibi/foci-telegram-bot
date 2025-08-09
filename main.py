@@ -101,7 +101,8 @@ if __name__ == "__main__":
         sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(WORKSHEET_NAME)
         
         print("Mai napi meccsek lekérése...")
-        today_str = date.today().strftime("%Y-%m-%d")
+        # today_str = date.today().strftime("%Y-%m-%d")
+        today_str = "2024-09-14" # IDEIGLENES DÁTUM A TESZTELÉSHEZ
         fixtures_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
         fixtures_querystring = {"league": LEAGUE_ID, "season": SEASON, "date": today_str}
         matches_today = get_api_response(fixtures_url, fixtures_querystring)
