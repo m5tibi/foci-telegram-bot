@@ -21,13 +21,12 @@ try:
     WORKSHEET_NAME = 'meccsek'
     WEBHOOK_URL = os.environ['WEBHOOK_URL']
 except KeyError as e:
-    logger.error(f"Hiányzó környezeti változó: {e}")
+    logger.error(f"Hianyozo kornyezeti valtozo: {e}")
     exit(1)
 
 async def setup_google_sheets_client():
-    # ... (ez a függvény változatlan)
     creds_json_str = os.environ.get('GSERVICE_ACCOUNT_CREDS')
-    if not creds_json_str: raise ValueError("GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
+    if not creds_json_str: raise ValueError("GSERVICE_ACCOUNT_CREDS titok nincs beallitva!")
     creds_dict = json.loads(creds_json_str)
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = await asyncio.to_thread(ServiceAccountCredentials.from_json_keyfile_dict, creds_dict, scope)
@@ -35,10 +34,10 @@ async def setup_google_sheets_client():
     return client
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text('Szia! Küldd a /tippek parancsot az elemzésekért.')
+    await update.message.reply_text('Szia! Kuldd a /tippek parancsot az elemzesekert.')
 
 async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text('Pillanat, olvasom a frissített tippeket a táblázatból...')
+    await update.message.reply_text('Pillanat, olvasom a tippeket a tablazatbol...')
     try:
         gs_client = await setup_google_sheets_client()
         sheet = await asyncio.to_thread(gs_client.open(GOOGLE_SHEET_NAME).worksheet, WORKSHEET_NAME)
@@ -46,19 +45,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         records = list_of_lists[1:]
 
         if not records:
-            await update.message.reply_text('Jelenleg nincsenek elérhető tippek a táblázatban.')
+            await update.message.reply_text('Jelenleg nincsenek elerheto tippek a tablazatban.')
             return
 
         response_message = ""
         for row in records:
-            # Az új oszlopszerkezetnek megfelelően olvasunk
-            if len(row) > 7:
-                date_str = row[1]
-                home_team = row[2]
-                away_team = row[3]
-                tip_1x2 = row[5]
-                tip_goals = row[6]
-                tip_btts = row[7] # Új BTTS oszlop beolvasása
+            if len(row) > 6:
+                date_str, home_team, away_team, tip_1x2, tip_goals = row[1], row[2], row[3], row[5], row[6]
                 
                 start_time_str = "Ismeretlen"
                 try:
@@ -67,45 +60,45 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     local_dt = utc_dt.astimezone(budapest_tz)
                     start_time_str = local_dt.strftime('%H:%M')
                 except (ValueError, TypeError):
-                    logger.warning(f"Ismeretlen dátum formátum: {date_str}")
+                    logger.warning(f"Ismeretlen datum formatum: {date_str}")
 
-                # Biztonságos szövegformázás
                 home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
                 away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
                 tip_1x2_safe = tip_1x2.replace("-", "\\-").replace(".", "\\.")
                 tip_goals_safe = tip_goals.replace("-", "\\-").replace(".", "\\.")
-                tip_btts_safe = tip_btts.replace("-", "\\-").replace(".", "\\.")
 
                 response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
-                response_message += f"⏰ Kezdés: *{start_time_str}*\n"
-                response_message += f"🏆 Eredmény: `{tip_1x2_safe}`\n"
-                response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals_safe}`\n"
-                response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts_safe}`\n\n" # Új sor a BTTS-hez
+                response_message += f"⏰ Kezdes: *{start_time_str}*\n"
+                response_message += f"🏆 Eredmeny: `{tip_1x2_safe}`\n"
+                response_message += f"🥅 Golok O/U 2\\.5: `{tip_goals_safe}`\n\n"
         
         if not response_message:
-            await update.message.reply_text("Nem találtam elemezhető meccseket a táblázatban.")
+            await update.message.reply_text("Nem talaltam elemezheto meccseket a tablazatban.")
             return
 
         await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
 
     except Exception as e:
-        logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
-        await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
+        logger.error(f"Kritikus hiba a tippek lekerese kozben: {e}", exc_info=True)
+        await update.message.reply_text('Hiba tortent az adatok lekerese kozben. Ellenorizd a Render naplot!')
 
-# --- Alkalmazás és Webszerver beállítása (változatlan) ---
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("tippek", get_tips))
 api = FastAPI()
+
 @api.on_event("startup")
 async def startup_event():
     await application.initialize()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
-    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+    logger.info(f"Webhook sikeresen beallitva a kovetkezo cimre: {WEBHOOK_URL}/telegram")
+
 @api.on_event("shutdown")
 async def shutdown_event():
     await application.shutdown()
-    logger.info("Alkalmazás leállt.")
+    logger.info("Alkalmazas leallt.")
+
 @api.post("/telegram")
 async def telegram_webhook(request: Request):
-    await application.process_update(Update.de_json(data=await request.json(), bot=application
+    await application.process_update(Update.de_json(data=await request.json(), bot=application.bot))
+    return {"status": "ok"}
