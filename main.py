@@ -6,7 +6,24 @@ import time
 from datetime import date
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- NINCS LIGA SZŰRÉS, MINDEN MECCSET NÉZÜNK ---
+# --- ITT SZABHATOD TESTRE, MELY LIGÁK ÉRDEKELNEK ---
+# Bővítsd bátran a listát a kedvenceiddel!
+ERDEKES_LIGAK = [
+    39,  # Angol Premier League
+    140, # Spanyol La Liga
+    135, # Olasz Serie A
+    78,  # Német Bundesliga
+    61,  # Francia Ligue 1
+    2,   # Bajnokok Ligája
+    3,   # Európa Liga
+    283, # Magyar NB I
+    # Példák további ligákra:
+    # 40,  # Angol Championship
+    # 141, # Spanyol La Liga 2
+    # 79,  # Német 2. Bundesliga
+    # 286, # Magyar NB II
+]
+
 GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
 WORKSHEET_NAME = 'meccsek'
 SEASON = '2025'
@@ -35,7 +52,7 @@ def analyze_h2h(home_team_id, away_team_id):
     print(f"H2H elemzes: {home_team_id} vs {away_team_id}")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
-    time.sleep(1.5) # API LIMIT MIATTI LASSÍTÁS
+    time.sleep(1.5) 
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
 
     win_stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
@@ -108,26 +125,29 @@ if __name__ == "__main__":
         print(f"API valasz sikeres, {len(matches_today)} meccs talalhato osszesen.")
         
         rows_to_add = []
+        print(f"Szures az alabbi ligakra: {ERDEKES_LIGAK}")
         for match_data in matches_today:
-            fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
-            match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
-            
-            win_stats, goal_stats, btts_stats = analyze_h2h(home_team_id, away_team_id)
-            tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
-            tip_goals = generate_goals_tip(goal_stats)
-            tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
-            
-            new_row = [match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals, tip_btts]
-            rows_to_add.append(new_row)
-            print(f"Meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}")
+            # ITT TÖRTÉNIK A SZŰRÉS
+            if match_data['league']['id'] in ERDEKES_LIGAK:
+                fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
+                match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away_id']
+                
+                win_stats, goal_stats, btts_stats = analyze_h2h(home_team_id, away_team_id)
+                tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
+                tip_goals = generate_goals_tip(goal_stats)
+                tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
+                
+                new_row = [match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals, tip_btts]
+                rows_to_add.append(new_row)
+                print(f"Erdekes meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}")
         
         if rows_to_add:
             sheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
             print(f"{len(rows_to_add)} uj sor hozzaadva a tablazathoz.")
         else:
-            print("Nem talalhato uj meccs a mai napon.")
+            print("Nem talalhato uj, altalunk figyelt meccs a mai napon.")
 
         print("A futas sikeresen befejezodott.")
+
     except Exception as e:
         print(f"Hiba tortent a futas soran: {e}")
-        exit(1)
