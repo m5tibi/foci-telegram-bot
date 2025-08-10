@@ -52,8 +52,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         response_message = ""
         for row in records:
             # Az új oszlopszerkezetnek megfelelően olvasunk
-            if len(row) > 6:
-                date_str, home_team, away_team, tip_1x2, tip_goals = row[1], row[2], row[3], row[4], row[5]
+            if len(row) > 7:
+                date_str = row[1]
+                home_team = row[2]
+                away_team = row[3]
+                tip_1x2 = row[5]
+                tip_goals = row[6]
+                tip_btts = row[7] # Új BTTS oszlop beolvasása
                 
                 start_time_str = "Ismeretlen"
                 try:
@@ -69,14 +74,16 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
                 tip_1x2_safe = tip_1x2.replace("-", "\\-").replace(".", "\\.")
                 tip_goals_safe = tip_goals.replace("-", "\\-").replace(".", "\\.")
+                tip_btts_safe = tip_btts.replace("-", "\\-").replace(".", "\\.")
 
                 response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
                 response_message += f"⏰ Kezdés: *{start_time_str}*\n"
                 response_message += f"🏆 Eredmény: `{tip_1x2_safe}`\n"
-                response_message += f"🥅 Gólok: `{tip_goals_safe}`\n\n"
+                response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals_safe}`\n"
+                response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts_safe}`\n\n" # Új sor a BTTS-hez
         
         if not response_message:
-            await update.message.reply_text("Nem találtam elemezhető meccseket.")
+            await update.message.reply_text("Nem találtam elemezhető meccseket a táblázatban.")
             return
 
         await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
@@ -101,5 +108,4 @@ async def shutdown_event():
     logger.info("Alkalmazás leállt.")
 @api.post("/telegram")
 async def telegram_webhook(request: Request):
-    await application.process_update(Update.de_json(data=await request.json(), bot=application.bot))
-    return {"status": "ok"}
+    await application.process_update(Update.de_json(data=await request.json(), bot=application
