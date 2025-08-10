@@ -44,7 +44,9 @@ def analyze_h2h(home_team_id, away_team_id):
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
     
+    # --- EZ A LASSÍTÁS A MEGOLDÁS A "429 Too Many Requests" HIBÁRA ---
     time.sleep(1.5) 
+    
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
     
     stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
