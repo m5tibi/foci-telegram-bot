@@ -8,8 +8,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # --- ITT SZABHATOD TESTRE, MELY LIGÁK ÉRDEKELNEK ---
 ERDEKES_LIGAK = [
+    # === Csúcsligák ===
     39,  # Anglia: Premier League
-    40,  # Anglia: Championship (másodosztály)
     140, # Spanyolország: La Liga
     78,  # Németország: Bundesliga
     135, # Olaszország: Serie A
@@ -17,28 +17,14 @@ ERDEKES_LIGAK = [
     # === Kupák ===
     2,   # UEFA: Bajnokok Ligája
     3,   # UEFA: Európa Liga
-    531, # Anglia: FA Community Shield (Szuperkupa)
     
     # === Magyar Bajnokságok ===
     283, # Magyarország: NB I
     286, # Magyarország: NB II
     
-    # === További Európai Bajnokságok ===
-    203, # Törökország: Süper Lig
-    207, # Svájc: Super League
-    179, # Skócia: Premiership
-    119, # Dánia: Superliga
-    113, # Svédország: Allsvenskan
-    244, # Finnország: Veikkausliiga
-    
-    # === Európán Kívüli Bajnokságok ===
+    # === Egyéb, ami személyesen érdekel ===
     71,  # Brazília: Serie A
-    188, # Ausztrália: A-League
-    169, # Kína: Super League
-    98,  # Japán: J1 League
-    
-    # === Egyéb ===
-    667, # Világ: Felkészülési klubmérkőzések (Club Friendlies)
+    # 667, # Világ: Felkészülési klubmérkőzések (KIKOMMENTELVE)
 ]
 
 GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
