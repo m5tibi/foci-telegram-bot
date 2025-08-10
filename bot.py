@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Konfiguráció a környezeti változókból ---
+# --- Konfiguráció ---
 try:
     BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
     GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
@@ -51,7 +51,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         gs_client = await setup_google_sheets_client()
         sheet = await asyncio.to_thread(gs_client.open(GOOGLE_SHEET_NAME).worksheet, WORKSHEET_NAME)
         list_of_lists = await asyncio.to_thread(sheet.get_all_values)
-        records = list_of_lists[1:] # Fejléc kihagyása
+        records = list_of_lists[1:]
 
         if not records:
             await update.message.reply_text('Jelenleg nincsenek elérhető tippek a táblázatban.')
@@ -59,20 +59,46 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         for row in records:
-            # Csak akkor dolgozzuk fel a sort, ha elég hosszú, hogy tartalmazza az adatokat
-            if len(row) > 8: 
+            if len(row) > 8:
                 home_team = row[2]
                 away_team = row[3]
                 tip = row[8]
                 
-                # Csak akkor adjuk hozzá az üzenethez, ha a tipp cella nem üres
                 if tip:
-                    # Biztonságos szövegformázás a Telegram speciális karakterei miatt
                     home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
                     away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
                     tip_safe = tip.replace("-", "\\-").replace(".", "\\.")
-
                     response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n🔮 Tipp: `{tip_safe}`\n\n"
         
         if not response_message:
-            await update.message.reply_text("Vannak meccsek a táblázatban,
+            await update.message.reply_text("Vannak meccsek a táblázatban, de a tipp mező mindegyiknél üres.")
+            return
+
+        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
+
+    except Exception as e:
+        logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
+        await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
+
+# --- Alkalmazás és Webszerver beállítása ---
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("tippek", get_tips))
+
+api = FastAPI()
+
+@api.on_event("startup")
+async def startup_event():
+    await application.initialize()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
+    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+
+@api.on_event("shutdown")
+async def shutdown_event():
+    await application.shutdown()
+    logger.info("Alkalmazás leállt.")
+
+@api.post("/telegram")
+async def telegram_webhook(request: Request):
+    await application.process_update(Update.de_json(data=await request.json(), bot=application.bot))
+    return {"status": "ok"}
