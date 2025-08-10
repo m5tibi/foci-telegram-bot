@@ -60,10 +60,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         for row in records:
-            home_team, away_team, tip = row[2], row[3], row[8]
-            response_message += f"⚽️ *{home_team} vs {away_team}*\n🔮 Tipp: `{tip}`\n\n"
+            # Feltételezzük az oszlopok sorrendjét:
+            # C: hazai (index 2), D: vendég (index 3), I: tipp (index 8)
+            home_team, away_team, tip = row[2], row[3], row[8] # JAVÍTVA 9-ről 8-ra!
+            response_message += f"⚽ *{home_team} vs {away_team}*\n🔮 Tipp: `{tip}`\n\n"
         
-        await update.message.reply_text(response_message, parse_mode='MarkdownV2')
+        # A Markdown formázás miatt a ParseMode beállítása fontos
+        await update.message.reply_text(response_message, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Hiba a tippek lekérése közben: {e}")
         await update.message.reply_text(f'Hiba történt az adatok lekérése közben.')
@@ -81,19 +84,3 @@ async def startup_event():
     logger.info("Alkalmazás indul...")
     # Beállítjuk a webhookot a Telegram API felé
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
-    logger.info(f"Webhook beállítva a következő címre: {WEBHOOK_URL}/telegram")
-
-@api.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Webhook törlése...")
-    await application.bot.delete_webhook()
-
-@api.post("/telegram")
-async def telegram_webhook(request: Request):
-    """Ez a végpont fogadja a Telegramtól érkező frissítéseket."""
-    update_data = await request.json()
-    await application.process_update(Update.de_json(data=update_data, bot=application.bot))
-    return {"status": "ok"}
-
-# --- Ez a rész már nem kell, ha uvicorn indítja az appot ---
-# A fő futtatási pontot a Render Start parancsa fogja kezelni.
