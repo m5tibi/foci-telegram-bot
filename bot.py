@@ -60,7 +60,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         for row in records:
-            home_team, away_team, tip = row[2], row[3], row[9]
+            home_team, away_team, tip = row[2], row[3], row[8]
             response_message += f"⚽️ *{home_team} vs {away_team}*\n🔮 Tipp: `{tip}`\n\n"
         
         await update.message.reply_text(response_message, parse_mode='MarkdownV2')
