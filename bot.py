@@ -51,7 +51,6 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sheet = await asyncio.to_thread(gs_client.open(GOOGLE_SHEET_NAME).worksheet, WORKSHEET_NAME)
         list_of_lists = await asyncio.to_thread(sheet.get_all_values)
         
-        # Ez a sor beírja a Render naplójába, hogy mit olvasott
         logger.info(f"A teljes táblázat tartalma (fejléc nélkül): {list_of_lists[1:]}")
 
         records = list_of_lists[1:]
@@ -62,24 +61,21 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = "--- Diagnosztikai Jelentés ---\n\n"
         for i, row in enumerate(records):
-            # Ez a sor is a Render naplójába ír, soronként
             logger.info(f"Feldolgozás: {i+1}. sor. Teljes sor adat: {row}")
 
             response_message += f"⚽️ **Meccs (a sor alapján):**\n"
 
-            # Biztonságos adatelérés, hogy ne legyen hiba, ha rövidebb a sor
             home_team = row[2] if len(row) > 2 else "[Hiányzó Adat]"
             away_team = row[3] if len(row) > 3 else "[Hiányzó Adat]"
             
             response_message += f"   - {home_team} vs {away_team}\n"
 
-            # Részletesebb tipp-ellenőrzés
-            tip = "[Hiba]" # Alapértelmezett hibaüzenet
-            if len(row) > 8: # Van-e egyáltalán 9 oszlop (index 8)?
+            tip = "[Hiba]"
+            if len(row) > 8:
                 tip_from_sheet = row[8]
-                if tip_from_sheet: # Ha nem üres a cella
+                if tip_from_sheet:
                     tip = tip_from_sheet
-                else: # Ha üres a cella
+                else:
                     tip = "[A 8. indexű oszlop ÜRES volt]"
             else:
                 tip = "[NINCS 9 oszlop a sorban]"
@@ -93,22 +89,29 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
         await update.message.reply_text(f'Hiba történt a diagnosztika közben. Ellenőrizd a Render naplót!')
 
-# --- A kód többi része változatlan ---
+# --- A Telegram alkalmazás beállítása ---
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("tippek", get_tips))
 
+# --- Webszerver (FastAPI) beállítása ---
 api = FastAPI()
 
 @api.on_event("startup")
 async def startup_event():
     logger.info("Alkalmazás indul...")
+    # --- EZ VOLT A HIÁNYZÓ LÉPÉS ---
+    await application.initialize() 
+    # --------------------------------
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
     logger.info(f"Webhook beállítva a következő címre: {WEBHOOK_URL}/telegram")
 
 @api.on_event("shutdown")
 async def shutdown_event():
+    # --- EZT IS ÉRDEMES HOZZÁADNI A TISZTA LEÁLLÁSHOZ ---
+    await application.shutdown()
     logger.info("Webhook törlése...")
+    # A webhook törlését a shutdown már kezeli, de a biztonság kedvéért maradhat
     await application.bot.delete_webhook()
 
 @api.post("/telegram")
