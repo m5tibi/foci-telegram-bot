@@ -6,7 +6,7 @@ import time
 from datetime import date
 from oauth2client.service_account import ServiceAccountCredentials
 
-ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283]
+# --- NINCS LIGA SZŰRÉS, MINDEN MECCSET NÉZÜNK ---
 GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
 WORKSHEET_NAME = 'meccsek'
 SEASON = '2025'
@@ -35,17 +35,20 @@ def analyze_h2h(home_team_id, away_team_id):
     print(f"H2H elemzes: {home_team_id} vs {away_team_id}")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
-    time.sleep(1.5) 
+    time.sleep(1.5) # API LIMIT MIATTI LASSÍTÁS
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
-    
+
     win_stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
     goal_stats = {'over_2_5': 0, 'total_matches_with_goals': 0}
-    
+    btts_stats = {'btts_yes': 0}
+
     for match in h2h_matches:
         teams, goals = match['teams'], match['goals']
         if goals['home'] is None or goals['away'] is None: continue
-        
+
         goal_stats['total_matches_with_goals'] += 1
+        if goals['home'] > 0 and goals['away'] > 0:
+            btts_stats['btts_yes'] += 1
         if (goals['home'] + goals['away']) > 2.5:
             goal_stats['over_2_5'] += 1
 
@@ -58,7 +61,7 @@ def analyze_h2h(home_team_id, away_team_id):
         else:
             win_stats['draws'] += 1
             
-    return win_stats, goal_stats
+    return win_stats, goal_stats, btts_stats
 
 def generate_1x2_tip(stats, total_matches):
     if total_matches == 0: return "N/A"
@@ -79,6 +82,13 @@ def generate_goals_tip(stats):
     if over_percentage < 0.35: return "Kevesebb mint 2.5 gol"
     return "Golok szama kerdeses"
 
+def generate_btts_tip(btts_stats, total_matches):
+    if total_matches < 5: return "N/A (keves adat)"
+    btts_percentage = btts_stats['btts_yes'] / total_matches
+    if btts_percentage > 0.65: return "Igen"
+    if btts_percentage < 0.35: return "Nem"
+    return "BTTS kerdeses"
+
 if __name__ == "__main__":
     try:
         gs_client = setup_google_sheets_client()
@@ -86,7 +96,7 @@ if __name__ == "__main__":
         
         print("Regi adatok torlese...")
         sheet.clear()
-        header = [ "id", "datum", "hazai_csapat", "vendeg_csapat", "liga", "Tipp (1X2)", "Tipp (Golok O/U 2.5)" ]
+        header = ["id", "datum", "hazai_csapat", "vendeg_csapat", "liga", "Tipp (1X2)", "Tipp (Golok O/U 2.5)", "Tipp (BTTS)"]
         sheet.append_row(header, value_input_option='USER_ENTERED')
         print("Fejlec visszaallitva.")
 
@@ -98,28 +108,26 @@ if __name__ == "__main__":
         print(f"API valasz sikeres, {len(matches_today)} meccs talalhato osszesen.")
         
         rows_to_add = []
-        print(f"Szures az alabbi ligakra: {ERDEKES_LIGAK}")
         for match_data in matches_today:
-            if match_data['league']['id'] in ERDEKES_LIGAK:
-                fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
-                match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
-                
-                win_stats, goal_stats = analyze_h2h(home_team_id, away_team_id)
-                tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
-                tip_goals = generate_goals_tip(goal_stats)
-                
-                new_row = [ match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals ]
-                rows_to_add.append(new_row)
-                print(f"Erdekes meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}")
+            fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
+            match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
+            
+            win_stats, goal_stats, btts_stats = analyze_h2h(home_team_id, away_team_id)
+            tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
+            tip_goals = generate_goals_tip(goal_stats)
+            tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
+            
+            new_row = [match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals, tip_btts]
+            rows_to_add.append(new_row)
+            print(f"Meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}")
         
         if rows_to_add:
             sheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
             print(f"{len(rows_to_add)} uj sor hozzaadva a tablazathoz.")
         else:
-            print("Nem talalhato uj, altalunk figyelt meccs a mai napon.")
+            print("Nem talalhato uj meccs a mai napon.")
 
         print("A futas sikeresen befejezodott.")
-
     except Exception as e:
         print(f"Hiba tortent a futas soran: {e}")
         exit(1)

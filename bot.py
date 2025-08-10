@@ -50,13 +50,8 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         for row in records:
-            # A HELYES oszlop indexek használata
-            if len(row) > 6:
-                date_str = row[1]
-                home_team = row[2]
-                away_team = row[3]
-                tip_1x2 = row[5]      # 5-ös index a helyes az 1X2 tipphez
-                tip_goals = row[6]    # 6-os index a helyes a gól tipphez
+            if len(row) > 7:
+                date_str, home_team, away_team, tip_1x2, tip_goals, tip_btts = row[1], row[2], row[3], row[5], row[6], row[7]
                 
                 start_time_str = "Ismeretlen"
                 try:
@@ -71,11 +66,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
                 tip_1x2_safe = tip_1x2.replace("-", "\\-").replace(".", "\\.")
                 tip_goals_safe = tip_goals.replace("-", "\\-").replace(".", "\\.")
+                tip_btts_safe = tip_btts.replace("-", "\\-").replace(".", "\\.")
 
                 response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
                 response_message += f"⏰ Kezdes: *{start_time_str}*\n"
                 response_message += f"🏆 Eredmeny: `{tip_1x2_safe}`\n"
-                response_message += f"🥅 Golok O/U 2\\.5: `{tip_goals_safe}`\n\n"
+                response_message += f"🥅 Golok O/U 2\\.5: `{tip_goals_safe}`\n"
+                response_message += f"🤝 Mindket csapat szerez golt: `{tip_btts_safe}`\n\n"
         
         if not response_message:
             await update.message.reply_text("Nem talaltam elemezheto meccseket a tablazatban.")
