@@ -13,10 +13,10 @@ SEASON = '2025'
 H2H_LIMIT = 10 
 
 def setup_google_sheets_client():
-    # ... (ez a függvény változatlan)
     print("Google Sheets kliens beállítása...")
     creds_json_str = os.environ.get('GSERVICE_ACCOUNT_CREDS')
-    if not creds_json_str: raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
+    if not creds_json_str:
+        raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
     creds_dict = json.loads(creds_json_str)
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -25,35 +25,129 @@ def setup_google_sheets_client():
     return client
 
 def get_api_response(url, querystring):
-    # ... (ez a függvény változatlan)
     api_key = os.environ.get('RAPIDAPI_KEY')
-    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
+    if not api_key:
+        raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
     headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
     response = requests.get(url, headers=headers, params=querystring)
     response.raise_for_status()
     return response.json()['response']
 
 def analyze_h2h(home_team_id, away_team_id):
-    """Lekéri és elemzi a H2H adatokat. Visszaadja a győzelmi, gól- és BTTS statisztikákat."""
     print(f"H2H elemzés a {home_team_id} és {away_team_id} csapatok között...")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
-    time.sleep(1.5) 
+    time.sleep(1.5)
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
-    
+
     win_stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
     goal_stats = {'over_2_5': 0, 'total_matches_with_goals': 0}
-    btts_stats = {'btts_yes': 0} # Új statisztika a BTTS-hez
-    
+    btts_stats = {'btts_yes': 0}
+
     for match in h2h_matches:
         teams, goals = match['teams'], match['goals']
-        if goals['home'] is None or goals['away'] is None: continue
-        
+        if goals['home'] is None or goals['away'] is None:
+            continue
+
         goal_stats['total_matches_with_goals'] += 1
-        if (goals['home'] > 0 and goals['away'] > 0):
+        if goals['home'] > 0 and goals['away'] > 0:
             btts_stats['btts_yes'] += 1
-        
+
         if (goals['home'] + goals['away']) > 2.5:
             goal_stats['over_2_5'] += 1
 
         if goals['home'] > goals['away']:
+            if teams['home']['id'] == home_team_id:
+                win_stats['home_wins'] += 1
+            else:
+                win_stats['away_wins'] += 1
+        elif goals['away'] > goals['home']:
+            if teams['away']['id'] == away_team_id:
+                win_stats['away_wins'] += 1
+            else:
+                win_stats['home_wins'] += 1
+        else:
+            win_stats['draws'] += 1
+            
+    return win_stats, goal_stats, btts_stats
+
+def generate_1x2_tip(stats, total_matches):
+    if total_matches == 0:
+        return "N/A"
+    tip_map = {
+        "1": "Hazai nyer", "2": "Vendég nyer", "X": "Döntetlen",
+        "1 (erős hazai H2H)": "Hazai nyer (erős H2H)",
+        "2 (erős vendég H2H)": "Vendég nyer (erős H2H)",
+        "Nehéz megjósolni": "Nehéz megjósolni"
+    }
+    raw_tip = "Nehéz megjósolni"
+    if stats['home_wins'] / total_matches > 0.6:
+        raw_tip = "1 (erős hazai H2H)"
+    elif stats['away_wins'] / total_matches > 0.6:
+        raw_tip = "2 (erős vendég H2H)"
+    elif stats['home_wins'] > stats['away_wins']:
+        raw_tip = "1"
+    elif stats['away_wins'] > stats['home_wins']:
+        raw_tip = "2"
+    elif stats['draws'] > stats['home_wins'] and stats['draws'] > stats['away_wins']:
+        raw_tip = "X"
+    return tip_map.get(raw_tip, "Nehéz megjósolni")
+
+def generate_goals_tip(stats):
+    total_matches = stats['total_matches_with_goals']
+    if total_matches < 5:
+        return "N/A (kevés adat)"
+    over_percentage = stats['over_2_5'] / total_matches
+    if over_percentage > 0.65:
+        return "Több mint 2.5 gól"
+    if over_percentage < 0.35:
+        return "Kevesebb mint 2.5 gól"
+    return "Gólok száma kérdéses"
+
+def generate_btts_tip(btts_stats, total_matches):
+    if total_matches < 5:
+        return "N/A (kevés adat)"
+    btts_percentage = btts_stats['btts_yes'] / total_matches
+    if btts_percentage > 0.65:
+        return "Igen"
+    if btts_percentage < 0.35:
+        return "Nem"
+    return "BTTS kérdéses"
+
+if __name__ == "__main__":
+    try:
+        gs_client = setup_google_sheets_client()
+        sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(WORKSHEET_NAME)
+        
+        print("Régi adatok törlése...")
+        sheet.clear()
+        header = ["id", "datum", "hazai_csapat", "vendeg_csapat", "liga", "Tipp (1X2)", "Tipp (Gólok O/U 2.5)", "Tipp (BTTS)"]
+        sheet.append_row(header, value_input_option='USER_ENTERED')
+        print("Fejléc visszaállítva.")
+
+        print("Mai napi összes meccs lekérése...")
+        today_str = date.today().strftime("%Y-%m-%d")
+        fixtures_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
+        fixtures_querystring = {"season": SEASON, "date": today_str}
+        matches_today = get_api_response(fixtures_url, fixtures_querystring)
+        print(f"API válasz sikeres, {len(matches_today)} meccs található összesen.")
+        
+        rows_to_add = []
+        print(f"Szűrés az alábbi ligákra: {ERDEKES_LIGAK}")
+        for match_data in matches_today:
+            if match_data['league']['id'] in ERDEKES_LIGAK:
+                fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
+                match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
+                
+                win_stats, goal_stats, btts_stats = analyze_h2h(home_team_id, away_team_id)
+                tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
+                tip_goals = generate_goals_tip(goal_stats)
+                tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
+                
+                new_row = [match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals, tip_btts]
+                rows_to_add.append(new_row)
+                print(f"Érdekes meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}")
+        
+        if rows_to_add:
+            sheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
+            print(f"{len(rows_to_add)} új sor hozzáadva a
