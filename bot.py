@@ -50,8 +50,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         for row in records:
+            # A HELYES oszlop indexek használata
             if len(row) > 6:
-                date_str, home_team, away_team, tip_1x2, tip_goals = row[1], row[2], row[3], row[5], row[6]
+                date_str = row[1]
+                home_team = row[2]
+                away_team = row[3]
+                tip_1x2 = row[5]      # 5-ös index a helyes az 1X2 tipphez
+                tip_goals = row[6]    # 6-os index a helyes a gól tipphez
                 
                 start_time_str = "Ismeretlen"
                 try:
