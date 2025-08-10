@@ -6,17 +6,30 @@ import time
 from datetime import date
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- BEÁLLÍTÁSOK ---
+# --- EZ AZ ÚJ RÉSZ: ITT ADHATOD MEG, MELY LIGÁK ÉRDEKELNEK ---
+ERDEKES_LIGAK = [
+    39,  # Angol Premier League
+    140, # Spanyol La Liga
+    135, # Olasz Serie A
+    78,  # Német Bundesliga
+    61,  # Francia Ligue 1
+    2,   # Bajnokok Ligája
+    3,   # Európa Liga
+    283, # Magyar NB I
+    # ... ide írhatsz további liga azonosítókat ...
+]
+
+# --- A kód többi része szinte változatlan ---
 GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
 WORKSHEET_NAME = 'meccsek'
 SEASON = '2025'
 H2H_LIMIT = 10 
 
 def setup_google_sheets_client():
+    # ... (ez a függvény változatlan)
     print("Google Sheets kliens beállítása...")
     creds_json_str = os.environ.get('GSERVICE_ACCOUNT_CREDS')
-    if not creds_json_str:
-        raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
+    if not creds_json_str: raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
     creds_dict = json.loads(creds_json_str)
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -25,32 +38,22 @@ def setup_google_sheets_client():
     return client
 
 def get_api_response(url, querystring):
-    """Általános API hívó függvény a hibakezelés egyszerűsítésére."""
+    # ... (ez a függvény változatlan)
     api_key = os.environ.get('RAPIDAPI_KEY')
-    if not api_key:
-        raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
-    
-    headers = {
-        "X-RapidAPI-Key": api_key,
-        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
-    }
+    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
+    headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
     response = requests.get(url, headers=headers, params=querystring)
     response.raise_for_status()
     return response.json()['response']
 
 def analyze_h2h(home_team_id, away_team_id):
-    """Lekéri és elemzi a két csapat egymás elleni (H2H) eredményeit."""
+    # ... (ez a függvény változatlan, a time.sleep()-et is tartalmazza)
     print(f"H2H elemzés a {home_team_id} és {away_team_id} csapatok között...")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
-    
-    # --- EZ A LASSÍTÁS A MEGOLDÁS A "429 Too Many Requests" HIBÁRA ---
     time.sleep(1.5) 
-    
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
-    
     stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
-    
     for match in h2h_matches:
         teams, goals = match['teams'], match['goals']
         if goals['home'] is None or goals['away'] is None: continue
@@ -62,11 +65,10 @@ def analyze_h2h(home_team_id, away_team_id):
             else: stats['home_wins'] += 1
         else:
             stats['draws'] += 1
-            
     return stats
 
 def generate_h2h_tip(stats, total_matches):
-    """Generál egy egyszerű tippet a H2H statisztikák alapján."""
+    # ... (ez a függvény változatlan)
     if total_matches == 0: return "N/A"
     if stats['home_wins'] / total_matches > 0.6: return "1 (erős hazai H2H)"
     if stats['away_wins'] / total_matches > 0.6: return "2 (erős vendég H2H)"
@@ -82,10 +84,7 @@ if __name__ == "__main__":
         
         print("Régi adatok törlése a táblázatból...")
         sheet.clear()
-        header = [
-            "id", "datum", "hazai_csapat", "vendeg_csapat", "liga",
-            "H2H_hazai_győzelem", "H2H_vendég_győzelem", "H2H_döntetlen", "Tipp_H2H_alapján"
-        ]
+        header = [ "id", "datum", "hazai_csapat", "vendeg_csapat", "liga", "H2H_hazai_győzelem", "H2H_vendég_győzelem", "H2H_döntetlen", "Tipp_H2H_alapján" ]
         sheet.append_row(header, value_input_option='USER_ENTERED')
         print("Fejléc visszaállítva.")
 
@@ -98,27 +97,26 @@ if __name__ == "__main__":
         print(f"API válasz sikeres, {len(matches_today)} meccs található a mai napon összesen.")
         
         rows_to_add = []
+        # --- ÚJ LOGIKA: Csak az érdekes ligákkal foglalkozunk ---
+        print(f"Szűrés az alábbi ligákra: {ERDEKES_LIGAK}")
         for match_data in matches_today:
-            fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
-            match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
-            
-            h2h_stats = analyze_h2h(home_team_id, away_team_id)
-            h2h_tip = generate_h2h_tip(h2h_stats, sum(h2h_stats.values()))
-            
-            new_row = [
-                match_id, fixture['date'], teams['home']['name'], teams['away']['name'],
-                f"{league['name']} ({league['country']})",
-                h2h_stats['home_wins'], h2h_stats['away_wins'],
-                h2h_stats['draws'], h2h_tip
-            ]
-            rows_to_add.append(new_row)
-            print(f"Új meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}, Tipp: {h2h_tip}")
+            league_id = match_data['league']['id']
+            if league_id in ERDEKES_LIGAK:
+                fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
+                match_id, home_team_id, away_team_id = str(fixture['id']), teams['home']['id'], teams['away']['id']
+                
+                h2h_stats = analyze_h2h(home_team_id, away_team_id)
+                h2h_tip = generate_h2h_tip(h2h_stats, sum(h2h_stats.values()))
+                
+                new_row = [ match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", h2h_stats['home_wins'], h2h_stats['away_wins'], h2h_stats['draws'], h2h_tip ]
+                rows_to_add.append(new_row)
+                print(f"Érdekes meccs feldolgozva: {teams['home']['name']} vs {teams['away']['name']}, Tipp: {h2h_tip}")
         
         if rows_to_add:
             sheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
             print(f"{len(rows_to_add)} új sor hozzáadva a táblázathoz.")
         else:
-            print("Nem található új meccs a mai napon.")
+            print("Nem található új, általunk figyelt meccs a mai napon.")
 
         print("A futás sikeresen befejeződött.")
 
