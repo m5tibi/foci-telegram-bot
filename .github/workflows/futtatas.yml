@@ -3,7 +3,7 @@ name: Adatgyujto Motor
 on:
   # Időzítés: Minden nap reggel 8-kor (UTC időzóna szerint) fusson le
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '0 6 * * *'
   # Manuális indítás: Lehetővé teszi, hogy a GitHub felületéről gombnyomásra is elindítsd
   workflow_dispatch:
 
