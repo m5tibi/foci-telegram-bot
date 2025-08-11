@@ -1,10 +1,8 @@
 name: Eredmeny Ellenorzo
 
 on:
-  # Időzítés: Minden nap hajnali 5-kor (UTC időzóna szerint) fusson le
   schedule:
     - cron: '0 5 * * *'
-  # Manuális indítás is lehetséges
   workflow_dispatch:
 
 jobs:
@@ -26,8 +24,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Eredmeny-ellenorzo futtatasa
-        run: python eredmeny_ellenorzo.py
         env:
-          # A titkok átadása a szkriptnek
+          # JAVÍTVA: A helyes, Supabase titkok átadása
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-          GSERVICE_ACCOUNT_CREDS: ${{ secrets.GSERVICE_ACCOUNT_CREDS }}
+        run: python eredmeny_ellenorzo.py
