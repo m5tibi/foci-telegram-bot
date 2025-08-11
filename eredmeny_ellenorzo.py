@@ -4,7 +4,6 @@ import time
 from datetime import date, timedelta
 from supabase import create_client, Client
 
-# --- Konfiguráció ---
 try:
     SUPABASE_URL = os.environ['SUPABASE_URL']
     SUPABASE_KEY = os.environ['SUPABASE_KEY']
@@ -42,7 +41,6 @@ if __name__ == "__main__":
     try:
         print("Fuggo statuszu tippek lekerdezese az adatbazisbol...")
         
-        # Lekérdezzük az összes "Függőben" lévő tippet
         response = supabase.table('tipp_elo_zmenyek').select('*').eq('statusz', 'Függőben').execute()
         pending_tips = response.data
 
@@ -67,14 +65,11 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Hiba a(z) {match_id} meccs eredmenyenek lekeresesekor: {e}")
 
-        # Tippek kiértékelése és az adatbázis frissítése
         for tip in pending_tips:
             meccs_id = tip['meccs_id']
-            
             if meccs_id in results_map:
                 result_data = results_map[meccs_id]
                 score = result_data.get('score', {}).get('fulltime', {})
-                
                 if result_data.get('fixture', {}).get('status', {}).get('short') == 'FT' and score.get('home') is not None:
                     home_goals, away_goals = score['home'], score['away']
                     final_score = f"{home_goals}-{away_goals}"
@@ -90,16 +85,10 @@ if __name__ == "__main__":
                     elif tip_type == 'BTTS':
                         new_status = evaluate_btts_tip(tip_value, home_goals, away_goals)
                     
-                    # Adatbázis sor frissítése
-                    supabase.table('tipp_elo_zmenyek').update({
-                        'vegeredmeny': final_score,
-                        'statusz': new_status
-                    }).eq('id', tip['id']).execute()
-                    
+                    supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
                     print(f"Frissitve: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmeny: {final_score}, Statusz: {new_status}")
         
         print("Kiertekeles befejezve.")
-
     except Exception as e:
         print(f"Kritikus hiba tortent a futas soran: {e}")
         exit(1)

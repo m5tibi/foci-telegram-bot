@@ -14,7 +14,6 @@ from fastapi import FastAPI, Request
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Konfiguráció ---
 try:
     BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
     WEBHOOK_URL = os.environ['WEBHOOK_URL']
@@ -26,7 +25,6 @@ except KeyError as e:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Telegram Parancsok ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /statisztika paranccsal az eredményeket láthatod.')
 
@@ -35,14 +33,12 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         response = supabase.table('meccsek').select('*').execute()
         records = response.data
-
         if not records:
             await update.message.reply_text('Jelenleg nincsenek elérhető tippek az adatbázisban.')
             return
 
         response_message = ""
         now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
-
         for row in records:
             date_str, home_team, away_team = row['datum'], row['hazai_csapat'], row['vendeg_csapat']
             tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
@@ -52,14 +48,10 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 utc_dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                 budapest_tz = pytz.timezone("Europe/Budapest")
                 local_dt = utc_dt.astimezone(budapest_tz)
-                
                 if local_dt > now_in_budapest:
                     start_time_str = local_dt.strftime('%H:%M')
-                    home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
-                    away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
-                    tip_1x2_safe = tip_1x2.replace("-", "\\-").replace(".", "\\.")
-                    tip_goals_safe = tip_goals.replace("-", "\\-").replace(".", "\\.")
-                    tip_btts_safe = tip_btts.replace("-", "\\-").replace(".", "\\.")
+                    home_team_safe, away_team_safe = home_team.replace("-", "\\-").replace(".", "\\."), away_team.replace("-", "\\-").replace(".", "\\.")
+                    tip_1x2_safe, tip_goals_safe, tip_btts_safe = tip_1x2.replace("-", "\\-").replace(".", "\\."), tip_goals.replace("-", "\\-").replace(".", "\\."), tip_btts.replace("-", "\\-").replace(".", "\\.")
                     response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
                     response_message += f"⏰ Kezdés: *{start_time_str}*\n"
                     response_message += f"🏆 Eredmény: `{tip_1x2_safe}`\n"
@@ -71,9 +63,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not response_message:
             await update.message.reply_text("Nem találtam a mai napon olyan meccset a listában, ami még nem kezdődött el.")
             return
-
         await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
-
     except Exception as e:
         logger.error(f"Kritikus hiba a tippek lekerese kozben: {e}", exc_info=True)
         await update.message.reply_text('Hiba tortent az adatok lekerese kozben. Ellenorizd a Render naplot!')
@@ -83,7 +73,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         response = supabase.table('tipp_elo_zmenyek').select('*').in_('statusz', ['Nyert', 'Veszített']).execute()
         records = response.data
-
         if not records:
             await update.message.reply_text('Az archívum még üres, nincsenek kiértékelt tippek.')
             return
@@ -93,7 +82,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         yesterday = today - timedelta(days=1)
         seven_days_ago = today - timedelta(days=7)
         thirty_days_ago = today - timedelta(days=30)
-
         for rec in records:
             try:
                 rec_date = datetime.fromisoformat(rec['datum'].replace('Z', '+00:00')).date()
@@ -101,8 +89,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if rec_date == yesterday: stats['yesterday'][result] += 1
                 if rec_date >= seven_days_ago: stats['last_7_days'][result] += 1
                 if rec_date >= thirty_days_ago: stats['last_30_days'][result] += 1
-            except (ValueError, TypeError):
-                continue
+            except (ValueError, TypeError): continue
 
         response_message = "📊 *Tippek Eredményessége*\n\n"
         def calculate_success_rate(wins, losses):
@@ -114,9 +101,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         response_message += f"*Tegnapi nap:*\n`{calculate_success_rate(stats['yesterday']['wins'], stats['yesterday']['losses'])}`\n\n"
         response_message += f"*Elmúlt 7 nap:*\n`{calculate_success_rate(stats['last_7_days']['wins'], stats['last_7_days']['losses'])}`\n\n"
         response_message += f"*Elmúlt 30 nap:*\n`{calculate_success_rate(stats['last_30_days']['wins'], stats['last_30_days']['losses'])}`"
-        
         await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
-
     except Exception as e:
         logger.error(f"Kritikus hiba a statisztika szamolasa kozben: {e}", exc_info=True)
         await update.message.reply_text('Hiba történt a statisztika számolása közben.')
@@ -126,18 +111,15 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("tippek", get_tips))
 application.add_handler(CommandHandler("statisztika", get_stats))
 api = FastAPI()
-
 @api.on_event("startup")
 async def startup_event():
     await application.initialize()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
     logger.info(f"Webhook sikeresen beallitva a kovetkezo cimre: {WEBHOOK_URL}/telegram")
-
 @api.on_event("shutdown")
 async def shutdown_event():
     await application.shutdown()
     logger.info("Alkalmazas leallt.")
-
 @api.post("/telegram")
 async def telegram_webhook(request: Request):
     update = Update.de_json(data=await request.json(), bot=application.bot)
