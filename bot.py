@@ -31,7 +31,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Pillanat, olvasom a tippeket az adatbázisból...')
     try:
-        # Lekérjük a mai meccseket ÉS a már kiértékelt tippeket is
         response_meccsek = supabase.table('meccsek').select('*').execute()
         records_meccsek = response_meccsek.data
         
@@ -94,4 +93,66 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
 
-    except Exception as
+    except Exception as e:
+        logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
+        await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
+
+async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text('Pillanat, számolom a statisztikákat az archívumból...')
+    try:
+        response = supabase.table('tipp_elo_zmenyek').select('*').in_('statusz', ['Nyert', 'Veszített']).execute()
+        records = response.data
+        if not records:
+            await update.message.reply_text('Az archívum még üres, nincsenek kiértékelt tippek.')
+            return
+
+        stats = {'yesterday': {'wins': 0, 'losses': 0}, 'last_7_days': {'wins': 0, 'losses': 0}, 'last_30_days': {'wins': 0, 'losses': 0}}
+        today = datetime.now(pytz.timezone("Europe/Budapest")).date()
+        yesterday = today - timedelta(days=1)
+        seven_days_ago = today - timedelta(days=7)
+        thirty_days_ago = today - timedelta(days=30)
+        for rec in records:
+            try:
+                rec_date = datetime.fromisoformat(rec['datum'].replace('Z', '+00:00')).date()
+                result = 'wins' if rec['statusz'] == 'Nyert' else 'losses'
+                if rec_date == yesterday: stats['yesterday'][result] += 1
+                if rec_date >= seven_days_ago: stats['last_7_days'][result] += 1
+                if rec_date >= thirty_days_ago: stats['last_30_days'][result] += 1
+            except (ValueError, TypeError): continue
+
+        response_message = "📊 *Tippek Eredményessége*\n\n"
+        def calculate_success_rate(wins, losses):
+            total = wins + losses
+            if total == 0: return "N/A (nincs adat)"
+            rate = (wins / total) * 100
+            return f"{wins}/{total} ({rate:.1f}%)"
+        response_message += f"*Tegnapi nap:*\n`{calculate_success_rate(stats['yesterday']['wins'], stats['yesterday']['losses'])}`\n\n"
+        response_message += f"*Elmúlt 7 nap:*\n`{calculate_success_rate(stats['last_7_days']['wins'], stats['last_7_days']['losses'])}`\n\n"
+        response_message += f"*Elmúlt 30 nap:*\n`{calculate_success_rate(stats['last_30_days']['wins'], stats['last_30_days']['losses'])}`"
+        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
+    except Exception as e:
+        logger.error(f"Kritikus hiba a statisztika számolása közben: {e}", exc_info=True)
+        await update.message.reply_text('Hiba történt a statisztika számolása közben.')
+
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("tippek", get_tips))
+application.add_handler(CommandHandler("statisztika", get_stats))
+api = FastAPI()
+
+@api.on_event("startup")
+async def startup_event():
+    await application.initialize()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
+    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+
+@api.on_event("shutdown")
+async def shutdown_event():
+    await application.shutdown()
+    logger.info("Alkalmazás leállt.")
+
+@api.post("/telegram")
+async def telegram_webhook(request: Request):
+    update = Update.de_json(data=await request.json(), bot=application.bot)
+    await application.process_update(update)
+    return {"status": "ok"}
