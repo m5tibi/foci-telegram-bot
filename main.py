@@ -6,18 +6,23 @@ import time
 from datetime import date
 from oauth2client.service_account import ServiceAccountCredentials
 
-ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179, 119, 113, 244, 188, 169, 98, 667]
+ERDEKES_LIGAK = [
+    39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179,
+    119, 113, 244, 188, 169, 98, 667
+]
 GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
-WORKSHEET_NAME = 'meccsek'
+# --- EZ A 2 SOR HIÁNYZOTT VÉLETLENÜL ---
+MECCSEK_LAP_NEVE = 'meccsek'
 ARCHIVUM_LAP_NEVE = 'tipp_elo_zmenyek'
+# ------------------------------------
 SEASON = '2025'
 H2H_LIMIT = 10 
 
 def setup_google_sheets_client():
     print("Google Sheets kliens beállítása...")
-    # ... (a függvény többi része változatlan)
     creds_json_str = os.environ.get('GSERVICE_ACCOUNT_CREDS')
-    if not creds_json_str: raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
+    if not creds_json_str:
+        raise ValueError("A GSERVICE_ACCOUNT_CREDS titok nincs beállítva!")
     creds_dict = json.loads(creds_json_str)
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -26,16 +31,15 @@ def setup_google_sheets_client():
     return client
 
 def get_api_response(url, querystring):
-    # ... (a függvény többi része változatlan)
     api_key = os.environ.get('RAPIDAPI_KEY')
-    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
+    if not api_key:
+        raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
     headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
     response = requests.get(url, headers=headers, params=querystring)
     response.raise_for_status()
     return response.json()['response']
 
 def analyze_h2h(home_team_id, away_team_id):
-    # ... (a függvény többi része változatlan)
     print(f"H2H elemzés: {home_team_id} vs {away_team_id}")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
@@ -91,7 +95,7 @@ if __name__ == "__main__":
         meccsek_sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(MECCSEK_LAP_NEVE)
         archivum_sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(ARCHIVUM_LAP_NEVE)
         
-        print("Régi adatok törlése...")
+        print("Régi adatok törlése a napi listából...")
         meccsek_sheet.clear()
         header_meccsek = ["id", "datum", "hazai_csapat", "vendeg_csapat", "liga", "Tipp (1X2)", "Tipp (Gólok O/U 2.5)", "Tipp (BTTS)"]
         meccsek_sheet.append_row(header_meccsek, value_input_option='USER_ENTERED')
@@ -106,7 +110,7 @@ if __name__ == "__main__":
         napi_sorok = []
         archivumba_sorok = []
         
-        print(f"Szűrés a megadott ligákra...")
+        print("Szűrés a megadott ligákra...")
         for match_data in matches_today:
             if match_data['league']['id'] in ERDEKES_LIGAK:
                 fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
@@ -118,25 +122,4 @@ if __name__ == "__main__":
                 tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
                 meccs_neve = f"{teams['home']['name']} vs {teams['away']['name']}"
                 
-                napi_sorok.append([match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2, tip_goals, tip_btts])
-                
-                if tip_1x2 != "N/A": archivumba_sorok.append([match_id, fixture['date'], meccs_neve, '1X2', tip_1x2, '', 'Függőben'])
-                if tip_goals != "N/A (kevés adat)": archivumba_sorok.append([match_id, fixture['date'], meccs_neve, 'Gólok O/U 2.5', tip_goals, '', 'Függőben'])
-                if tip_btts != "N/A (kevés adat)": archivumba_sorok.append([match_id, fixture['date'], meccs_neve, 'BTTS', tip_btts, '', 'Függőben'])
-                
-                print(f"Érdekes meccs feldolgozva: {meccs_neve}")
-        
-        if napi_sorok:
-            meccsek_sheet.append_rows(napi_sorok, value_input_option='USER_ENTERED')
-            print(f"{len(napi_sorok)} új sor hozzáadva a 'meccsek' laphoz.")
-        
-        if archivumba_sorok:
-            archivum_sheet.append_rows(archivumba_sorok, value_input_option='USER_ENTERED')
-            print(f"{len(archivumba_sorok)} tipp hozzáadva az 'archívum' laphoz.")
-        else:
-            print("Nem található új, általunk figyelt meccs a mai napon.")
-
-        print("A futás sikeresen befejeződött.")
-    except Exception as e:
-        print(f"Hiba történt a futás során: {e}")
-        exit(1)
+                napi_sorok.append([match_id, fixture['date'], teams['home']['name'], teams['away']['name'], f"{league['name']} ({league['country']})", tip_1x2
