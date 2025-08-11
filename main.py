@@ -10,28 +10,25 @@ try:
     SUPABASE_URL = os.environ['SUPABASE_URL']
     SUPABASE_KEY = os.environ['SUPABASE_KEY']
 except KeyError as e:
-    print(f"Hianyozo Supabase kornyezeti valtozo: {e}")
+    print(f"Hiányzó Supabase környezeti változó: {e}")
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-ERDEKES_LIGAK = [
-    39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179,
-    119, 113, 244, 188, 169, 98, 667
-]
+ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179, 119, 113, 244, 188, 169, 98, 667]
 SEASON = '2025'
 H2H_LIMIT = 10 
 
 def get_api_response(url, querystring):
     api_key = os.environ.get('RAPIDAPI_KEY')
-    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beallitva!")
+    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
     headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
     response = requests.get(url, headers=headers, params=querystring)
     response.raise_for_status()
     return response.json()['response']
 
 def analyze_h2h(home_team_id, away_team_id):
-    print(f"H2H elemzes: {home_team_id} vs {away_team_id}")
+    print(f"H2H elemzés: {home_team_id} vs {away_team_id}")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
     time.sleep(1.5)
@@ -56,50 +53,50 @@ def analyze_h2h(home_team_id, away_team_id):
 
 def generate_1x2_tip(stats, total_matches):
     if total_matches == 0: return "N/A"
-    tip_map = {"1": "Hazai nyer", "2": "Vendeg nyer", "X": "Dontetlen", "1 (erős hazai H2H)": "Hazai nyer (eros H2H)", "2 (erős vendég H2H)": "Vendeg nyer (eros H2H)", "Nehéz megjósolni": "Nehez megjosolni"}
-    raw_tip = "Nehez megjosolni"
+    tip_map = {"1": "Hazai nyer", "2": "Vendég nyer", "X": "Döntetlen", "1 (erős hazai H2H)": "Hazai nyer (erős H2H)", "2 (erős vendég H2H)": "Vendég nyer (erős H2H)", "Nehéz megjósolni": "Nehéz megjósolni"}
+    raw_tip = "Nehéz megjósolni"
     if total_matches > 0 and stats['home_wins'] / total_matches > 0.6: raw_tip = "1 (erős hazai H2H)"
     elif total_matches > 0 and stats['away_wins'] / total_matches > 0.6: raw_tip = "2 (erős vendég H2H)"
     elif stats['home_wins'] > stats['away_wins']: raw_tip = "1"
     elif stats['away_wins'] > stats['home_wins']: raw_tip = "2"
     elif stats['draws'] > stats['home_wins'] and stats['draws'] > stats['away_wins']: raw_tip = "X"
-    return tip_map.get(raw_tip, "Nehez megjosolni")
+    return tip_map.get(raw_tip, "Nehéz megjósolni")
 
 def generate_goals_tip(stats):
     total_matches = stats['total_matches_with_goals']
-    if total_matches < 5: return "N/A (keves adat)"
+    if total_matches < 5: return "N/A (kevés adat)"
     over_percentage = stats['over_2_5'] / total_matches
-    if over_percentage > 0.65: return "Tobb mint 2.5 gol"
-    if over_percentage < 0.35: return "Kevesebb mint 2.5 gol"
-    return "Golok szama kerdeses"
+    if over_percentage > 0.65: return "Több mint 2.5 gól"
+    if over_percentage < 0.35: return "Kevesebb mint 2.5 gól"
+    return "Gólok száma kérdéses"
 
 def generate_btts_tip(btts_stats, total_matches):
-    if total_matches < 5: return "N/A (keves adat)"
+    if total_matches < 5: return "N/A (kevés adat)"
     btts_percentage = btts_stats['btts_yes'] / total_matches
     if btts_percentage > 0.65: return "Igen"
     if btts_percentage < 0.35: return "Nem"
-    return "BTTS kerdeses"
+    return "BTTS kérdéses"
 
 if __name__ == "__main__":
     try:
-        print("Regi adatok torlese a 'meccsek' tablabol...")
+        print("Régi adatok törlése a 'meccsek' táblából...")
         supabase.table('meccsek').delete().neq('id', 0).execute()
         
-        print("Mai napi osszes meccs lekerese (Budapesti ido szerint)...")
+        print("Mai napi összes meccs lekérése (Budapesti idő szerint)...")
         budapest_tz = pytz.timezone("Europe/Budapest")
         today_in_budapest = datetime.now(budapest_tz).date()
         today_str = today_in_budapest.strftime("%Y-%m-%d")
-        print(f"A mai nap Magyarorszagon: {today_str}")
+        print(f"A mai nap Magyarországon: {today_str}")
 
         fixtures_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
         fixtures_querystring = {"season": SEASON, "date": today_str}
         matches_today = get_api_response(fixtures_url, fixtures_querystring)
-        print(f"API valasz sikeres, {len(matches_today)} meccs talalhato osszesen.")
+        print(f"API válasz sikeres, {len(matches_today)} meccs található összesen.")
         
         napi_sorok_to_insert = []
         archivumba_sorok_to_insert = []
         
-        print(f"Szures a megadott ligakra...")
+        print(f"Szűrés a megadott ligákra...")
         for match_data in matches_today:
             if match_data['league']['id'] in ERDEKES_LIGAK:
                 fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
@@ -115,22 +112,22 @@ if __name__ == "__main__":
                 napi_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'hazai_csapat': teams['home']['name'], 'vendeg_csapat': teams['away']['name'], 'liga': f"{league['name']} ({league['country']})", 'tipp_1x2': tip_1x2, 'tipp_goals': tip_goals, 'tipp_btts': tip_btts})
                 
                 if tip_1x2 != "N/A": archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
-                if tip_goals != "N/A (keves adat)": archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
-                if tip_btts != "N/A (keves adat)": archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                if not tip_goals.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
+                if not tip_btts.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
                 
-                print(f"Erdekes meccs feldolgozva: {meccs_neve}")
+                print(f"Érdekes meccs feldolgozva: {meccs_neve}")
         
         if napi_sorok_to_insert:
             supabase.table('meccsek').insert(napi_sorok_to_insert).execute()
-            print(f"{len(napi_sorok_to_insert)} uj sor hozzaadva a 'meccsek' tablahoz.")
+            print(f"{len(napi_sorok_to_insert)} új sor hozzáadva a 'meccsek' táblához.")
         
         if archivumba_sorok_to_insert:
             supabase.table('tipp_elo_zmenyek').insert(archivumba_sorok_to_insert).execute()
-            print(f"{len(archivumba_sorok_to_insert)} tipp hozzaadva az 'archivum' tablahoz.")
+            print(f"{len(archivumba_sorok_to_insert)} tipp hozzáadva az 'archívum' táblához.")
         else:
-            print("Nem talalhato uj, altalunk figyelt meccs a mai napon.")
+            print("Nem található új, általunk figyelt meccs a mai napon.")
 
-        print("A futas sikeresen befejezodott.")
+        print("A futás sikeresen befejeződött.")
     except Exception as e:
-        print(f"Hiba tortent a futas soran: {e}")
+        print(f"Hiba történt a futás során: {e}")
         exit(1)
