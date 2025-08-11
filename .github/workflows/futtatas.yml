@@ -30,12 +30,11 @@ jobs:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: |
           echo "--- Titkok ellenorzese a Python futtatasa elott ---"
-
+          
           if [ -z "$SUPABASE_URL" ]; then
             echo "!!! HIBA: A SUPABASE_URL kornyezeti valtozo URES."
           else
             echo "OK: A SUPABASE_URL kornyezeti valtozo BEALLITVA."
-            echo "URL elso 10 karaktere: ${{ env.SUPABASE_URL_masked }}..."
           fi
 
           if [ -z "$SUPABASE_KEY" ]; then
@@ -43,9 +42,7 @@ jobs:
           else
             echo "OK: A SUPABASE_KEY kornyezeti valtozo BEALLITVA."
           fi
-
+          
           echo "--------------------------------------------------"
-
+          
           python main.py
-        env:
-            SUPABASE_URL_masked: ${{ secrets.SUPABASE_URL_masked }}
