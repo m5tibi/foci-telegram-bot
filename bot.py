@@ -46,16 +46,13 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses"]
 
         for row in records_meccsek:
-            tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
-            
-            # Csak akkor jelenítjük meg a meccset, ha van legalább egy valódi tipp rá
-            if any(tip not in INVALID_TIPS for tip in [tip_1x2, tip_goals, tip_btts]):
+            if any(tip not in INVALID_TIPS for tip in [row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']]):
                 date_str, home_team, away_team, liga = row['datum'], row['hazai_csapat'], row['vendeg_csapat'], row['liga']
+                tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
                 meccs_id = row['meccs_id']
                 
                 start_time_str = "Ismeretlen"
                 is_past = False
-                local_dt = None
                 try:
                     utc_dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     budapest_tz = pytz.timezone("Europe/Budapest")
@@ -75,9 +72,10 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 response_message += f"⏰ Kezdés: *{start_time_str}*\n"
 
                 if is_past:
-                    # Mivel több tipp is lehet egy meccshez, az első elérhető végeredményt írjuk ki
                     vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    response_message += f"🏁 Végeredmény: `{vegeredmeny}`\n"
+                    # --- ITT A VÁLTOZTATÁS ---
+                    vegeredmeny_safe = vegeredmeny.replace("-", "\\-")
+                    response_message += f"🏁 Végeredmény: *{vegeredmeny_safe}*\n" # Csillagok a félkövér szöveghez
                     
                     status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
                     
@@ -93,7 +91,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         result = records_archivum.get(f"{meccs_id}_BTTS", {})
                         icon = status_icon_map.get(result.get('statusz'), "⏳")
                         response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}` {icon}\n"
-                else: # Ha a meccs a jövőben van
+                else:
                     if tip_1x2 not in INVALID_TIPS:
                         response_message += f"🏆 Eredmény: `{tip_1x2.replace('-', '\\-')}`\n"
                     if tip_goals not in INVALID_TIPS:
