@@ -6,7 +6,6 @@ import time
 from datetime import date
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- ITT SZABHATOD TESTRE, MELY LIGÁK ÉRDEKELNEK ---
 ERDEKES_LIGAK = [
     39,  # Anglia: Premier League
     40,  # Anglia: Championship
@@ -132,7 +131,8 @@ def generate_btts_tip(btts_stats, total_matches):
 if __name__ == "__main__":
     try:
         gs_client = setup_google_sheets_client()
-        meccsek_sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(MECCSEK_LAP_NEVE)
+        # --- EZ A JAVÍTÁS: Visszacseréltem a helyes változónevekre ---
+        meccsek_sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(WORKSHEET_NAME)
         archivum_sheet = gs_client.open(GOOGLE_SHEET_NAME).worksheet(ARCHIVUM_LAP_NEVE)
         
         print("Regi adatok torlese...")
