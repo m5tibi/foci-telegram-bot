@@ -1,11 +1,10 @@
 import os
-import json
-import gspread
+import requests
+from supabase import create_client, Client
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
-from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -15,11 +14,9 @@ from fastapi import FastAPI, Request
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Konfiguráció ---
 try:
     BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
-    GOOGLE_SHEET_NAME = 'foci_bot_adatbazis'
-    MECCSEK_LAP_NEVE = 'meccsek'
-    ARCHIVUM_LAP_NEVE = 'tipp_elo_zmenyek'
     WEBHOOK_URL = os.environ['WEBHOOK_URL']
     SUPABASE_URL = os.environ['SUPABASE_URL']
     SUPABASE_KEY = os.environ['SUPABASE_KEY']
@@ -27,10 +24,9 @@ except KeyError as e:
     logger.error(f"Hianyozo kornyezeti valtozo: {e}")
     exit(1)
 
-# Ezt a sort frissítettük, a régi Google Sheets csomagok helyett
-from supabase import create_client, Client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# --- Telegram Parancsok ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /statisztika paranccsal az eredményeket láthatod.')
 
@@ -48,12 +44,8 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
 
         for row in records:
-            date_str = row['datum']
-            home_team = row['hazai_csapat']
-            away_team = row['vendeg_csapat']
-            tip_1x2 = row['tipp_1x2']
-            tip_goals = row['tipp_goals']
-            tip_btts = row['tipp_btts']
+            date_str, home_team, away_team = row['datum'], row['hazai_csapat'], row['vendeg_csapat']
+            tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
             
             start_time_str = "Ismeretlen"
             try:
