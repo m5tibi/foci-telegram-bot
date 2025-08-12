@@ -5,6 +5,7 @@ from datetime import datetime
 import pytz
 from supabase import create_client, Client
 
+# --- Konfiguráció ---
 try:
     SUPABASE_URL = os.environ['SUPABASE_URL']
     SUPABASE_KEY = os.environ['SUPABASE_KEY']
@@ -13,6 +14,7 @@ except KeyError as e:
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 ERDEKES_LIGAK = [
     39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179,
     119, 113, 244, 188, 169, 98, 667
@@ -68,7 +70,6 @@ def generate_goals_tip(stats):
     if total_matches < 5: return "N/A (kevés adat)"
     over_percentage = stats['over_2_5'] / total_matches
     if over_percentage > 0.65: return "Több mint 2.5 gól"
-    if over_percentage < 0.35: return "Kevesebb mint 2.5 gól"
     return "Gólok száma kérdéses"
 
 def generate_btts_tip(btts_stats, total_matches):
@@ -96,6 +97,8 @@ if __name__ == "__main__":
         napi_sorok_to_insert = []
         archivumba_sorok_to_insert = []
         
+        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses"]
+        
         print("Szűrés a megadott ligákra...")
         for match_data in matches_today:
             if match_data['league']['id'] in ERDEKES_LIGAK:
@@ -110,9 +113,13 @@ if __name__ == "__main__":
                 
                 napi_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'hazai_csapat': teams['home']['name'], 'vendeg_csapat': teams['away']['name'], 'liga': f"{league['name']} ({league['country']})", 'tipp_1x2': tip_1x2, 'tipp_goals': tip_goals, 'tipp_btts': tip_btts})
                 
-                if tip_1x2 != "N/A": archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
-                if not tip_goals.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
-                if not tip_btts.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                if tip_1x2 not in INVALID_TIPS:
+                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
+                if tip_goals not in INVALID_TIPS:
+                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
+                if tip_btts not in INVALID_TIPS:
+                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                
                 print(f"Érdekes meccs feldolgozva: {meccs_neve}")
         
         if napi_sorok_to_insert:
@@ -121,7 +128,7 @@ if __name__ == "__main__":
         
         if archivumba_sorok_to_insert:
             supabase.table('tipp_elo_zmenyek').insert(archivumba_sorok_to_insert).execute()
-            print(f"{len(archivumba_sorok_to_insert)} tipp hozzáadva az 'archívum' táblához.")
+            print(f"{len(archivumba_sorok_to_insert)} valódi tipp hozzáadva az 'archívum' táblához.")
         else:
             print("Nem található új, általunk figyelt meccs a mai napon.")
 
