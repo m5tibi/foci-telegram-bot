@@ -29,12 +29,15 @@ def evaluate_1x2_tip(tip_value, home_goals, away_goals):
 
 def evaluate_goals_tip(tip_value, total_goals):
     if tip_value == "Több mint 2.5 gól" and total_goals > 2.5: return "Nyert"
-    if tip_value == "Kevesebb mint 2.5 gól" and total_goals < 2.5: return "Nyert"
     return "Veszített"
 
 def evaluate_btts_tip(tip_value, home_goals, away_goals):
     if tip_value == "Igen" and home_goals > 0 and away_goals > 0: return "Nyert"
     if tip_value == "Nem" and (home_goals == 0 or away_goals == 0): return "Nyert"
+    return "Veszített"
+
+def evaluate_team_over_1_5_tip(tip_value, team_goals):
+    if tip_value == "Igen" and team_goals > 1.5: return "Nyert"
     return "Veszített"
 
 if __name__ == "__main__":
@@ -84,7 +87,11 @@ if __name__ == "__main__":
                         new_status = evaluate_goals_tip(tip_value, home_goals + away_goals)
                     elif tip_type == 'BTTS':
                         new_status = evaluate_btts_tip(tip_value, home_goals, away_goals)
-                    
+                    elif tip_type == 'Hazai 1.5 felett':
+                        new_status = evaluate_team_over_1_5_tip(tip_value, home_goals)
+                    elif tip_type == 'Vendég 1.5 felett':
+                        new_status = evaluate_team_over_1_5_tip(tip_value, away_goals)
+
                     supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
                     print(f"Frissítve: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
         

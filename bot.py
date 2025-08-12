@@ -26,7 +26,7 @@ except KeyError as e:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /statisztika paranccsal az eredményeket láthatod.')
+    await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /stat paranccsal az eredményeket láthatod.')
 
 async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Pillanat, olvasom a tippeket az adatbázisból...')
@@ -43,17 +43,18 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
-        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses"]
+        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
 
         for row in records_meccsek:
             tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
+            tip_home_over_1_5 = row.get('tipp_hazai_1_5_felett', 'N/A')
+            tip_away_over_1_5 = row.get('tipp_vendeg_1_5_felett', 'N/A')
             
-            if any(tip not in INVALID_TIPS for tip in [tip_1x2, tip_goals, tip_btts]):
+            if any(tip not in INVALID_TIPS for tip in [tip_1x2, tip_goals, tip_btts, tip_home_over_1_5, tip_away_over_1_5]):
                 date_str, home_team, away_team, liga = row['datum'], row['hazai_csapat'], row['vendeg_csapat'], row['liga']
                 meccs_id = row['meccs_id']
                 
-                start_time_str = "Ismeretlen"
-                is_past = False
+                start_time_str, is_past = "Ismeretlen", False
                 try:
                     utc_dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     budapest_tz = pytz.timezone("Europe/Budapest")
@@ -62,9 +63,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     if local_dt < now_in_budapest: is_past = True
                 except (ValueError, TypeError): logger.warning(f"Ismeretlen dátum formátum: {date_str}")
                 
-                home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
-                away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
-                liga_safe = liga.replace("-", "\\-").replace(".", "\\.")
+                home_team_safe, away_team_safe, liga_safe = home_team.replace("-", "\\-").replace(".", "\\."), away_team.replace("-", "\\-").replace(".", "\\."), liga.replace("-", "\\-").replace(".", "\\.")
                 
                 response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
                 response_message += f"🏆 Bajnokság: `{liga_safe}`\n"
@@ -72,27 +71,32 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
                 if is_past:
                     vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    vegeredmeny_safe = vegeredmeny.replace("-", "\\-")
-                    response_message += f"🏁 Végeredmény: *{vegeredmeny_safe}*\n"
+                    response_message += f"🏁 Végeredmény: *{vegeredmeny.replace('-', '\\-')}*\n"
                     
                     status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
                     
                     if tip_1x2 not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_1X2", {})
-                        icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        result = records_archivum.get(f"{meccs_id}_1X2", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
                         response_message += f"🏆 Eredmény tipp: `{tip_1x2.replace('-', '\\-')}` {icon}\n"
                     if tip_goals not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_Gólok O/U 2.5", {})
-                        icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        result = records_archivum.get(f"{meccs_id}_Gólok O/U 2.5", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
                         response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}` {icon}\n"
                     if tip_btts not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_BTTS", {})
-                        icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        result = records_archivum.get(f"{meccs_id}_BTTS", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
                         response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}` {icon}\n"
+                    if tip_home_over_1_5 not in INVALID_TIPS:
+                        result = records_archivum.get(f"{meccs_id}_Hazai 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}` {icon}\n"
+                    if tip_away_over_1_5 not in INVALID_TIPS:
+                        result = records_archivum.get(f"{meccs_id}_Vendég 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}` {icon}\n"
+
                 else:
                     if tip_1x2 not in INVALID_TIPS: response_message += f"🏆 Eredmény: `{tip_1x2.replace('-', '\\-')}`\n"
                     if tip_goals not in INVALID_TIPS: response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}`\n"
                     if tip_btts not in INVALID_TIPS: response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}`\n"
+                    if tip_home_over_1_5 not in INVALID_TIPS: response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}`\n"
+                    if tip_away_over_1_5 not in INVALID_TIPS: response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}`\n"
                 
                 response_message += "\n"
 
@@ -141,7 +145,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("tippek", get_tips))
-application.add_handler(CommandHandler("statisztika", get_stats))
+application.add_handler(CommandHandler("stat", get_stats)) # JAVÍTVA
 api = FastAPI()
 @api.on_event("startup")
 async def startup_event():
