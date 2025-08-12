@@ -14,13 +14,11 @@ except KeyError as e:
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179, 119, 113, 244, 188, 169, 98, 667]
 SEASON = '2025'
 H2H_LIMIT = 10 
 
 def get_api_response(url, querystring):
-    # ... (ez a függvény változatlan)
     api_key = os.environ.get('RAPIDAPI_KEY')
     if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
     headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
@@ -29,21 +27,32 @@ def get_api_response(url, querystring):
     return response.json()['response']
 
 def analyze_h2h(home_team_id, away_team_id):
-    # ... (ez a függvény változatlan)
     print(f"H2H elemzés: {home_team_id} vs {away_team_id}")
     h2h_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead"
     h2h_querystring = {"h2h": f"{home_team_id}-{away_team_id}", "last": str(H2H_LIMIT)}
     time.sleep(1.5)
     h2h_matches = get_api_response(h2h_url, h2h_querystring)
+
     win_stats = {'home_wins': 0, 'away_wins': 0, 'draws': 0}
     goal_stats = {'over_2_5': 0, 'total_matches_with_goals': 0}
     btts_stats = {'btts_yes': 0}
+    team_goal_stats = {'home_over_1_5': 0, 'away_over_1_5': 0} # Új statisztika
+
     for match in h2h_matches:
         teams, goals = match['teams'], match['goals']
         if goals['home'] is None or goals['away'] is None: continue
+        
         goal_stats['total_matches_with_goals'] += 1
         if goals['home'] > 0 and goals['away'] > 0: btts_stats['btts_yes'] += 1
         if (goals['home'] + goals['away']) > 2.5: goal_stats['over_2_5'] += 1
+        
+        # Csapatonkénti gólok elemzése
+        if teams['home']['id'] == home_team_id and goals['home'] > 1.5: team_goal_stats['home_over_1_5'] += 1
+        elif teams['home']['id'] == away_team_id and goals['home'] > 1.5: team_goal_stats['away_over_1_5'] += 1
+        if teams['away']['id'] == away_team_id and goals['away'] > 1.5: team_goal_stats['away_over_1_5'] += 1
+        elif teams['away']['id'] == home_team_id and goals['away'] > 1.5: team_goal_stats['home_over_1_5'] += 1
+
+        # Győztes elemzése
         if goals['home'] > goals['away']:
             if teams['home']['id'] == home_team_id: win_stats['home_wins'] += 1
             else: win_stats['away_wins'] += 1
@@ -51,7 +60,8 @@ def analyze_h2h(home_team_id, away_team_id):
             if teams['away']['id'] == away_team_id: win_stats['away_wins'] += 1
             else: win_stats['home_wins'] += 1
         else: win_stats['draws'] += 1
-    return win_stats, goal_stats, btts_stats
+            
+    return win_stats, goal_stats, btts_stats, team_goal_stats
 
 def generate_1x2_tip(stats, total_matches):
     if total_matches == 0: return "N/A"
@@ -69,7 +79,7 @@ def generate_goals_tip(stats):
     if total_matches < 5: return "N/A (kevés adat)"
     over_percentage = stats['over_2_5'] / total_matches
     if over_percentage > 0.65: return "Több mint 2.5 gól"
-    if over_percentage < 0.35: return "Kevesebb mint 2.5 gól"
+    # A "Kevesebb mint" opciót kivettük a kérésednek megfelelően
     return "Gólok száma kérdéses"
 
 def generate_btts_tip(btts_stats, total_matches):
@@ -79,11 +89,21 @@ def generate_btts_tip(btts_stats, total_matches):
     if btts_percentage < 0.35: return "Nem"
     return "BTTS kérdéses"
 
+def generate_team_over_1_5_tip(team_stats, total_matches, team_type):
+    """Generál egy tippet a csapat 1.5 gól feletti teljesítményére."""
+    if total_matches < 5: return "N/A (kevés adat)"
+    
+    key = 'home_over_1_5' if team_type == 'home' else 'away_over_1_5'
+    over_percentage = team_stats[key] / total_matches
+    if over_percentage > 0.60: # Ha a meccsek több mint 60%-án lőtt 1.5 gól felett
+        return "Igen"
+    return "Nem"
+
 if __name__ == "__main__":
     try:
         supabase.table('meccsek').delete().neq('id', 0).execute()
         print("Régi adatok törölve a 'meccsek' táblából.")
-
+        
         budapest_tz = pytz.timezone("Europe/Budapest")
         today_in_budapest = datetime.now(budapest_tz).date()
         today_str = today_in_budapest.strftime("%Y-%m-%d")
@@ -97,7 +117,7 @@ if __name__ == "__main__":
         napi_sorok_to_insert = []
         archivumba_sorok_to_insert = []
         
-        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses"]
+        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
         
         print("Szűrés a megadott ligákra...")
         for match_data in matches_today:
@@ -105,22 +125,26 @@ if __name__ == "__main__":
                 fixture, teams, league = match_data['fixture'], match_data['teams'], match_data['league']
                 match_id, home_team_id, away_team_id = fixture['id'], teams['home']['id'], teams['away']['id']
                 
-                win_stats, goal_stats, btts_stats = analyze_h2h(home_team_id, away_team_id)
+                win_stats, goal_stats, btts_stats, team_goal_stats = analyze_h2h(home_team_id, away_team_id)
                 tip_1x2 = generate_1x2_tip(win_stats, sum(win_stats.values()))
                 tip_goals = generate_goals_tip(goal_stats)
                 tip_btts = generate_btts_tip(btts_stats, goal_stats['total_matches_with_goals'])
+                tip_home_over_1_5 = generate_team_over_1_5_tip(team_goal_stats, goal_stats['total_matches_with_goals'], 'home')
+                tip_away_over_1_5 = generate_team_over_1_5_tip(team_goal_stats, goal_stats['total_matches_with_goals'], 'away')
                 meccs_neve = f"{teams['home']['name']} vs {teams['away']['name']}"
                 
-                # A napi listába mindent beírunk, a bot majd szűr
-                napi_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'hazai_csapat': teams['home']['name'], 'vendeg_csapat': teams['away']['name'], 'liga': f"{league['name']} ({league['country']})", 'tipp_1x2': tip_1x2, 'tipp_goals': tip_goals, 'tipp_btts': tip_btts})
+                napi_sorok_to_insert.append({
+                    'meccs_id': match_id, 'datum': fixture['date'], 'hazai_csapat': teams['home']['name'], 
+                    'vendeg_csapat': teams['away']['name'], 'liga': f"{league['name']} ({league['country']})", 
+                    'tipp_1x2': tip_1x2, 'tipp_goals': tip_goals, 'tipp_btts': tip_btts,
+                    'tipp_hazai_1_5_felett': tip_home_over_1_5, 'tipp_vendeg_1_5_felett': tip_away_over_1_5
+                })
                 
-                # Az archívumba CSAK a valódi tippeket mentjük
-                if tip_1x2 not in INVALID_TIPS:
-                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
-                if tip_goals not in INVALID_TIPS:
-                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
-                if tip_btts not in INVALID_TIPS:
-                    archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                if tip_1x2 not in INVALID_TIPS: archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
+                if tip_goals not in INVALID_TIPS: archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
+                if tip_btts not in INVALID_TIPS: archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                if tip_home_over_1_5 not in INVALID_TIPS: archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Hazai 1.5 gól felett', 'tipp_erteke': tip_home_over_1_5})
+                if tip_away_over_1_5 not in INVALID_TIPS: archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Vendég 1.5 gól felett', 'tipp_erteke': tip_away_over_1_5})
                 
                 print(f"Érdekes meccs feldolgozva: {meccs_neve}")
         
