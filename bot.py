@@ -140,4 +140,21 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text('Hiba történt a statisztika számolása közben.')
 
 application = Application.builder().token(BOT_TOKEN).build()
-application.add_handler(
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("tippek", get_tips))
+application.add_handler(CommandHandler("stat", get_stats))
+api = FastAPI()
+@api.on_event("startup")
+async def startup_event():
+    await application.initialize()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
+    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+@api.on_event("shutdown")
+async def shutdown_event():
+    await application.shutdown()
+    logger.info("Alkalmazás leállt.")
+@api.post("/telegram")
+async def telegram_webhook(request: Request):
+    update = Update.de_json(data=await request.json(), bot=application.bot)
+    await application.process_update(update)
+    return {"status": "ok"}
