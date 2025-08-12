@@ -1,8 +1,7 @@
 import os
 import requests
 import time
-from datetime import datetime # Módosítva
-import pytz # Új import
+from datetime import date, timedelta
 from supabase import create_client, Client
 
 try:
@@ -43,31 +42,15 @@ if __name__ == "__main__":
         print("Függő státuszú tippek lekérdezése az adatbázisból...")
         
         response = supabase.table('tipp_elo_zmenyek').select('*').eq('statusz', 'Függőben').execute()
-        all_pending_tips = response.data
+        pending_tips = response.data
 
-        if not all_pending_tips:
+        if not pending_tips:
             print("Nem található függő státuszú tipp.")
             exit(0)
-        
-        # --- ÚJ LOGIKA: Az összes múltbeli tippet ellenőrizzük ---
-        now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
-        pending_tips_to_check = []
-        for tip in all_pending_tips:
-            try:
-                tip_date = datetime.fromisoformat(tip['datum'].replace('Z', '+00:00'))
-                if tip_date < now_in_budapest:
-                    pending_tips_to_check.append(tip)
-            except (ValueError, TypeError):
-                continue
-        # --- ÚJ LOGIKA VÉGE ---
-
-        if not pending_tips_to_check:
-            print("Nem található olyan függő státuszú tipp, ami már a múltban lenne.")
-            exit(0)
             
-        print(f"Kiértékelésre váró tippek száma: {len(pending_tips_to_check)}")
+        print(f"Kiértékelésre váró tippek száma: {len(pending_tips)}")
         
-        match_ids_to_check = list(set(tip['meccs_id'] for tip in pending_tips_to_check))
+        match_ids_to_check = list(set(tip['meccs_id'] for tip in pending_tips))
         
         results_map = {}
         for match_id in match_ids_to_check:
@@ -82,7 +65,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Hiba a(z) {match_id} meccs eredményének lekérésekor: {e}")
 
-        for tip in pending_tips_to_check:
+        for tip in pending_tips:
             meccs_id = tip['meccs_id']
             if meccs_id in results_map:
                 result_data = results_map[meccs_id]
@@ -102,8 +85,12 @@ if __name__ == "__main__":
                     elif tip_type == 'BTTS':
                         new_status = evaluate_btts_tip(tip_value, home_goals, away_goals)
                     
-                    supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
-                    print(f"Frissítve: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
+                    # --- EZ AZ ÚJ, DIAGNOSZTIKAI RÉSZ ---
+                    print(f"Frissítés a DB-ben: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
+                    update_response = supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
+                    print("Supabase válasza a frissítésre:")
+                    print(update_response)
+                    # --- DIAGNOSZTIKA VÉGE ---
         
         print("Kiértékelés befejezve.")
     except Exception as e:
