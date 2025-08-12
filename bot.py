@@ -31,7 +31,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Pillanat, olvasom a tippeket az adatbázisból...')
     try:
-        # JAVÍTÁS: A HELYES táblából, a 'meccsek'-ből olvasunk
         response_meccsek = supabase.table('meccsek').select('*').execute()
         records_meccsek = response_meccsek.data
         
@@ -47,7 +46,6 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
 
         for row in records_meccsek:
-            # Csak akkor jelenítjük meg a meccset, ha van legalább egy valódi tipp rá
             if any(row.get(tip_key) not in INVALID_TIPS for tip_key in ['tipp_1x2', 'tipp_goals', 'tipp_btts']):
                 date_str, home_team, away_team, liga = row['datum'], row['hazai_csapat'], row['vendeg_csapat'], row['liga']
                 meccs_id = row['meccs_id']
@@ -58,103 +56,4 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     budapest_tz = pytz.timezone("Europe/Budapest")
                     local_dt = utc_dt.astimezone(budapest_tz)
                     start_time_str = local_dt.strftime('%H:%M')
-                    if local_dt < now_in_budapest: is_past = True
-                except (ValueError, TypeError): logger.warning(f"Ismeretlen dátum formátum: {date_str}")
-                
-                home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
-                away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
-                liga_safe = liga.replace("-", "\\-").replace(".", "\\.")
-                
-                response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
-                response_message += f"🏆 Bajnokság: `{liga_safe}`\n"
-                response_message += f"⏰ Kezdés: *{start_time_str}*\n"
-
-                # JAVÍTOTT MEGJELENÍTÉSI LOGIKA
-                if is_past:
-                    vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    response_message += f"🏁 Végeredmény: *{vegeredmeny.replace('-', '\\-')}*\n"
-                    
-                    status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
-                    
-                    tip_1x2_archive = next((v for k, v in records_archivum.items() if k == f"{meccs_id}_1X2"), None)
-                    if tip_1x2_archive:
-                        icon = status_icon_map.get(tip_1x2_archive.get('statusz'), "⏳")
-                        response_message += f"🏆 Eredmény tipp: `{row['tipp_1x2'].replace('-', '\\-')}` {icon}\n"
-                else:
-                    tip_1x2 = row['tipp_1x2']
-                    odds_hazai = row.get('odds_hazai')
-                    odds_dontetlen = row.get('odds_dontetlen')
-                    odds_vendeg = row.get('odds_vendeg')
-                    
-                    if tip_1x2 not in INVALID_TIPS:
-                        tipp_szoveg = tip_1x2.replace('-', '\\-')
-                        if tip_1x2 == "Hazai nyer" and odds_hazai: tipp_szoveg += f" (*{odds_hazai}*)"
-                        elif tip_1x2 == "Vendég nyer" and odds_vendeg: tipp_szoveg += f" (*{odds_vendeg}*)"
-                        elif tip_1x2 == "Döntetlen" and odds_dontetlen: tipp_szoveg += f" (*{odds_dontetlen}*)"
-                        
-                        response_message += f"🎯 Tipp: {tipp_szoveg}\n"
-
-                response_message += "\n"
-
-        if not response_message:
-            await update.message.reply_text("Nem található a mai napon olyan meccs, amihez érdemi, szűrt tippet lehetne adni.")
-            return
-        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
-
-    except Exception as e:
-        logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
-        await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
-
-async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... (ez a függvény változatlan)
-    await update.message.reply_text('Pillanat, számolom a statisztikákat az archívumból...')
-    try:
-        response = supabase.table('tipp_elo_zmenyek').select('*').in_('statusz', ['Nyert', 'Veszített']).execute()
-        records = response.data
-        if not records:
-            await update.message.reply_text('Az archívum még üres, nincsenek kiértékelt tippek.')
-            return
-        stats = {'yesterday': {'wins': 0, 'losses': 0}, 'last_7_days': {'wins': 0, 'losses': 0}, 'last_30_days': {'wins': 0, 'losses': 0}}
-        today = datetime.now(pytz.timezone("Europe/Budapest")).date()
-        yesterday = today - timedelta(days=1); seven_days_ago = today - timedelta(days=7); thirty_days_ago = today - timedelta(days=30)
-        for rec in records:
-            try:
-                rec_date = datetime.fromisoformat(rec['datum'].replace('Z', '+00:00')).date()
-                result = 'wins' if rec['statusz'] == 'Nyert' else 'losses'
-                if rec_date == yesterday: stats['yesterday'][result] += 1
-                if rec_date >= seven_days_ago: stats['last_7_days'][result] += 1
-                if rec_date >= thirty_days_ago: stats['last_30_days'][result] += 1
-            except (ValueError, TypeError): continue
-        response_message = "📊 *Tippek Eredményessége*\n\n";
-        def calculate_success_rate(wins, losses):
-            total = wins + losses
-            if total == 0: return "N/A (nincs adat)"
-            rate = (wins / total) * 100
-            return f"{wins}/{total} ({rate:.1f}%)"
-        response_message += f"*Tegnapi nap:*\n`{calculate_success_rate(stats['yesterday']['wins'], stats['yesterday']['losses'])}`\n\n"
-        response_message += f"*Elmúlt 7 nap:*\n`{calculate_success_rate(stats['last_7_days']['wins'], stats['last_7_days']['losses'])}`\n\n"
-        response_message += f"*Elmúlt 30 nap:*\n`{calculate_success_rate(stats['last_30_days']['wins'], stats['last_30_days']['losses'])}`"
-        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
-    except Exception as e:
-        logger.error(f"Kritikus hiba a statisztika számolása közben: {e}", exc_info=True)
-        await update.message.reply_text('Hiba történt a statisztika számolása közben.')
-
-application = Application.builder().token(BOT_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("tippek", get_tips))
-application.add_handler(CommandHandler("stat", get_stats))
-api = FastAPI()
-@api.on_event("startup")
-async def startup_event():
-    await application.initialize()
-    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
-    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
-@api.on_event("shutdown")
-async def shutdown_event():
-    await application.shutdown()
-    logger.info("Alkalmazás leállt.")
-@api.post("/telegram")
-async def telegram_webhook(request: Request):
-    update = Update.de_json(data=await request.json(), bot=application.bot)
-    await application.process_update(update)
-    return {"status": "ok"}
+                    if local_dt < now_in_
