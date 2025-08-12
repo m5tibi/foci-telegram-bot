@@ -43,12 +43,16 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         response_message = ""
         now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
-        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses"]
+        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
 
         for row in records_meccsek:
-            if any(tip not in INVALID_TIPS for tip in [row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']]):
+            tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
+            tip_home_over_1_5 = row.get('tipp_hazai_1_5_felett', 'N/A')
+            tip_away_over_1_5 = row.get('tipp_vendeg_1_5_felett', 'N/A')
+            
+            # Csak akkor jelenítjük meg a meccset, ha van legalább egy valódi tipp rá
+            if any(tip not in INVALID_TIPS for tip in [tip_1x2, tip_goals, tip_btts, tip_home_over_1_5, tip_away_over_1_5]):
                 date_str, home_team, away_team, liga = row['datum'], row['hazai_csapat'], row['vendeg_csapat'], row['liga']
-                tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
                 meccs_id = row['meccs_id']
                 
                 start_time_str = "Ismeretlen"
@@ -58,14 +62,10 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     budapest_tz = pytz.timezone("Europe/Budapest")
                     local_dt = utc_dt.astimezone(budapest_tz)
                     start_time_str = local_dt.strftime('%H:%M')
-                    if local_dt < now_in_budapest:
-                        is_past = True
-                except (ValueError, TypeError):
-                    logger.warning(f"Ismeretlen dátum formátum: {date_str}")
+                    if local_dt < now_in_budapest: is_past = True
+                except (ValueError, TypeError): logger.warning(f"Ismeretlen dátum formátum: {date_str}")
                 
-                home_team_safe = home_team.replace("-", "\\-").replace(".", "\\.")
-                away_team_safe = away_team.replace("-", "\\-").replace(".", "\\.")
-                liga_safe = liga.replace("-", "\\-").replace(".", "\\.")
+                home_team_safe, away_team_safe, liga_safe = home_team.replace("-", "\\-").replace(".", "\\."), away_team.replace("-", "\\-").replace(".", "\\."), liga.replace("-", "\\-").replace(".", "\\.")
                 
                 response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
                 response_message += f"🏆 Bajnokság: `{liga_safe}`\n"
@@ -73,9 +73,8 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
                 if is_past:
                     vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    # --- ITT A VÁLTOZTATÁS ---
                     vegeredmeny_safe = vegeredmeny.replace("-", "\\-")
-                    response_message += f"🏁 Végeredmény: *{vegeredmeny_safe}*\n" # Csillagok a félkövér szöveghez
+                    response_message += f"🏁 Végeredmény: *{vegeredmeny_safe}*\n"
                     
                     status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
                     
@@ -91,13 +90,21 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         result = records_archivum.get(f"{meccs_id}_BTTS", {})
                         icon = status_icon_map.get(result.get('statusz'), "⏳")
                         response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}` {icon}\n"
-                else:
-                    if tip_1x2 not in INVALID_TIPS:
-                        response_message += f"🏆 Eredmény: `{tip_1x2.replace('-', '\\-')}`\n"
-                    if tip_goals not in INVALID_TIPS:
-                        response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}`\n"
-                    if tip_btts not in INVALID_TIPS:
-                        response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}`\n"
+                    if tip_home_over_1_5 not in INVALID_TIPS:
+                        result = records_archivum.get(f"{meccs_id}_Hazai 1.5 gól felett", {})
+                        icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}` {icon}\n"
+                    if tip_away_over_1_5 not in INVALID_TIPS:
+                        result = records_archivum.get(f"{meccs_id}_Vendég 1.5 gól felett", {})
+                        icon = status_icon_map.get(result.get('statusz'), "⏳")
+                        response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}` {icon}\n"
+
+                else: # Ha a meccs a jövőben van
+                    if tip_1x2 not in INVALID_TIPS: response_message += f"🏆 Eredmény: `{tip_1x2.replace('-', '\\-')}`\n"
+                    if tip_goals not in INVALID_TIPS: response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}`\n"
+                    if tip_btts not in INVALID_TIPS: response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}`\n"
+                    if tip_home_over_1_5 not in INVALID_TIPS: response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}`\n"
+                    if tip_away_over_1_5 not in INVALID_TIPS: response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}`\n"
                 
                 response_message += "\n"
 
@@ -121,9 +128,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         stats = {'yesterday': {'wins': 0, 'losses': 0}, 'last_7_days': {'wins': 0, 'losses': 0}, 'last_30_days': {'wins': 0, 'losses': 0}}
         today = datetime.now(pytz.timezone("Europe/Budapest")).date()
-        yesterday = today - timedelta(days=1)
-        seven_days_ago = today - timedelta(days=7)
-        thirty_days_ago = today - timedelta(days=30)
+        yesterday = today - timedelta(days=1); seven_days_ago = today - timedelta(days=7); thirty_days_ago = today - timedelta(days=30)
         for rec in records:
             try:
                 rec_date = datetime.fromisoformat(rec['datum'].replace('Z', '+00:00')).date()
@@ -132,7 +137,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 if rec_date >= seven_days_ago: stats['last_7_days'][result] += 1
                 if rec_date >= thirty_days_ago: stats['last_30_days'][result] += 1
             except (ValueError, TypeError): continue
-        response_message = "📊 *Tippek Eredményessége*\n\n"
+        response_message = "📊 *Tippek Eredményessége*\n\n";
         def calculate_success_rate(wins, losses):
             total = wins + losses
             if total == 0: return "N/A (nincs adat)"
