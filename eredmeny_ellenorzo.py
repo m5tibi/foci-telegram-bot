@@ -13,6 +13,11 @@ except KeyError as e:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Tipptípusok konstansai
+TIP_1X2 = '1X2'
+TIP_GOALS_OU_2_5 = 'Gólok O/U 2.5'
+TIP_BTTS = 'BTTS'
+
 def get_api_response(url, querystring):
     api_key = os.environ.get('RAPIDAPI_KEY')
     if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
@@ -78,19 +83,15 @@ if __name__ == "__main__":
                     tip_value = tip['tipp_erteke']
                     
                     new_status = "Hiba"
-                    if tip_type == '1X2':
+                    if tip_type == TIP_1X2:
                         new_status = evaluate_1x2_tip(tip_value, home_goals, away_goals)
-                    elif tip_type == 'Gólok O/U 2.5':
+                    elif tip_type == TIP_GOALS_OU_2_5:
                         new_status = evaluate_goals_tip(tip_value, home_goals + away_goals)
-                    elif tip_type == 'BTTS':
+                    elif tip_type == TIP_BTTS:
                         new_status = evaluate_btts_tip(tip_value, home_goals, away_goals)
                     
-                    # --- EZ AZ ÚJ, DIAGNOSZTIKAI RÉSZ ---
-                    print(f"Frissítés a DB-ben: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
-                    update_response = supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
-                    print("Supabase válasza a frissítésre:")
-                    print(update_response)
-                    # --- DIAGNOSZTIKA VÉGE ---
+                    supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
+                    print(f"Frissítve: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
         
         print("Kiértékelés befejezve.")
     except Exception as e:
