@@ -13,7 +13,10 @@ except KeyError as e:
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179, 119, 113, 244, 188, 169, 98, 667]
+ERDEKES_LIGAK = [
+    39, 140, 135, 78, 61, 2, 3, 283, 286, 71, 531, 203, 207, 179,
+    119, 113, 244, 188, 169, 98, 667
+]
 SEASON = '2025'
 H2H_LIMIT = 10 
 
@@ -109,4 +112,20 @@ if __name__ == "__main__":
                 
                 if tip_1x2 != "N/A": archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': '1X2', 'tipp_erteke': tip_1x2})
                 if not tip_goals.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'Gólok O/U 2.5', 'tipp_erteke': tip_goals})
-                if not tip_btts.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, '
+                if not tip_btts.startswith("N/A"): archivumba_sorok_to_insert.append({'meccs_id': match_id, 'datum': fixture['date'], 'meccs_neve': meccs_neve, 'tipp_tipusa': 'BTTS', 'tipp_erteke': tip_btts})
+                print(f"Érdekes meccs feldolgozva: {meccs_neve}")
+        
+        if napi_sorok_to_insert:
+            supabase.table('meccsek').insert(napi_sorok_to_insert).execute()
+            print(f"{len(napi_sorok_to_insert)} új sor hozzáadva a 'meccsek' táblához.")
+        
+        if archivumba_sorok_to_insert:
+            supabase.table('tipp_elo_zmenyek').insert(archivumba_sorok_to_insert).execute()
+            print(f"{len(archivumba_sorok_to_insert)} tipp hozzáadva az 'archívum' táblához.")
+        else:
+            print("Nem található új, általunk figyelt meccs a mai napon.")
+
+        print("A futás sikeresen befejeződött.")
+    except Exception as e:
+        print(f"Hiba történt a futás során: {e}")
+        exit(1)
