@@ -15,14 +15,7 @@ except KeyError as e:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 TIP_1X2, TIP_GOALS_OU_2_5, TIP_BTTS = '1X2', 'Gólok O/U 2.5', 'BTTS'
 TIP_HOME_OVER_1_5, TIP_AWAY_OVER_1_5 = 'Hazai 1.5 felett', 'Vendég 1.5 felett'
-
-# --- BŐVÍTETT LIGA-LISTA ---
-ERDEKES_LIGAK = [
-    # Kéréseid alapján
-    531, # UEFA: Európai Szuperkupa
-    848, # UEFA: Konferencia Liga (selejtezőkkel)
-    48,  # Anglia: Liga-kupa (EFL Cup)
-]
+ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 531, 848, 48, 283]
 SEASON = '2025'
 H2H_LIMIT = 10 
 
@@ -132,9 +125,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Hiba történt a futás során: {e}")
         exit(1)
-
-
-
-
-
-
