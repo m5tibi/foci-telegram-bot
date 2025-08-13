@@ -15,7 +15,14 @@ except KeyError as e:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 TIP_1X2, TIP_GOALS_OU_2_5, TIP_BTTS = '1X2', 'Gólok O/U 2.5', 'BTTS'
 TIP_HOME_OVER_1_5, TIP_AWAY_OVER_1_5 = 'Hazai 1.5 felett', 'Vendég 1.5 felett'
-ERDEKES_LIGAK = [39, 140, 135, 78, 61, 2, 3, 283]
+
+# --- ITT VANNAK A FRISSÍTETT LIGÁK ---
+ERDEKES_LIGAK = [
+    531, # UEFA: Európai Szuperkupa
+    848, # UEFA: Konferencia Liga (a selejtezőket is tartalmazza)
+    48,  # Anglia: Liga-kupa (EFL Cup)
+    346, # Csehország: Cseh Kupa
+]
 SEASON = '2025'
 H2H_LIMIT = 10 
 
