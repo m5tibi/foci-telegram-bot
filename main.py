@@ -16,12 +16,29 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 TIP_1X2, TIP_GOALS_OU_2_5, TIP_BTTS = '1X2', 'Gólok O/U 2.5', 'BTTS'
 TIP_HOME_OVER_1_5, TIP_AWAY_OVER_1_5 = 'Hazai 1.5 felett', 'Vendég 1.5 felett'
 
-# --- ITT VANNAK A FRISSÍTETT LIGÁK ---
+# --- BŐVÍTETT LIGA-LISTA ---
 ERDEKES_LIGAK = [
+    # Kéréseid alapján
     531, # UEFA: Európai Szuperkupa
-    848, # UEFA: Konferencia Liga (a selejtezőket is tartalmazza)
+    848, # UEFA: Konferencia Liga (selejtezőkkel)
     48,  # Anglia: Liga-kupa (EFL Cup)
     346, # Csehország: Cseh Kupa
+    667, # Világ: Felkészülési klubmérkőzések
+    100, # Japán: Kupa (Emperor's Cup)
+    190, # Ausztrália: Kupa (Australia Cup)
+    175, # Izland: 2. osztály (1. deild karla)
+    189, # Ausztrália: NPL New South Wales
+    105, # Norvégia: Kupa (NM Cupen)
+    282, # Románia: Kupa (Cupa României)
+
+    # Korábbi kedvencek
+    39,  # Anglia: Premier League
+    140, # Spanyolország: La Liga
+    78,  # Németország: Bundesliga
+    135, # Olaszország: Serie A
+    2,   # UEFA: Bajnokok Ligája
+    283, # Magyarország: NB I
+    286, # Magyarország: NB II
 ]
 SEASON = '2025'
 H2H_LIMIT = 10 
