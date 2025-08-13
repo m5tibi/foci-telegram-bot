@@ -24,10 +24,6 @@ ERDEKES_LIGAK = [
     48,  # Anglia: Liga-kupa (EFL Cup)
     100, # Japán: Kupa (Emperor's Cup)
     190, # Ausztrália: Kupa (Australia Cup)
-    175, # Izland: 2. osztály (1. deild karla)
-    189, # Ausztrália: NPL New South Wales
-    105, # Norvégia: Kupa (NM Cupen)
-    282, # Románia: Kupa (Cupa României)
 
     # Korábbi kedvencek
     39,  # Anglia: Premier League
@@ -145,4 +141,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Hiba történt a futás során: {e}")
         exit(1)
+
 
