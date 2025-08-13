@@ -22,8 +22,6 @@ ERDEKES_LIGAK = [
     531, # UEFA: Európai Szuperkupa
     848, # UEFA: Konferencia Liga (selejtezőkkel)
     48,  # Anglia: Liga-kupa (EFL Cup)
-    346, # Csehország: Cseh Kupa
-    667, # Világ: Felkészülési klubmérkőzések
     100, # Japán: Kupa (Emperor's Cup)
     190, # Ausztrália: Kupa (Australia Cup)
     175, # Izland: 2. osztály (1. deild karla)
@@ -37,8 +35,6 @@ ERDEKES_LIGAK = [
     78,  # Németország: Bundesliga
     135, # Olaszország: Serie A
     2,   # UEFA: Bajnokok Ligája
-    283, # Magyarország: NB I
-    286, # Magyarország: NB II
 ]
 SEASON = '2025'
 H2H_LIMIT = 10 
@@ -149,3 +145,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Hiba történt a futás során: {e}")
         exit(1)
+
