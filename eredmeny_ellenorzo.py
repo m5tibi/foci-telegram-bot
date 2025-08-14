@@ -1,91 +1,80 @@
+# eredmeny_ellenorzo.py
+
 import os
 import requests
-import time
-from datetime import date, timedelta
 from supabase import create_client, Client
+from datetime import datetime, timedelta
 
-try:
-    SUPABASE_URL = os.environ['SUPABASE_URL']
-    SUPABASE_KEY = os.environ['SUPABASE_KEY']
-except KeyError as e:
-    print(f"Hiányzó Supabase környezeti változó: {e}")
-    exit(1)
-
+# --- Konfiguráció ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-TIP_1X2, TIP_GOALS_OU_2_5, TIP_BTTS = '1X2', 'Gólok O/U 2.5', 'BTTS'
-TIP_HOME_OVER_1_5, TIP_AWAY_OVER_1_5 = 'Hazai 1.5 felett', 'Vendég 1.5 felett'
 
-def get_api_response(url, querystring):
-    api_key = os.environ.get('RAPIDAPI_KEY')
-    if not api_key: raise ValueError("A RAPIDAPI_KEY titok nincs beállítva!")
-    headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
-    response = requests.get(url, headers=headers, params=querystring)
-    response.raise_for_status()
-    return response.json()['response']
+def get_fixtures_to_check():
+    """Lekéri azokat a meccseket az adatbázisból, amik már véget értek, de még nincsenek kiértékelve."""
+    yesterday = datetime.now() - timedelta(days=1)
+    return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(yesterday)).execute().data
 
-def evaluate_1x2_tip(tip_value, home_goals, away_goals):
-    if tip_value.startswith("Hazai nyer") and home_goals > away_goals: return "Nyert"
-    if tip_value.startswith("Vendég nyer") and away_goals > home_goals: return "Nyert"
-    if tip_value == "Döntetlen" and home_goals == away_goals: return "Nyert"
+def get_fixture_result(fixture_id):
+    """Lekéri egy meccs végeredményét az API-ból."""
+    url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
+    querystring = {"id": str(fixture_id)}
+    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        data = response.json().get('response', [])
+        return data[0] if data else None
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a meccs eredményének lekérésekor (fixture: {fixture_id}): {e}")
+        return None
+
+def evaluate_tip(tip_text, fixture_data):
+    """Kiértékeli a tippet a meccs eredménye alapján."""
+    goals_home = fixture_data.get('goals', {}).get('home')
+    goals_away = fixture_data.get('goals', {}).get('away')
+    
+    if goals_home is None or goals_away is None:
+        return "Hiba"
+
+    # 1X2
+    if tip_text == "Home" and goals_home > goals_away: return "Nyert"
+    if tip_text == "Away" and goals_away > goals_home: return "Nyert"
+    if tip_text == "Draw" and goals_home == goals_away: return "Nyert"
+    
+    # Gólszám
+    if tip_text == "Gólok száma 2.5 felett" and (goals_home + goals_away) > 2.5: return "Nyert"
+    
+    # BTTS
+    if tip_text == "Mindkét csapat szerez gólt" and goals_home > 0 and goals_away > 0: return "Nyert"
+
     return "Veszített"
 
-def evaluate_goals_tip(tip_value, total_goals):
-    if tip_value == "Több mint 2.5 gól" and total_goals > 2.5: return "Nyert"
-    return "Veszített"
+def main():
+    print("Eredmény-ellenőrző indítása...")
+    fixtures_to_check = get_fixtures_to_check()
+    if not fixtures_to_check:
+        print("Nincs kiértékelendő meccs.")
+        return
 
-def evaluate_btts_tip(tip_value, home_goals, away_goals):
-    if tip_value == "Igen" and home_goals > 0 and away_goals > 0: return "Nyert"
-    if tip_value == "Nem" and (home_goals == 0 or away_goals == 0): return "Nyert"
-    return "Veszített"
+    print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
+    for fixture in fixtures_to_check:
+        fixture_id = fixture.get('fixture_id')
+        tip_text = fixture.get('tipp')
+        db_id = fixture.get('id')
 
-def evaluate_team_over_1_5_tip(tip_value, team_goals):
-    if tip_value == "Igen" and team_goals > 1.5: return "Nyert"
-    return "Veszített"
+        result_data = get_fixture_result(fixture_id)
+        if result_data and result_data.get('fixture', {}).get('status', {}).get('short') == 'FT':
+            final_result = evaluate_tip(tip_text, result_data)
+            print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}")
+            # Adatbázis frissítése
+            supabase.table("meccsek").update({"eredmeny": final_result}).eq("id", db_id).execute()
+        else:
+            print(f"A(z) {fixture_id} meccs még nem fejeződött be, vagy hiba történt.")
+
+    print("Eredmény-ellenőrzés befejezve.")
 
 if __name__ == "__main__":
-    try:
-        print("Függő státuszú tippek lekérdezése az adatbázisból...")
-        response = supabase.table('tipp_elo_zmenyek').select('*').eq('statusz', 'Függőben').execute()
-        pending_tips = response.data
-        if not pending_tips:
-            print("Nem található függő státuszú tipp.")
-            exit(0)
-            
-        print(f"Kiértékelésre váró tippek száma: {len(pending_tips)}")
-        match_ids_to_check = list(set(tip['meccs_id'] for tip in pending_tips))
-        results_map = {}
-        for match_id in match_ids_to_check:
-            print(f"Eredmény lekérdezése a(z) {match_id} meccshez...")
-            time.sleep(1.5)
-            try:
-                fixtures_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
-                fixtures_querystring = {"id": match_id}
-                match_result = get_api_response(fixtures_url, fixtures_querystring)
-                if match_result: results_map[match_id] = match_result[0]
-            except Exception as e:
-                print(f"Hiba a(z) {match_id} meccs eredményének lekérésekor: {e}")
-
-        for tip in pending_tips:
-            meccs_id = tip['meccs_id']
-            if meccs_id in results_map:
-                result_data = results_map[meccs_id]
-                score = result_data.get('score', {}).get('fulltime', {})
-                if result_data.get('fixture', {}).get('status', {}).get('short') == 'FT' and score.get('home') is not None:
-                    home_goals, away_goals = score['home'], score['away']
-                    final_score = f"{home_goals}-{away_goals}"
-                    tip_type, tip_value = tip['tipp_tipusa'], tip['tipp_erteke']
-                    
-                    new_status = "Hiba"
-                    if tip_type == TIP_1X2: new_status = evaluate_1x2_tip(tip_value, home_goals, away_goals)
-                    elif tip_type == TIP_GOALS_OU_2_5: new_status = evaluate_goals_tip(tip_value, home_goals + away_goals)
-                    elif tip_type == TIP_BTTS: new_status = evaluate_btts_tip(tip_value, home_goals, away_goals)
-                    elif tip_type == TIP_HOME_OVER_1_5: new_status = evaluate_team_over_1_5_tip(tip_value, home_goals)
-                    elif tip_type == TIP_AWAY_OVER_1_5: new_status = evaluate_team_over_1_5_tip(tip_value, away_goals)
-
-                    supabase.table('tipp_elo_zmenyek').update({'vegeredmeny': final_score, 'statusz': new_status}).eq('id', tip['id']).execute()
-                    print(f"Frissítve: {tip['meccs_neve']}, Tipp: {tip_value}, Eredmény: {final_score}, Státusz: {new_status}")
-        
-        print("Kiértékelés befejezve.")
-    except Exception as e:
-        print(f"Kritikus hiba történt a futás során: {e}")
-        exit(1)
+    main()
