@@ -1,4 +1,4 @@
-# tipp_generator.py (Intelligens PRO Verzió)
+# tipp_generator.py (Intelligens PRO Verzió - Minden piaccal)
 
 import os
 import requests
@@ -17,7 +17,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- TOP LIGÁK LISTÁJA ---
 TOP_LEAGUES = {
-    # ... (a ligák listája változatlan)
     1: "Bajnokok Ligája", 2: "Európa-liga", 3: "Európa-konferencialiga",
     39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A",
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie",
@@ -45,15 +44,21 @@ def get_fixtures_from_api():
             time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             print(f"Hiba a(z) {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
-            
     return all_fixtures
 
 def get_odds_for_fixture(fixture_id):
-    bets_to_get = ["1", "5", "12"]
+    # A Bet365 azonosítója
+    bookmaker_id = "8"
+    
+    # A piacok azonosítói, amiket figyelni akarunk
+    # 1: Match Winner, 5: Both Teams To Score, 12: Over/Under
+    bet_ids_to_check = [1, 5, 12]
+    
     all_odds_for_fixture = []
-    for bet_id in bets_to_get:
+    
+    for bet_id in bet_ids_to_check:
         url = f"https://{RAPIDAPI_HOST}/v3/odds"
-        querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": bet_id}
+        querystring = {"fixture": str(fixture_id), "bookmaker": bookmaker_id, "bet": str(bet_id)}
         headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
         try:
             response = requests.get(url, headers=headers, params=querystring)
@@ -61,10 +66,12 @@ def get_odds_for_fixture(fixture_id):
             data = response.json().get('response', [])
             if data:
                 all_odds_for_fixture.extend(data[0].get('bookmakers', [{}])[0].get('bets', []))
-            time.sleep(0.5)
+            time.sleep(0.5) # Udvarias várakozás, hogy ne terheljük túl az API-t
         except requests.exceptions.RequestException as e:
             print(f"Hiba az oddsok lekérése során (fixture: {fixture_id}, bet: {bet_id}): {e}")
+    
     return all_odds_for_fixture
+
 
 def analyze_and_generate_tips(fixtures):
     all_potential_tips = []
@@ -85,12 +92,11 @@ def analyze_and_generate_tips(fixtures):
                 "csapat_V": teams.get('away', {}).get('name'),
                 "kezdes": fixture.get('date')
             }
-            # *** ÚJ LOGIKA KEZDETE ***
+            
             def process_tip(value, tipp_nev, base_score):
                 odds = float(value.get('odd'))
-                if 1.4 <= odds < 4.0: # Csak a reális oddsokat vesszük figyelembe
+                if 1.4 <= odds < 3.5: # Kicsit engedékenyebb felső határ
                     tip_info = tip_template.copy()
-                    # A biztonsági pontszám fordítottan arányos az oddsszal
                     biztonsagi_pontszam = base_score - ((odds - 1.4) * 10) + random.randint(0, 5)
                     tip_info.update({
                         "tipp": tipp_nev,
@@ -110,12 +116,11 @@ def analyze_and_generate_tips(fixtures):
             if bet.get('name') == "Both Teams To Score" and any(v['value'] == 'Yes' for v in bet.get('values', [])):
                 value = next(v for v in bet['values'] if v['value'] == 'Yes')
                 process_tip(value, "Mindkét csapat szerez gólt", 80)
-            # *** ÚJ LOGIKA VÉGE ***
     
     all_potential_tips.sort(key=lambda x: x['biztonsagi_pontszam'], reverse=True)
     return all_potential_tips[:15]
 
-# ... a save_tips_to_supabase függvény változatlan ...
+# ... a save_tips_to_supabase és create_daily_special függvények változatlanok...
 def save_tips_to_supabase(tips):
     if not tips:
         print("Nincsenek menthető tippek.")
@@ -141,33 +146,25 @@ def save_tips_to_supabase(tips):
     return saved_tips_with_ids
 
 def create_daily_special(tips):
-    """Összeállítja a 'Napi tutit' a legbiztosabb, reális oddsú tippekből."""
     if len(tips) < 2: return
-    
-    # Szigorúbb feltételek a tutihoz: max 2.2-es odds, 80 feletti pontszám
     tuti_candidates = sorted(
         [t for t in tips if t['odds'] <= 2.2 and t['biztonsagi_pontszam'] >= 80],
         key=lambda x: x['biztonsagi_pontszam'],
         reverse=True
     )
-    
     if len(tuti_candidates) < 2:
         print("Nem sikerült Napi Tuti szelvényt összeállítani a szigorú feltételek alapján.")
         return
-
     yesterday = datetime.now() - timedelta(days=1)
     supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
-    
     special_tips_1 = tuti_candidates[:2]
     eredo_odds_1 = special_tips_1[0]['odds'] * special_tips_1[1]['odds']
     tipp_id_k_1 = [t['db_id'] for t in special_tips_1]
-    
     supabase.table("napi_tuti").insert({
         "tipp_neve": "Napi Tuti 1", "eredo_odds": eredo_odds_1, "tipp_id_k": tipp_id_k_1
     }).execute()
     print("Napi Tuti 1 sikeresen létrehozva.")
 
-# ... a main függvény változatlan ...
 def main():
     print("Tipp generátor indítása PRO módban...")
     fixtures = get_fixtures_from_api()
