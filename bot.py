@@ -1,8 +1,8 @@
-# bot.py
+# bot.py (Végleges verzió)
 
 import os
 import telegram
-from telegram.ext import CommandHandler, CallbackContext, Dispatcher
+from telegram.ext import Application, CommandHandler, CallbackContext
 from supabase import create_client, Client
 from datetime import datetime
 
@@ -13,7 +13,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Parancskezelő függvények ---
 
-def start(update: telegram.Update, context: CallbackContext):
+async def start(update: telegram.Update, context: CallbackContext):
     """Üdvözlő üzenet."""
     welcome_text = (
         "Üdvözöllek a Foci Tippadó Botban!\n\n"
@@ -22,16 +22,16 @@ def start(update: telegram.Update, context: CallbackContext):
         "/napi_tuti - A mai kiemelt kombi szelvény(ek)\n"
         "/stat - Részletes statisztika az eddigi tippekről"
     )
-    update.message.reply_text(welcome_text)
+    await update.message.reply_text(welcome_text)
 
-def tippek(update: telegram.Update, context: CallbackContext):
+async def tippek(update: telegram.Update, context: CallbackContext):
     """Lekérdezi és elküldi a mai tippeket oddsokkal."""
     try:
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).execute()
         
         if not response.data:
-            update.message.reply_text("A mai napra nincsenek elérhető tippek.")
+            await update.message.reply_text("A mai napra nincsenek elérhető tippek.")
             return
 
         message = "🏆 Mai tippek:\n\n"
@@ -42,19 +42,19 @@ def tippek(update: telegram.Update, context: CallbackContext):
             message += f"   Tipp: {tip['tipp']} {odds}\n\n"
         
         for x in range(0, len(message), 4096):
-            update.message.reply_text(message[x:x+4096])
+            await update.message.reply_text(message[x:x+4096])
 
     except Exception as e:
-        update.message.reply_text(f"Hiba történt a tippek lekérdezése közben: {e}")
+        await update.message.reply_text(f"Hiba történt a tippek lekérdezése közben: {e}")
 
-def napi_tuti(update: telegram.Update, context: CallbackContext):
+async def napi_tuti(update: telegram.Update, context: CallbackContext):
     """Lekérdezi és elküldi a 'Napi tuti' szelvény(eke)t."""
     try:
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start)).execute()
 
         if not response.data:
-            update.message.reply_text("Ma még nem készült 'Napi tuti' szelvény.")
+            await update.message.reply_text("Ma még nem készült 'Napi tuti' szelvény.")
             return
 
         for szelveny in response.data:
@@ -73,18 +73,18 @@ def napi_tuti(update: telegram.Update, context: CallbackContext):
             
             eredo_odds = szelveny.get('eredo_odds', 0)
             message += f"🎯 Eredő odds: {eredo_odds:.2f}\n"
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
 
     except Exception as e:
-        update.message.reply_text(f"Hiba történt a Napi tuti lekérdezése közben: {e}")
+        await update.message.reply_text(f"Hiba történt a Napi tuti lekérdezése közben: {e}")
 
-def stat(update: telegram.Update, context: CallbackContext):
+async def stat(update: telegram.Update, context: CallbackContext):
     """Részletes statisztikát készít a tippekről és a napi tutikról."""
     try:
         response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
         
         if not response.data:
-            update.message.reply_text("Nincsenek még kiértékelt tippek a statisztikához.")
+            await update.message.reply_text("Nincsenek még kiértékelt tippek a statisztikához.")
             return
 
         nyert_db = sum(1 for tip in response.data if tip['eredmeny'] == 'Nyert')
@@ -129,16 +129,16 @@ def stat(update: telegram.Update, context: CallbackContext):
             stat_message += f"❌ Vesztes szelvények: {veszitett_szelveny} db\n"
             stat_message += f"📈 Sikerességi ráta: {tuti_szazalek:.2f}%\n"
 
-        update.message.reply_text(stat_message)
+        await update.message.reply_text(stat_message)
 
     except Exception as e:
-        update.message.reply_text(f"Hiba történt a statisztika készítése közben: {e}")
+        await update.message.reply_text(f"Hiba történt a statisztika készítése közben: {e}")
 
-def setup_dispatcher(dp: Dispatcher):
-    """Hozzáadja a parancsokat a diszpécserhez. Ezt hívja meg a main.py."""
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("tippek", tippek))
-    dp.add_handler(CommandHandler("napi_tuti", napi_tuti))
-    dp.add_handler(CommandHandler("stat", stat))
-    print("Parancskezelők sikeresen hozzáadva a diszpécserhez.")
-    return dp
+def add_handlers(application: Application):
+    """Hozzáadja a parancsokat az alkalmazáshoz. Ezt hívja meg a main.py."""
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("tippek", tippek))
+    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
+    application.add_handler(CommandHandler("stat", stat))
+    print("Parancskezelők sikeresen hozzáadva az alkalmazáshoz.")
+    return application
