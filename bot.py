@@ -11,9 +11,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import uvicorn
 from fastapi import FastAPI, Request
 
+# --- Alapbeállítások, naplózás ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Környezeti változók betöltése ---
 try:
     BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
     WEBHOOK_URL = os.environ['WEBHOOK_URL']
@@ -23,12 +25,41 @@ except KeyError as e:
     logger.error(f"Hiányzó környezeti változó: {e}")
     exit(1)
 
+# --- Supabase kliens inicializálása ---
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# --- ÚJ SEGÉDFÜGGVÉNY a hosszú üzenetek darabolásához ---
+async def send_in_chunks(update: Update, messages: list, parse_mode: str = ParseMode.MARKDOWN_V2):
+    """
+    Elküld egy üzenetlistát darabokban, hogy ne lépje túl a Telegram karakterlimitjét.
+    Minden elem a 'messages' listában egy logikai egységet (pl. egy meccset) képvisel.
+    """
+    MAX_LENGTH = 4096
+    current_chunk = ""
+    for message in messages:
+        # Ellenőrizzük, hogy a következő üzenet hozzáadásával túllépnénk-e a limitet
+        if len(current_chunk) + len(message) > MAX_LENGTH:
+            # Ha igen, elküldjük az eddigi darabot
+            if current_chunk:
+                await update.message.reply_text(current_chunk, parse_mode=parse_mode)
+            # Az új darab ezzel az üzenettel kezdődik
+            current_chunk = message
+        else:
+            # Ha nem, hozzáadjuk az aktuális darabhoz
+            current_chunk += message
+
+    # Elküldjük az utolsó megmaradt darabot is, ha van
+    if current_chunk:
+        await update.message.reply_text(current_chunk, parse_mode=parse_mode)
+
+# --- Parancsok ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A /start parancsra válaszol."""
     await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /stat paranccsal az eredményeket láthatod.')
 
 async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lekéri a meccseket és tippeket, majd elküldi őket darabolva."""
     await update.message.reply_text('Pillanat, olvasom a tippeket az adatbázisból...')
     try:
         response_meccsek = supabase.table('meccsek').select('*').execute()
@@ -41,7 +72,7 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text('Jelenleg nincsenek elérhető tippek az adatbázisban.')
             return
 
-        response_message = ""
+        tip_messages = [] # Lista a formázott meccs-tipp üzeneteknek
         now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
         INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
 
@@ -63,51 +94,64 @@ async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     if local_dt < now_in_budapest: is_past = True
                 except (ValueError, TypeError): logger.warning(f"Ismeretlen dátum formátum: {date_str}")
                 
-                home_team_safe, away_team_safe, liga_safe = home_team.replace("-", "\\-").replace(".", "\\."), away_team.replace("-", "\\-").replace(".", "\\."), liga.replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
+                # Markdown karakterek escape-elése
+                def escape_md(text: str) -> str:
+                    # A lista bővíthető a speciális karakterekkel
+                    escape_chars = r'_*[]()~`>#+-=|{}.!'
+                    return ''.join(f'\\{char}' if char in escape_chars else char for char in text)
+
+                home_team_safe, away_team_safe, liga_safe = escape_md(home_team), escape_md(away_team), escape_md(liga)
                 
-                response_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
-                response_message += f"🏆 Bajnokság: `{liga_safe}`\n"
-                response_message += f"⏰ Kezdés: *{start_time_str}*\n"
+                match_message = ""
+                match_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
+                match_message += f"🏆 Bajnokság: `{liga_safe}`\n"
+                match_message += f"⏰ Kezdés: *{start_time_str}*\n"
 
                 if is_past:
                     vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    response_message += f"🏁 Végeredmény: *{vegeredmeny.replace('-', '\\-')}*\n"
+                    match_message += f"🏁 Végeredmény: *{escape_md(vegeredmeny)}*\n"
                     status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
                     
+                    # Tippek kiértékeléssel
                     if tip_1x2 not in INVALID_TIPS:
                         result = records_archivum.get(f"{meccs_id}_1X2", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        response_message += f"🏆 Eredmény tipp: `{tip_1x2.replace('-', '\\-')}` {icon}\n"
+                        match_message += f"🏆 Eredmény tipp: `{escape_md(tip_1x2)}` {icon}\n"
                     if tip_goals not in INVALID_TIPS:
                         result = records_archivum.get(f"{meccs_id}_Gólok O/U 2.5", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}` {icon}\n"
+                        match_message += f"🥅 Gólok O/U 2\\.5: `{escape_md(tip_goals)}` {icon}\n"
                     if tip_btts not in INVALID_TIPS:
                         result = records_archivum.get(f"{meccs_id}_BTTS", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}` {icon}\n"
+                        match_message += f"🤝 Mindkét csapat szerez gólt: `{escape_md(tip_btts)}` {icon}\n"
                     if tip_home_over_1_5 not in INVALID_TIPS:
                         result = records_archivum.get(f"{meccs_id}_Hazai 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}` {icon}\n"
+                        match_message += f"📈 Hazai 1\\.5 gól felett: `{escape_md(tip_home_over_1_5)}` {icon}\n"
                     if tip_away_over_1_5 not in INVALID_TIPS:
                         result = records_archivum.get(f"{meccs_id}_Vendég 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}` {icon}\n"
+                        match_message += f"📉 Vendég 1\\.5 gól felett: `{escape_md(tip_away_over_1_5)}` {icon}\n"
                 else:
-                    if tip_1x2 not in INVALID_TIPS: response_message += f"🏆 Eredmény: `{tip_1x2.replace('-', '\\-')}`\n"
-                    if tip_goals not in INVALID_TIPS: response_message += f"🥅 Gólok O/U 2\\.5: `{tip_goals.replace('-', '\\-')}`\n"
-                    if tip_btts not in INVALID_TIPS: response_message += f"🤝 Mindkét csapat szerez gólt: `{tip_btts.replace('-', '\\-')}`\n"
-                    if tip_home_over_1_5 not in INVALID_TIPS: response_message += f"📈 Hazai 1\\.5 gól felett: `{tip_home_over_1_5.replace('-', '\\-')}`\n"
-                    if tip_away_over_1_5 not in INVALID_TIPS: response_message += f"📉 Vendég 1\\.5 gól felett: `{tip_away_over_1_5.replace('-', '\\-')}`\n"
+                    # Jövőbeli meccsek tippjei
+                    if tip_1x2 not in INVALID_TIPS: match_message += f"🏆 Eredmény: `{escape_md(tip_1x2)}`\n"
+                    if tip_goals not in INVALID_TIPS: match_message += f"🥅 Gólok O/U 2\\.5: `{escape_md(tip_goals)}`\n"
+                    if tip_btts not in INVALID_TIPS: match_message += f"🤝 Mindkét csapat szerez gólt: `{escape_md(tip_btts)}`\n"
+                    if tip_home_over_1_5 not in INVALID_TIPS: match_message += f"📈 Hazai 1\\.5 gól felett: `{escape_md(tip_home_over_1_5)}`\n"
+                    if tip_away_over_1_5 not in INVALID_TIPS: match_message += f"📉 Vendég 1\\.5 gól felett: `{escape_md(tip_away_over_1_5)}`\n"
                 
-                response_message += "\n"
+                match_message += "\n" # Elválasztó a meccsek között
+                tip_messages.append(match_message)
 
-        if not response_message:
+        if not tip_messages:
             await update.message.reply_text("Nem található a mai napon olyan meccs, amihez érdemi tippet lehetne adni.")
             return
-        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
+
+        # Üzenetek elküldése darabolva az új segédfüggvénnyel
+        await send_in_chunks(update, tip_messages, parse_mode=ParseMode.MARKDOWN_V2)
 
     except Exception as e:
         logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
         await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lekéri és kiszámolja a tippek statisztikáját."""
     await update.message.reply_text('Pillanat, számolom a statisztikákat az archívumból...')
     try:
         response = supabase.table('tipp_elo_zmenyek').select('*').in_('statusz', ['Nyert', 'Veszített']).execute()
@@ -142,22 +186,31 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Kritikus hiba a statisztika számolása közben: {e}", exc_info=True)
         await update.message.reply_text('Hiba történt a statisztika számolása közben.')
 
+
+# --- Alkalmazás és Webhook beállítása (FastAPI) ---
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("tippek", get_tips))
 application.add_handler(CommandHandler("stat", get_stats))
+
 api = FastAPI()
+
 @api.on_event("startup")
 async def startup_event():
     await application.initialize()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
     logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+
 @api.on_event("shutdown")
 async def shutdown_event():
     await application.shutdown()
     logger.info("Alkalmazás leállt.")
+
 @api.post("/telegram")
 async def telegram_webhook(request: Request):
     update = Update.de_json(data=await request.json(), bot=application.bot)
     await application.process_update(update)
     return {"status": "ok"}
+
+# --- Futtatás (uvicorn-hoz) ---
+# Ezt a részt a Render/uvicorn kezeli, itt nincs teendő.
