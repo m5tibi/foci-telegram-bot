@@ -196,14 +196,44 @@ def save_tips_to_supabase(tips):
             print(f"Hiba a tipp mentése során: {e}")
     return saved_tips_with_ids
 
+# A tipp_generator.py fájlban keresd meg ezt a függvényt és cseréld le
+
 def create_daily_special(tips):
+    """Összeállítja a 'Napi tuti' szelvényt a legbiztosabb tippekből, reális oddsokkal."""
     if len(tips) < 2:
+        return
+
+    # Szűrjük a tippeket: csak a 2.5 alatti odds-szal rendelkező, magas biztonsági pontszámúakat vesszük figyelembe a tutihoz
+    tuti_candidates = [t for t in tips if t['odds'] <= 2.5 and t['biztonsagi_pontszam'] > 75]
+    
+    # Ha nincs elég jelölt, próbálkozunk enyhébb feltételekkel
+    if len(tuti_candidates) < 2:
+        tuti_candidates = [t for t in tips if t['odds'] <= 3.0]
+
+    if len(tuti_candidates) < 2:
+        print("Nem sikerült Napi Tuti szelvényt összeállítani a feltételek alapján.")
+        return
+def create_daily_special(tips):
+    """Összeállítja a 'Napi tuti' szelvényt a legbiztosabb tippekből, reális oddsokkal."""
+    if len(tips) < 2:
+        return
+
+    # Szűrjük a tippeket: csak a 2.5 alatti odds-szal rendelkező, magas biztonsági pontszámúakat vesszük figyelembe a tutihoz
+    tuti_candidates = [t for t in tips if t['odds'] <= 2.5 and t['biztonsagi_pontszam'] > 75]
+    
+    # Ha nincs elég jelölt, próbálkozunk enyhébb feltételekkel
+    if len(tuti_candidates) < 2:
+        tuti_candidates = [t for t in tips if t['odds'] <= 3.0]
+
+    if len(tuti_candidates) < 2:
+        print("Nem sikerült Napi Tuti szelvényt összeállítani a feltételek alapján.")
         return
 
     yesterday = datetime.now() - timedelta(days=1)
     supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
-
-    special_tips_1 = tips[:2]
+    
+    # Az első szelvény a 2 legbiztosabb, reális oddsú tippből
+    special_tips_1 = tuti_candidates[:2]
     if len(special_tips_1) == 2:
         eredo_odds_1 = special_tips_1[0]['odds'] * special_tips_1[1]['odds']
         tipp_id_k_1 = [t['db_id'] for t in special_tips_1]
@@ -214,6 +244,49 @@ def create_daily_special(tips):
             "tipp_id_k": tipp_id_k_1
         }).execute()
         print("Napi Tuti 1 sikeresen létrehozva.")
+
+    # A második szelvény (ha van elég jelölt)
+    if len(tuti_candidates) >= 5:
+        special_tips_2 = tuti_candidates[2:5]
+        if len(special_tips_2) == 3:
+            eredo_odds_2 = special_tips_2[0]['odds'] * special_tips_2[1]['odds'] * special_tips_2[2]['odds']
+            tipp_id_k_2 = [t['db_id'] for t in special_tips_2]
+            
+            supabase.table("napi_tuti").insert({
+                "tipp_neve": "Napi Tuti 2",
+                "eredo_odds": eredo_odds_2,
+                "tipp_id_k": tipp_id_k_2
+            }).execute()
+            print("Napi Tuti 2 sikeresen létrehozva.")
+    yesterday = datetime.now() - timedelta(days=1)
+    supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
+    
+    # Az első szelvény a 2 legbiztosabb, reális oddsú tippből
+    special_tips_1 = tuti_candidates[:2]
+    if len(special_tips_1) == 2:
+        eredo_odds_1 = special_tips_1[0]['odds'] * special_tips_1[1]['odds']
+        tipp_id_k_1 = [t['db_id'] for t in special_tips_1]
+        
+        supabase.table("napi_tuti").insert({
+            "tipp_neve": "Napi Tuti 1",
+            "eredo_odds": eredo_odds_1,
+            "tipp_id_k": tipp_id_k_1
+        }).execute()
+        print("Napi Tuti 1 sikeresen létrehozva.")
+
+    # A második szelvény (ha van elég jelölt)
+    if len(tuti_candidates) >= 5:
+        special_tips_2 = tuti_candidates[2:5]
+        if len(special_tips_2) == 3:
+            eredo_odds_2 = special_tips_2[0]['odds'] * special_tips_2[1]['odds'] * special_tips_2[2]['odds']
+            tipp_id_k_2 = [t['db_id'] for t in special_tips_2]
+            
+            supabase.table("napi_tuti").insert({
+                "tipp_neve": "Napi Tuti 2",
+                "eredo_odds": eredo_odds_2,
+                "tipp_id_k": tipp_id_k_2
+            }).execute()
+            print("Napi Tuti 2 sikeresen létrehozva.")
 
     if len(tips) >= 5:
       special_tips_2 = tips[2:5]
