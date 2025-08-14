@@ -2,18 +2,16 @@
 
 import os
 import telegram
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import CommandHandler, CallbackContext, Dispatcher
 from supabase import create_client, Client
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- Konfiguráció ---
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Parancsok ---
+# --- Parancskezelő függvények ---
 
 def start(update: telegram.Update, context: CallbackContext):
     """Üdvözlő üzenet."""
@@ -43,7 +41,6 @@ def tippek(update: telegram.Update, context: CallbackContext):
             message += f"⚽️ {tip['csapat_H']} vs {tip['csapat_V']} ({kezdes_ido})\n"
             message += f"   Tipp: {tip['tipp']} {odds}\n\n"
         
-        # Üzenet darabolása, ha túl hosszú
         for x in range(0, len(message), 4096):
             update.message.reply_text(message[x:x+4096])
 
@@ -64,7 +61,6 @@ def napi_tuti(update: telegram.Update, context: CallbackContext):
             message = f"🔥 {szelveny['tipp_neve']} 🔥\n\n"
             tipp_id_k = szelveny['tipp_id_k']
             
-            # Lekérdezzük a tippek részleteit
             meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
             if not meccsek_res.data:
                 continue
@@ -85,7 +81,6 @@ def napi_tuti(update: telegram.Update, context: CallbackContext):
 def stat(update: telegram.Update, context: CallbackContext):
     """Részletes statisztikát készít a tippekről és a napi tutikról."""
     try:
-        # --- Általános statisztika ---
         response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
         
         if not response.data:
@@ -104,7 +99,6 @@ def stat(update: telegram.Update, context: CallbackContext):
         stat_message += f"📈 Találati arány: {szazalek:.2f}%\n"
         stat_message += "-----------------------------------\n"
         
-        # --- Napi Tuti Statisztika ---
         napi_tuti_res = supabase.table("napi_tuti").select("*").execute()
         if not napi_tuti_res.data:
              stat_message += "Még nincsenek kiértékelt 'Napi tuti' szelvények."
@@ -117,11 +111,10 @@ def stat(update: telegram.Update, context: CallbackContext):
                 if not tipp_id_k:
                     continue
                 
-                # Ellenőrizzük, hogy a szelvény összes tippje ki van-e már értékelve
                 meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
                 
                 if len(meccsek_res.data) != len(tipp_id_k) or any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
-                    continue # Még nincs minden meccs kiértékelve, kihagyjuk
+                    continue
                 
                 osszes_szelveny += 1
                 if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
@@ -141,23 +134,11 @@ def stat(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         update.message.reply_text(f"Hiba történt a statisztika készítése közben: {e}")
 
-# --- Bot indítása ---
-def main():
-    """A Telegram bot indítása."""
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    # Parancsok hozzáadása
+def setup_dispatcher(dp: Dispatcher):
+    """Hozzáadja a parancsokat a diszpécserhez. Ezt hívja meg a main.py."""
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("tippek", tippek))
     dp.add_handler(CommandHandler("napi_tuti", napi_tuti))
     dp.add_handler(CommandHandler("stat", stat))
-    
-    # Bot indítása a Render webhookhoz
-    # A main.py fogja ezt kezelni, itt nem kell a polling
-    print("Bot felkészítve.")
-
-# Ez a rész csak akkor releváns, ha nem a main.py-ból futtatod
-if __name__ == '__main__':
-    # Ezt a részt a Render nem használja, a main.py a mérvadó
-    print("A bot csak a main.py-n keresztül indítható webszerverként.")
+    print("Parancskezelők sikeresen hozzáadva a diszpécserhez.")
+    return dp
