@@ -1,4 +1,4 @@
-# bot.py (Képen látható, csoportosított verzió)
+# bot.py (Végleges Verzió)
 
 import os
 import telegram
@@ -6,38 +6,37 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 from supabase import create_client, Client
 from datetime import datetime
 from collections import defaultdict
+import pytz # Időzóna kezeléséhez
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+HUNGARY_TZ = pytz.timezone('Europe/Budapest') # Magyar időzóna
 
 # --- Segédfüggvények ---
-
 def get_tip_details(tip_text):
-    """Visszaadja a tipp nevét és emojiját."""
+    """Visszaadja a tipp nevét és emojiját magyarul."""
     tipp_type_map = {
         "Home": ("Hazai", "🏠"), "Away": ("Vendég", "✈️"), "Draw": ("Döntetlen", "🤝"),
         "Gólok száma 2.5 felett": ("Gólszám 2.5+", "⚽️"),
-        "Mindkét csapat szerez gólt": ("BTTS", "🥅")
+        "Mindkét csapat szerez gólt": ("BTTS - Igen", "🥅")
     }
     return tipp_type_map.get(tip_text, (tip_text, "❓"))
 
 # --- Parancskezelő függvények ---
-
 async def start(update: telegram.Update, context: CallbackContext):
-    """Üdvözlő üzenet."""
     welcome_text = (
         "Üdvözöllek a Foci Tippadó Botban!\n\n"
         "Használható parancsok:\n"
         "*/tippek* - A mai napi tippek\n"
-        "*/napi_tuti* - Kiemelt kombi szelvények\n"
+        "*/napi_tuti* - Kiemelt kombi szelvény\n"
         "*/stat* - Eredmények és statisztikák"
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def tippek(update: telegram.Update, context: CallbackContext):
-    """Lekérdezi és csoportosítva elküldi a mai tippeket a kért formátumban."""
+    """Lekérdezi és elküldi a mai tippeket a végleges formátumban."""
     try:
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).order('kezdes').execute()
@@ -53,12 +52,16 @@ async def tippek(update: telegram.Update, context: CallbackContext):
         message_parts = ["*--- Mai Tippek ---*"]
         for fixture_id, tips_for_match in grouped_tips.items():
             first_tip = tips_for_match[0]
-            kezdes_ido = datetime.fromisoformat(first_tip['kezdes']).strftime('%H:%M')
+            
+            # Időzóna konverzió
+            utc_time = datetime.fromisoformat(first_tip['kezdes'].replace('Z', '+00:00'))
+            local_time = utc_time.astimezone(HUNGARY_TZ)
+            kezdes_ido = local_time.strftime('%H:%M')
             
             match_header = f"⚽️ *{first_tip['csapat_H']} vs {first_tip['csapat_V']}* ({kezdes_ido})"
             tip_lines = []
             for tip in tips_for_match:
-                tipp_type, emoji = get_tip_details(tip['tipp'])
+                tipp_type, _ = get_tip_details(tip['tipp'])
                 odds = f"{tip['odds']:.2f}"
                 tip_lines.append(f" `•` {tipp_type}: *{odds}*")
             
@@ -88,10 +91,9 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
             if not meccsek_res.data: continue
             
             for tip in meccsek_res.data:
-                tipp_type, emoji = get_tip_details(tip['tipp'])
+                tipp_type, _ = get_tip_details(tip['tipp'])
                 odds = f"{tip['odds']:.2f}"
                 match_name = f"{tip.get('csapat_H')} vs {tip.get('csapat_V')}"
-                
                 tip_line = f"⚽️ *{match_name}*\n `•` {tipp_type}: *{odds}*"
                 message_parts.append(tip_line)
             
@@ -104,8 +106,9 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"Hiba a Napi tuti lekérdezése közben: {e}")
 
-# ... A statisztika és add_handlers függvények változatlanok ...
+
 async def stat(update: telegram.Update, context: CallbackContext):
+    """Részletes statisztikát készít."""
     try:
         response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
         if not response.data:
@@ -145,6 +148,7 @@ async def stat(update: telegram.Update, context: CallbackContext):
         await update.message.reply_text(f"Hiba a statisztika készítése közben: {e}")
 
 def add_handlers(application: Application):
+    """Hozzáadja a parancsokat az alkalmazáshoz."""
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("tippek", tippek))
     application.add_handler(CommandHandler("napi_tuti", napi_tuti))
