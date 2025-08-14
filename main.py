@@ -1,4 +1,4 @@
-# main.py (Javított, végleges verzió)
+# main.py
 
 import os
 import asyncio
@@ -20,8 +20,8 @@ application = Application.builder().token(TOKEN).build()
 @api.on_event("startup")
 async def startup():
     """Elinduláskor inicializálja a botot és beállítja a webhookot."""
-    await application.initialize() # <--- JAVÍTÁS: A bot inicializálása
-    add_handlers(application)      # A parancsokat az inicializálás után adjuk hozzá
+    await application.initialize()
+    add_handlers(application)
     
     if RENDER_APP_URL:
         webhook_url = f"{RENDER_APP_URL}/{TOKEN}"
@@ -35,7 +35,7 @@ async def startup():
 @api.on_event("shutdown")
 async def shutdown():
     """Leálláskor leállítja a botot."""
-    await application.shutdown() # <--- JAVÍTÁS: A bot leállítása
+    await application.shutdown()
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
