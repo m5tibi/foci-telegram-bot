@@ -1,163 +1,208 @@
-# bot.py
+# tipp_generator.py
 
 import os
-import telegram
-from telegram.ext import Updater, CommandHandler, CallbackContext
+import requests
 from supabase import create_client, Client
 from datetime import datetime, timedelta
+import random
 
 # --- Konfiguráció ---
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") # Cseréld ki a környezeti változó nevére
+RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com" # Vagy amilyen API-t használsz
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Parancsok ---
+# --- Főbb funkciók ---
 
-def start(update: telegram.Update, context: CallbackContext):
-    """Üdvözlő üzenet."""
-    welcome_text = (
-        "Üdvözöllek a Foci Tippadó Botban!\n\n"
-        "Használható parancsok:\n"
-        "/tippek - A mai elérhető tippek listája\n"
-        "/napi_tuti - A mai kiemelt kombi szelvény(ek)\n"
-        "/stat - Részletes statisztika az eddigi tippekről"
-    )
-    update.message.reply_text(welcome_text)
-
-def tippek(update: telegram.Update, context: CallbackContext):
-    """Lekérdezi és elküldi a mai tippeket oddsokkal."""
+def get_fixtures_from_api():
+    """Lekéri a mai meccseket a külső API-ból."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
+    querystring = {"date": today}
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST
+    }
     try:
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).execute()
-        
-        if not response.data:
-            update.message.reply_text("A mai napra nincsenek elérhető tippek.")
-            return
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        return response.json().get('response', [])
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba az API hívás során: {e}")
+        return []
 
-        message = "🏆 Mai tippek:\n\n"
-        for tip in response.data:
-            kezdes_ido = datetime.fromisoformat(tip['kezdes']).strftime('%H:%M')
-            odds = f"@{tip['odds']}" if tip.get('odds') else ""
-            message += f"⚽️ {tip['csapat_H']} vs {tip['csapat_V']} ({kezdes_ido})\n"
-            message += f"   Tipp: {tip['tipp']} {odds}\n\n"
-        
-        # Üzenet darabolása, ha túl hosszú
-        for x in range(0, len(message), 4096):
-            update.message.reply_text(message[x:x+4096])
-
-    except Exception as e:
-        update.message.reply_text(f"Hiba történt a tippek lekérdezése közben: {e}")
-
-def napi_tuti(update: telegram.Update, context: CallbackContext):
-    """Lekérdezi és elküldi a 'Napi tuti' szelvény(eke)t."""
+def get_odds_for_fixture(fixture_id):
+    """Lekéri a fogadási oddsokat egy adott meccshez."""
+    url = f"https://{RAPIDAPI_HOST}/v3/odds"
+    querystring = {"fixture": str(fixture_id), "bookmaker": "8"} # Bet365 odds, de más is lehet
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST
+    }
     try:
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start)).execute()
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        data = response.json().get('response', [])
+        if data:
+            return data[0].get('bookmakers', [{}])[0].get('bets', [])
+        return []
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba az oddsok lekérése során (fixture: {fixture_id}): {e}")
+        return []
 
-        if not response.data:
-            update.message.reply_text("Ma még nem készült 'Napi tuti' szelvény.")
-            return
+def analyze_and_generate_tips(fixtures):
+    """Elemzi a meccseket és generálja a tippeket biztonsági pontszámmal."""
+    all_potential_tips = []
 
-        for szelveny in response.data:
-            message = f"🔥 {szelveny['tipp_neve']} 🔥\n\n"
-            tipp_id_k = szelveny['tipp_id_k']
-            
-            # Lekérdezzük a tippek részleteit
-            meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
-            if not meccsek_res.data:
-                continue
-            
-            for tip in meccsek_res.data:
-                kezdes_ido = datetime.fromisoformat(tip['kezdes']).strftime('%H:%M')
-                odds = f"@{tip['odds']}" if tip.get('odds') else ""
-                message += f"⚽️ {tip['csapat_H']} vs {tip['csapat_V']} ({kezdes_ido})\n"
-                message += f"   Tipp: {tip['tipp']} {odds}\n\n"
-            
-            eredo_odds = szelveny.get('eredo_odds', 0)
-            message += f"🎯 Eredő odds: {eredo_odds:.2f}\n"
-            update.message.reply_text(message)
+    for fixture_data in fixtures:
+        fixture = fixture_data.get('fixture', {})
+        teams = fixture_data.get('teams', {})
+        fixture_id = fixture.get('id')
 
-    except Exception as e:
-        update.message.reply_text(f"Hiba történt a Napi tuti lekérdezése közben: {e}")
+        if not fixture_id:
+            continue
 
-def stat(update: telegram.Update, context: CallbackContext):
-    """Részletes statisztikát készít a tippekről és a napi tutikról."""
-    try:
-        # --- Általános statisztika ---
-        response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
+        odds_data = get_odds_for_fixture(fixture_id)
+        if not odds_data:
+            continue
         
-        if not response.data:
-            update.message.reply_text("Nincsenek még kiértékelt tippek a statisztikához.")
-            return
-
-        nyert_db = sum(1 for tip in response.data if tip['eredmeny'] == 'Nyert')
-        veszitett_db = len(response.data) - nyert_db
-        osszes_db = len(response.data)
-        szazalek = (nyert_db / osszes_db * 100) if osszes_db > 0 else 0
-
-        stat_message = "📊 Általános Tipp Statisztika 📊\n\n"
-        stat_message += f"Összes tipp: {osszes_db} db\n"
-        stat_message += f"✅ Nyert: {nyert_db} db\n"
-        stat_message += f"❌ Veszített: {veszitett_db} db\n"
-        stat_message += f"📈 Találati arány: {szazalek:.2f}%\n"
-        stat_message += "-----------------------------------\n"
+        # --- Elemzési logika (ez egy egyszerűsített példa, tovább finomítható) ---
+        # Itt lehetne a csapatok formáját, H2H-t, stb. elemezni
+        # Most egy alapvető szűrést végzünk az oddsok alapján
         
-        # --- Napi Tuti Statisztika ---
-        napi_tuti_res = supabase.table("napi_tuti").select("*").execute()
-        if not napi_tuti_res.data:
-             stat_message += "Még nincsenek kiértékelt 'Napi tuti' szelvények."
-        else:
-            osszes_szelveny = 0
-            nyert_szelveny = 0
-            
-            for szelveny in napi_tuti_res.data:
-                tipp_id_k = szelveny.get('tipp_id_k', [])
-                if not tipp_id_k:
-                    continue
-                
-                # Ellenőrizzük, hogy a szelvény összes tippje ki van-e már értékelve
-                meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
-                
-                if len(meccsek_res.data) != len(tipp_id_k) or any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
-                    continue # Még nincs minden meccs kiértékelve, kihagyjuk
-                
-                osszes_szelveny += 1
-                if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
-                    nyert_szelveny += 1
-            
-            veszitett_szelveny = osszes_szelveny - nyert_szelveny
-            tuti_szazalek = (nyert_szelveny / osszes_szelveny * 100) if osszes_szelveny > 0 else 0
-            
-            stat_message += "🔥 Napi Tuti Statisztika 🔥\n\n"
-            stat_message += f"Összes kiértékelt szelvény: {osszes_szelveny} db\n"
-            stat_message += f"✅ Nyertes szelvények: {nyert_szelveny} db\n"
-            stat_message += f"❌ Vesztes szelvények: {veszitett_szelveny} db\n"
-            stat_message += f"📈 Sikerességi ráta: {tuti_szazalek:.2f}%\n"
+        for bet in odds_data:
+            # 1X2 - Match Winner
+            if bet.get('name') == "Match Winner":
+                for value in bet.get('values', []):
+                    if float(value.get('odd')) >= 1.4:
+                        tip_info = {
+                            "fixture_id": fixture_id,
+                            "csapat_H": teams.get('home', {}).get('name'),
+                            "csapat_V": teams.get('away', {}).get('name'),
+                            "kezdes": fixture.get('date'),
+                            "tipp": f"{value.get('value')}",
+                            "odds": float(value.get('odd')),
+                            "biztonsagi_pontszam": 70 + random.randint(-10, 10) # Placeholder pontszám
+                        }
+                        all_potential_tips.append(tip_info)
 
-        update.message.reply_text(stat_message)
+            # Over/Under 2.5
+            if bet.get('name') == "Over/Under":
+                 for value in bet.get('values', []):
+                    if value.get('value') == "Over 2.5" and float(value.get('odd')) >= 1.4:
+                        tip_info = {
+                            "fixture_id": fixture_id,
+                            "csapat_H": teams.get('home', {}).get('name'),
+                            "csapat_V": teams.get('away', {}).get('name'),
+                            "kezdes": fixture.get('date'),
+                            "tipp": "Gólok száma 2.5 felett",
+                            "odds": float(value.get('odd')),
+                            "biztonsagi_pontszam": 75 + random.randint(-10, 10)
+                        }
+                        all_potential_tips.append(tip_info)
 
-    except Exception as e:
-        update.message.reply_text(f"Hiba történt a statisztika készítése közben: {e}")
-
-# --- Bot indítása ---
-def main():
-    """A Telegram bot indítása."""
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    # Parancsok hozzáadása
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("tippek", tippek))
-    dp.add_handler(CommandHandler("napi_tuti", napi_tuti))
-    dp.add_handler(CommandHandler("stat", stat))
+            # Both Teams to Score
+            if bet.get('name') == "Both Teams To Score":
+                 for value in bet.get('values', []):
+                    if value.get('value') == "Yes" and float(value.get('odd')) >= 1.4:
+                        tip_info = {
+                            "fixture_id": fixture_id,
+                            "csapat_H": teams.get('home', {}).get('name'),
+                            "csapat_V": teams.get('away', {}).get('name'),
+                            "kezdes": fixture.get('date'),
+                            "tipp": "Mindkét csapat szerez gólt",
+                            "odds": float(value.get('odd')),
+                            "biztonsagi_pontszam": 80 + random.randint(-10, 10)
+                        }
+                        all_potential_tips.append(tip_info)
     
-    # Bot indítása a Render webhookhoz
-    # A main.py fogja ezt kezelni, itt nem kell a polling
-    print("Bot felkészítve.")
+    # Szűrés és a legjobb 10-15 kiválasztása
+    all_potential_tips.sort(key=lambda x: x['biztonsagi_pontszam'], reverse=True)
+    return all_potential_tips[:15]
 
-# Ez a rész csak akkor releváns, ha nem a main.py-ból futtatod
-if __name__ == '__main__':
-    # Ezt a részt a Render nem használja, a main.py a mérvadó
-    print("A bot csak a main.py-n keresztül indítható webszerverként.")
+
+def save_tips_to_supabase(tips):
+    """Elmenti a kiválasztott tippeket a Supabase adatbázisba."""
+    # Először töröljük a mai, még nem értékelt tippeket, hogy ne duplikálódjanak
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).execute()
+
+    # Hozzáadjuk az újakat
+    saved_tips_with_ids = []
+    for tip in tips:
+        try:
+            data, count = supabase.table("meccsek").insert({
+                "csapat_H": tip["csapat_H"],
+                "csapat_V": tip["csapat_V"],
+                "kezdes": tip["kezdes"],
+                "tipp": tip["tipp"],
+                "eredmeny": "Tipp leadva",
+                "odds": tip["odds"],
+                "fixture_id": tip["fixture_id"]
+            }).execute()
+            # Mentsük el az adatbázis ID-t a "Napi tuti"-hoz
+            if data and len(data[1]) > 0:
+                 tip_with_id = tip.copy()
+                 tip_with_id['db_id'] = data[1][0]['id']
+                 saved_tips_with_ids.append(tip_with_id)
+        except Exception as e:
+            print(f"Hiba a tipp mentése során: {e}")
+    return saved_tips_with_ids
+
+def create_daily_special(tips):
+    """Összeállítja a 'Napi tuti' szelvényt a legbiztosabb tippekből."""
+    if len(tips) < 2:
+        return
+
+    # Töröljük a tegnapi szelvényeket
+    yesterday = datetime.now() - timedelta(days=1)
+    supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
+
+    # 1. szelvény: a 2 legbiztosabb
+    special_tips_1 = tips[:2]
+    if len(special_tips_1) == 2:
+        eredo_odds_1 = special_tips_1[0]['odds'] * special_tips_1[1]['odds']
+        tipp_id_k_1 = [t['db_id'] for t in special_tips_1]
+        
+        supabase.table("napi_tuti").insert({
+            "tipp_neve": "Napi Tuti 1",
+            "eredo_odds": eredo_odds_1,
+            "tipp_id_k": tipp_id_k_1
+        }).execute()
+        print("Napi Tuti 1 sikeresen létrehozva.")
+
+    # 2. szelvény: a következő 3 biztos tipp
+    if len(tips) >= 5:
+      special_tips_2 = tips[2:5]
+      if len(special_tips_2) == 3:
+          eredo_odds_2 = special_tips_2[0]['odds'] * special_tips_2[1]['odds'] * special_tips_2[2]['odds']
+          tipp_id_k_2 = [t['db_id'] for t in special_tips_2]
+          
+          supabase.table("napi_tuti").insert({
+              "tipp_neve": "Napi Tuti 2",
+              "eredo_odds": eredo_odds_2,
+              "tipp_id_k": tipp_id_k_2
+          }).execute()
+          print("Napi Tuti 2 sikeresen létrehozva.")
+
+def main():
+    print("Tipp generátor indítása...")
+    fixtures = get_fixtures_from_api()
+    if fixtures:
+        print(f"Találat: {len(fixtures)} mai meccs.")
+        final_tips = analyze_and_generate_tips(fixtures)
+        if final_tips:
+            print(f"Kiválasztva {len(final_tips)} tipp.")
+            saved_tips = save_tips_to_supabase(final_tips)
+            create_daily_special(saved_tips)
+            print("Tippek és Napi Tuti szelvények sikeresen generálva és mentve.")
+        else:
+            print("Nem sikerült megfelelő tippeket generálni.")
+    else:
+        print("Nem találhatóak mai meccsek az API-ban.")
+
+if __name__ == "__main__":
+    main()
