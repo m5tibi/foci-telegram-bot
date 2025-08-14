@@ -1,216 +1,163 @@
+# bot.py
+
 import os
-import requests
+import telegram
+from telegram.ext import Updater, CommandHandler, CallbackContext
 from supabase import create_client, Client
-import asyncio
-import logging
 from datetime import datetime, timedelta
-import pytz
-from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
-import uvicorn
-from fastapi import FastAPI, Request
 
-# --- Alapbeállítások, naplózás ---
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- Konfiguráció ---
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# --- Környezeti változók betöltése ---
-try:
-    BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
-    WEBHOOK_URL = os.environ['WEBHOOK_URL']
-    SUPABASE_URL = os.environ['SUPABASE_URL']
-    SUPABASE_KEY = os.environ['SUPABASE_KEY']
-except KeyError as e:
-    logger.error(f"Hiányzó környezeti változó: {e}")
-    exit(1)
-
-# --- Supabase kliens inicializálása ---
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# --- ÚJ SEGÉDFÜGGVÉNY a hosszú üzenetek darabolásához ---
-async def send_in_chunks(update: Update, messages: list, parse_mode: str = ParseMode.MARKDOWN_V2):
-    """
-    Elküld egy üzenetlistát darabokban, hogy ne lépje túl a Telegram karakterlimitjét.
-    Minden elem a 'messages' listában egy logikai egységet (pl. egy meccset) képvisel.
-    """
-    MAX_LENGTH = 4096
-    current_chunk = ""
-    for message in messages:
-        # Ellenőrizzük, hogy a következő üzenet hozzáadásával túllépnénk-e a limitet
-        if len(current_chunk) + len(message) > MAX_LENGTH:
-            # Ha igen, elküldjük az eddigi darabot
-            if current_chunk:
-                await update.message.reply_text(current_chunk, parse_mode=parse_mode)
-            # Az új darab ezzel az üzenettel kezdődik
-            current_chunk = message
-        else:
-            # Ha nem, hozzáadjuk az aktuális darabhoz
-            current_chunk += message
-
-    # Elküldjük az utolsó megmaradt darabot is, ha van
-    if current_chunk:
-        await update.message.reply_text(current_chunk, parse_mode=parse_mode)
 
 # --- Parancsok ---
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A /start parancsra válaszol."""
-    await update.message.reply_text('Szia! A /tippek paranccsal a mai meccseket, a /stat paranccsal az eredményeket láthatod.')
+def start(update: telegram.Update, context: CallbackContext):
+    """Üdvözlő üzenet."""
+    welcome_text = (
+        "Üdvözöllek a Foci Tippadó Botban!\n\n"
+        "Használható parancsok:\n"
+        "/tippek - A mai elérhető tippek listája\n"
+        "/napi_tuti - A mai kiemelt kombi szelvény(ek)\n"
+        "/stat - Részletes statisztika az eddigi tippekről"
+    )
+    update.message.reply_text(welcome_text)
 
-async def get_tips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lekéri a meccseket és tippeket, majd elküldi őket darabolva."""
-    await update.message.reply_text('Pillanat, olvasom a tippeket az adatbázisból...')
+def tippek(update: telegram.Update, context: CallbackContext):
+    """Lekérdezi és elküldi a mai tippeket oddsokkal."""
     try:
-        response_meccsek = supabase.table('meccsek').select('*').execute()
-        records_meccsek = response_meccsek.data
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).execute()
         
-        response_archivum = supabase.table('tipp_elo_zmenyek').select('meccs_id, tipp_tipusa, statusz, vegeredmeny').in_('statusz', ['Nyert', 'Veszített']).execute()
-        records_archivum = {f"{rec['meccs_id']}_{rec['tipp_tipusa']}": {'statusz': rec['statusz'], 'vegeredmeny': rec['vegeredmeny']} for rec in response_archivum.data}
-
-        if not records_meccsek:
-            await update.message.reply_text('Jelenleg nincsenek elérhető tippek az adatbázisban.')
+        if not response.data:
+            update.message.reply_text("A mai napra nincsenek elérhető tippek.")
             return
 
-        tip_messages = [] # Lista a formázott meccs-tipp üzeneteknek
-        now_in_budapest = datetime.now(pytz.timezone("Europe/Budapest"))
-        INVALID_TIPS = ["N/A", "N/A (kevés adat)", "Nehéz megjósolni", "Gólok száma kérdéses", "BTTS kérdéses", "Nem"]
-
-        for row in records_meccsek:
-            tip_1x2, tip_goals, tip_btts = row['tipp_1x2'], row['tipp_goals'], row['tipp_btts']
-            tip_home_over_1_5 = row.get('tipp_hazai_1_5_felett', 'N/A')
-            tip_away_over_1_5 = row.get('tipp_vendeg_1_5_felett', 'N/A')
-            
-            if any(tip not in INVALID_TIPS for tip in [tip_1x2, tip_goals, tip_btts, tip_home_over_1_5, tip_away_over_1_5]):
-                date_str, home_team, away_team, liga = row['datum'], row['hazai_csapat'], row['vendeg_csapat'], row['liga']
-                meccs_id = row['meccs_id']
-                
-                start_time_str, is_past = "Ismeretlen", False
-                try:
-                    utc_dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    budapest_tz = pytz.timezone("Europe/Budapest")
-                    local_dt = utc_dt.astimezone(budapest_tz)
-                    start_time_str = local_dt.strftime('%H:%M')
-                    if local_dt < now_in_budapest: is_past = True
-                except (ValueError, TypeError): logger.warning(f"Ismeretlen dátum formátum: {date_str}")
-                
-                # Markdown karakterek escape-elése
-                def escape_md(text: str) -> str:
-                    # A lista bővíthető a speciális karakterekkel
-                    escape_chars = r'_*[]()~`>#+-=|{}.!'
-                    return ''.join(f'\\{char}' if char in escape_chars else char for char in text)
-
-                home_team_safe, away_team_safe, liga_safe = escape_md(home_team), escape_md(away_team), escape_md(liga)
-                
-                match_message = ""
-                match_message += f"⚽ *{home_team_safe} vs {away_team_safe}*\n"
-                match_message += f"🏆 Bajnokság: `{liga_safe}`\n"
-                match_message += f"⏰ Kezdés: *{start_time_str}*\n"
-
-                if is_past:
-                    vegeredmeny = next((v['vegeredmeny'] for k, v in records_archivum.items() if k.startswith(f"{meccs_id}_")), "N/A")
-                    match_message += f"🏁 Végeredmény: *{escape_md(vegeredmeny)}*\n"
-                    status_icon_map = {"Nyert": "✅", "Veszített": "❌"}
-                    
-                    # Tippek kiértékeléssel
-                    if tip_1x2 not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_1X2", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        match_message += f"🏆 Eredmény tipp: `{escape_md(tip_1x2)}` {icon}\n"
-                    if tip_goals not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_Gólok O/U 2.5", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        match_message += f"🥅 Gólok O/U 2\\.5: `{escape_md(tip_goals)}` {icon}\n"
-                    if tip_btts not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_BTTS", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        match_message += f"🤝 Mindkét csapat szerez gólt: `{escape_md(tip_btts)}` {icon}\n"
-                    if tip_home_over_1_5 not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_Hazai 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        match_message += f"📈 Hazai 1\\.5 gól felett: `{escape_md(tip_home_over_1_5)}` {icon}\n"
-                    if tip_away_over_1_5 not in INVALID_TIPS:
-                        result = records_archivum.get(f"{meccs_id}_Vendég 1.5 felett", {}); icon = status_icon_map.get(result.get('statusz'), "⏳")
-                        match_message += f"📉 Vendég 1\\.5 gól felett: `{escape_md(tip_away_over_1_5)}` {icon}\n"
-                else:
-                    # Jövőbeli meccsek tippjei
-                    if tip_1x2 not in INVALID_TIPS: match_message += f"🏆 Eredmény: `{escape_md(tip_1x2)}`\n"
-                    if tip_goals not in INVALID_TIPS: match_message += f"🥅 Gólok O/U 2\\.5: `{escape_md(tip_goals)}`\n"
-                    if tip_btts not in INVALID_TIPS: match_message += f"🤝 Mindkét csapat szerez gólt: `{escape_md(tip_btts)}`\n"
-                    if tip_home_over_1_5 not in INVALID_TIPS: match_message += f"📈 Hazai 1\\.5 gól felett: `{escape_md(tip_home_over_1_5)}`\n"
-                    if tip_away_over_1_5 not in INVALID_TIPS: match_message += f"📉 Vendég 1\\.5 gól felett: `{escape_md(tip_away_over_1_5)}`\n"
-                
-                match_message += "\n" # Elválasztó a meccsek között
-                tip_messages.append(match_message)
-
-        if not tip_messages:
-            await update.message.reply_text("Nem található a mai napon olyan meccs, amihez érdemi tippet lehetne adni.")
-            return
-
-        # Üzenetek elküldése darabolva az új segédfüggvénnyel
-        await send_in_chunks(update, tip_messages, parse_mode=ParseMode.MARKDOWN_V2)
+        message = "🏆 Mai tippek:\n\n"
+        for tip in response.data:
+            kezdes_ido = datetime.fromisoformat(tip['kezdes']).strftime('%H:%M')
+            odds = f"@{tip['odds']}" if tip.get('odds') else ""
+            message += f"⚽️ {tip['csapat_H']} vs {tip['csapat_V']} ({kezdes_ido})\n"
+            message += f"   Tipp: {tip['tipp']} {odds}\n\n"
+        
+        # Üzenet darabolása, ha túl hosszú
+        for x in range(0, len(message), 4096):
+            update.message.reply_text(message[x:x+4096])
 
     except Exception as e:
-        logger.error(f"Kritikus hiba a tippek lekérése közben: {e}", exc_info=True)
-        await update.message.reply_text('Hiba történt az adatok lekérése közben. Ellenőrizd a Render naplót!')
+        update.message.reply_text(f"Hiba történt a tippek lekérdezése közben: {e}")
 
-async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lekéri és kiszámolja a tippek statisztikáját."""
-    await update.message.reply_text('Pillanat, számolom a statisztikákat az archívumból...')
+def napi_tuti(update: telegram.Update, context: CallbackContext):
+    """Lekérdezi és elküldi a 'Napi tuti' szelvény(eke)t."""
     try:
-        response = supabase.table('tipp_elo_zmenyek').select('*').in_('statusz', ['Nyert', 'Veszített']).execute()
-        records = response.data
-        if not records:
-            await update.message.reply_text('Az archívum még üres, nincsenek kiértékelt tippek.')
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start)).execute()
+
+        if not response.data:
+            update.message.reply_text("Ma még nem készült 'Napi tuti' szelvény.")
             return
-        stats = {'today': {'wins': 0, 'losses': 0}, 'yesterday': {'wins': 0, 'losses': 0}, 'last_7_days': {'wins': 0, 'losses': 0}, 'last_30_days': {'wins': 0, 'losses': 0}}
-        today = datetime.now(pytz.timezone("Europe/Budapest")).date()
-        yesterday = today - timedelta(days=1); seven_days_ago = today - timedelta(days=7); thirty_days_ago = today - timedelta(days=30)
-        for rec in records:
-            try:
-                rec_date = datetime.fromisoformat(rec['datum'].replace('Z', '+00:00')).date()
-                result = 'wins' if rec['statusz'] == 'Nyert' else 'losses'
-                if rec_date == today: stats['today'][result] += 1
-                if rec_date == yesterday: stats['yesterday'][result] += 1
-                if rec_date >= seven_days_ago: stats['last_7_days'][result] += 1
-                if rec_date >= thirty_days_ago: stats['last_30_days'][result] += 1
-            except (ValueError, TypeError): continue
-        response_message = "📊 *Tippek Eredményessége*\n\n"
-        def calculate_success_rate(wins, losses):
-            total = wins + losses
-            if total == 0: return "N/A (nincs adat)"
-            rate = (wins / total) * 100
-            return f"{wins}/{total} ({rate:.1f}%)"
-        response_message += f"*Mai nap:*\n`{calculate_success_rate(stats['today']['wins'], stats['today']['losses'])}`\n\n"
-        response_message += f"*Tegnapi nap:*\n`{calculate_success_rate(stats['yesterday']['wins'], stats['yesterday']['losses'])}`\n\n"
-        response_message += f"*Elmúlt 7 nap:*\n`{calculate_success_rate(stats['last_7_days']['wins'], stats['last_7_days']['losses'])}`\n\n"
-        response_message += f"*Elmúlt 30 nap:*\n`{calculate_success_rate(stats['last_30_days']['wins'], stats['last_30_days']['losses'])}`"
-        await update.message.reply_text(response_message, parse_mode=ParseMode.MARKDOWN_V2)
+
+        for szelveny in response.data:
+            message = f"🔥 {szelveny['tipp_neve']} 🔥\n\n"
+            tipp_id_k = szelveny['tipp_id_k']
+            
+            # Lekérdezzük a tippek részleteit
+            meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
+            if not meccsek_res.data:
+                continue
+            
+            for tip in meccsek_res.data:
+                kezdes_ido = datetime.fromisoformat(tip['kezdes']).strftime('%H:%M')
+                odds = f"@{tip['odds']}" if tip.get('odds') else ""
+                message += f"⚽️ {tip['csapat_H']} vs {tip['csapat_V']} ({kezdes_ido})\n"
+                message += f"   Tipp: {tip['tipp']} {odds}\n\n"
+            
+            eredo_odds = szelveny.get('eredo_odds', 0)
+            message += f"🎯 Eredő odds: {eredo_odds:.2f}\n"
+            update.message.reply_text(message)
+
     except Exception as e:
-        logger.error(f"Kritikus hiba a statisztika számolása közben: {e}", exc_info=True)
-        await update.message.reply_text('Hiba történt a statisztika számolása közben.')
+        update.message.reply_text(f"Hiba történt a Napi tuti lekérdezése közben: {e}")
 
+def stat(update: telegram.Update, context: CallbackContext):
+    """Részletes statisztikát készít a tippekről és a napi tutikról."""
+    try:
+        # --- Általános statisztika ---
+        response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
+        
+        if not response.data:
+            update.message.reply_text("Nincsenek még kiértékelt tippek a statisztikához.")
+            return
 
-# --- Alkalmazás és Webhook beállítása (FastAPI) ---
-application = Application.builder().token(BOT_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("tippek", get_tips))
-application.add_handler(CommandHandler("stat", get_stats))
+        nyert_db = sum(1 for tip in response.data if tip['eredmeny'] == 'Nyert')
+        veszitett_db = len(response.data) - nyert_db
+        osszes_db = len(response.data)
+        szazalek = (nyert_db / osszes_db * 100) if osszes_db > 0 else 0
 
-api = FastAPI()
+        stat_message = "📊 Általános Tipp Statisztika 📊\n\n"
+        stat_message += f"Összes tipp: {osszes_db} db\n"
+        stat_message += f"✅ Nyert: {nyert_db} db\n"
+        stat_message += f"❌ Veszített: {veszitett_db} db\n"
+        stat_message += f"📈 Találati arány: {szazalek:.2f}%\n"
+        stat_message += "-----------------------------------\n"
+        
+        # --- Napi Tuti Statisztika ---
+        napi_tuti_res = supabase.table("napi_tuti").select("*").execute()
+        if not napi_tuti_res.data:
+             stat_message += "Még nincsenek kiértékelt 'Napi tuti' szelvények."
+        else:
+            osszes_szelveny = 0
+            nyert_szelveny = 0
+            
+            for szelveny in napi_tuti_res.data:
+                tipp_id_k = szelveny.get('tipp_id_k', [])
+                if not tipp_id_k:
+                    continue
+                
+                # Ellenőrizzük, hogy a szelvény összes tippje ki van-e már értékelve
+                meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
+                
+                if len(meccsek_res.data) != len(tipp_id_k) or any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
+                    continue # Még nincs minden meccs kiértékelve, kihagyjuk
+                
+                osszes_szelveny += 1
+                if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
+                    nyert_szelveny += 1
+            
+            veszitett_szelveny = osszes_szelveny - nyert_szelveny
+            tuti_szazalek = (nyert_szelveny / osszes_szelveny * 100) if osszes_szelveny > 0 else 0
+            
+            stat_message += "🔥 Napi Tuti Statisztika 🔥\n\n"
+            stat_message += f"Összes kiértékelt szelvény: {osszes_szelveny} db\n"
+            stat_message += f"✅ Nyertes szelvények: {nyert_szelveny} db\n"
+            stat_message += f"❌ Vesztes szelvények: {veszitett_szelveny} db\n"
+            stat_message += f"📈 Sikerességi ráta: {tuti_szazalek:.2f}%\n"
 
-@api.on_event("startup")
-async def startup_event():
-    await application.initialize()
-    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram")
-    logger.info(f"Webhook sikeresen beállítva a következő címre: {WEBHOOK_URL}/telegram")
+        update.message.reply_text(stat_message)
 
-@api.on_event("shutdown")
-async def shutdown_event():
-    await application.shutdown()
-    logger.info("Alkalmazás leállt.")
+    except Exception as e:
+        update.message.reply_text(f"Hiba történt a statisztika készítése közben: {e}")
 
-@api.post("/telegram")
-async def telegram_webhook(request: Request):
-    update = Update.de_json(data=await request.json(), bot=application.bot)
-    await application.process_update(update)
-    return {"status": "ok"}
+# --- Bot indítása ---
+def main():
+    """A Telegram bot indítása."""
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-# --- Futtatás (uvicorn-hoz) ---
-# Ezt a részt a Render/uvicorn kezeli, itt nincs teendő.
+    # Parancsok hozzáadása
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("tippek", tippek))
+    dp.add_handler(CommandHandler("napi_tuti", napi_tuti))
+    dp.add_handler(CommandHandler("stat", stat))
+    
+    # Bot indítása a Render webhookhoz
+    # A main.py fogja ezt kezelni, itt nem kell a polling
+    print("Bot felkészítve.")
+
+# Ez a rész csak akkor releváns, ha nem a main.py-ból futtatod
+if __name__ == '__main__':
+    # Ezt a részt a Render nem használja, a main.py a mérvadó
+    print("A bot csak a main.py-n keresztül indítható webszerverként.")
