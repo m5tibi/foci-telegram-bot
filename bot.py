@@ -1,41 +1,27 @@
-# bot.py (Végleges, formázott verzió)
+# bot.py (Csoportosított, formázott verzió)
 
 import os
 import telegram
 from telegram.ext import Application, CommandHandler, CallbackContext
 from supabase import create_client, Client
 from datetime import datetime
+from collections import defaultdict
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Segédfüggvény a formázáshoz ---
+# --- Segédfüggvények ---
 
-def get_formatted_tip_line(tip):
-    """Létrehoz egy formázott sort egy tipphez."""
+def get_tip_details(tip_text):
+    """Visszaadja a tipp nevét és emojiját."""
     tipp_type_map = {
-        "Home": ("Hazai", "🏠"),
-        "Away": ("Vendég", "✈️"),
-        "Draw": ("Döntetlen", "🤝"),
-        "Gólok száma 2.5 felett": ("Gólszám", "⚽️"),
+        "Home": ("Hazai", "🏠"), "Away": ("Vendég", "✈️"), "Draw": ("Döntetlen", "🤝"),
+        "Gólok száma 2.5 felett": ("Gólszám 2.5+", "⚽️"),
         "Mindkét csapat szerez gólt": ("BTTS", "⚽️")
     }
-    
-    tipp_text = tip.get('tipp')
-    tipp_type, emoji = tipp_type_map.get(tipp_text, (tipp_text, "❓"))
-    
-    odds = f"{tip['odds']:.2f}"
-    
-    # A tipp kimenetének formázása
-    if tipp_text in ["Home", "Away", "Draw"]:
-        kimenet = f"{tip.get('csapat_H')} - {tip.get('csapat_V')}"
-    else:
-        kimenet = tipp_text
-
-    return f"{emoji} *{tipp_type}* - {kimenet} `({odds})`"
-
+    return tipp_type_map.get(tip_text, (tip_text, "❓"))
 
 # --- Parancskezelő függvények ---
 
@@ -45,12 +31,13 @@ async def start(update: telegram.Update, context: CallbackContext):
         "Üdvözöllek a Foci Tippadó Botban!\n\n"
         "Használható parancsok:\n"
         "*/tippek* - A mai napi tippek\n"
-        "*/napi_tuti* - Kiemelt kombi szelvények"
+        "*/napi_tuti* - Kiemelt kombi szelvények\n"
+        "*/stat* - Eredmények és statisztikák"
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def tippek(update: telegram.Update, context: CallbackContext):
-    """Lekérdezi és elküldi a mai tippeket az új formátumban."""
+    """Lekérdezi és csoportosítva elküldi a mai tippeket."""
     try:
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).order('kezdes').execute()
@@ -59,19 +46,30 @@ async def tippek(update: telegram.Update, context: CallbackContext):
             await update.message.reply_text("🔎 A mai napra nincsenek elérhető tippek.")
             return
 
-        message_parts = ["*--- Mai Tippek ---*"]
+        # *** ÚJ CSOPORTOSÍTÓ LOGIKA ***
+        grouped_tips = defaultdict(list)
         for tip in response.data:
-            message_parts.append(get_formatted_tip_line(tip))
+            grouped_tips[tip['fixture_id']].append(tip)
         
-        final_message = "\n\n".join(message_parts)
-        
-        await update.message.reply_text(final_message, parse_mode='Markdown')
+        message = "*--- Mai Tippek ---*\n\n"
+        for fixture_id, tips_for_match in grouped_tips.items():
+            first_tip = tips_for_match[0]
+            message += f"⚽️ *{first_tip['csapat_H']} vs {first_tip['csapat_V']}*\n"
+            message += "--------------------\n"
+            
+            for tip in tips_for_match:
+                tipp_type, emoji = get_tip_details(tip['tipp'])
+                odds = f"{tip['odds']:.2f}"
+                message += f"{emoji} {tipp_type} `({odds})`\n"
+            message += "\n" # Szóköz a meccsek között
+
+        await update.message.reply_text(message, parse_mode='Markdown')
 
     except Exception as e:
         await update.message.reply_text(f"Hiba történt a tippek lekérdezése közben: {e}")
 
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
-    """Lekérdezi és elküldi a 'Napi tuti' szelvény(eke)t az új formátumban."""
+    """Lekérdezi és elküldi a 'Napi tuti' szelvényt a csoportosított formátumban."""
     try:
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start)).execute()
@@ -85,11 +83,13 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
             tipp_id_k = szelveny.get('tipp_id_k', [])
             
             meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
-            if not meccsek_res.data:
-                continue
+            if not meccsek_res.data: continue
             
             for tip in meccsek_res.data:
-                message_parts.append(get_formatted_tip_line(tip))
+                 tipp_type, emoji = get_tip_details(tip['tipp'])
+                 odds = f"{tip['odds']:.2f}"
+                 kimenet = f"{tip.get('csapat_H')} - {tip.get('csapat_V')}"
+                 message_parts.append(f"{emoji} *{tipp_type}* - {kimenet} `({odds})`")
             
             eredo_odds = szelveny.get('eredo_odds', 0)
             message_parts.append(f"\n🎯 *Eredő odds:* `{eredo_odds:.2f}`")
@@ -98,11 +98,11 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
             await update.message.reply_text(final_message, parse_mode='Markdown')
 
     except Exception as e:
-        await update.message.reply_text(f"Hiba történt a Napi tuti lekérdezése közben: {e}")
+        await update.message.reply_text(f"Hiba a Napi tuti lekérdezése közben: {e}")
+
 
 # A statisztika parancs változatlan maradt
 async def stat(update: telegram.Update, context: CallbackContext):
-    """Részletes statisztikát készít."""
     try:
         # ... (a statisztika kódja nem változott)
         response = supabase.table("meccsek").select("eredmeny").in_("eredmeny", ["Nyert", "Veszített"]).execute()
@@ -149,11 +149,12 @@ async def stat(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"Hiba a statisztika készítése közben: {e}")
 
+
 def add_handlers(application: Application):
     """Hozzáadja a parancsokat az alkalmazáshoz."""
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("tippek", tippek))
     application.add_handler(CommandHandler("napi_tuti", napi_tuti))
     application.add_handler(CommandHandler("stat", stat))
-    print("Formázott parancskezelők sikeresen hozzáadva.")
+    print("Csoportosított, formázott parancskezelők sikeresen hozzáadva.")
     return application
