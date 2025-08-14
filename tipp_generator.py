@@ -1,4 +1,4 @@
-# tipp_generator.py (PRO Verzió)
+# tipp_generator.py (Javított PRO Verzió)
 
 import os
 import requests
@@ -15,8 +15,7 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- TOP LIGÁK LISTÁJA (Ezt lehet bővíteni/szűkíteni) ---
-# A számok a liga azonosítói az API-ban
+# --- TOP LIGÁK LISTÁJA ---
 TOP_LEAGUES = {
     # Nemzetközi
     1: "Bajnokok Ligája",
@@ -49,33 +48,37 @@ TOP_LEAGUES = {
 def get_fixtures_from_api():
     """Lekéri a mai meccseket a külső API-ból."""
     today = datetime.now().strftime("%Y-%m-%d")
+    current_season = str(datetime.now().year) # <--- JAVÍTÁS: Dinamikus év
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
     
-    # Lekérdezzük a meccseket a top ligákból
     league_ids = list(TOP_LEAGUES.keys())
     all_fixtures = []
     
     for league_id in league_ids:
-        querystring = {"date": today, "league": str(league_id), "season": "2024"} # Az aktuális szezonnal
+        # A querystring már a dinamikus 'current_season'-t használja
+        querystring = {"date": today, "league": str(league_id), "season": current_season}
         headers = {
             "X-RapidAPI-Key": RAPIDAPI_KEY,
             "X-RapidAPI-Host": RAPIDAPI_HOST
         }
         try:
-            print(f"Meccsek lekérése a(z) {TOP_LEAGUES[league_id]} ligából...")
+            print(f"Meccsek lekérése a(z) {TOP_LEAGUES[league_id]} ligából a(z) {current_season} szezonra...")
             response = requests.get(url, headers=headers, params=querystring)
             response.raise_for_status()
             all_fixtures.extend(response.json().get('response', []))
-            time.sleep(0.5) # Udvarias várakozás a kérések között
+            time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             print(f"Hiba a(z) {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
             
     return all_fixtures
 
+# ... a fájl többi része változatlan ...
+# (A kód többi részét nem másolom be újra, mivel az nem változott.
+# Használd az előző üzenetben küldött teljes kódot, és csak ezt a funkciót cseréld le,
+# vagy másold be ezt a teljes, új kódot.)
+
 def get_odds_for_fixture(fixture_id):
     """Lekéri a legfontosabb fogadási oddsokat egy adott meccshez."""
-    # A legfontosabb fogadási piacok azonosítói (Bet365)
-    # 1: Match Winner, 5: Both Teams To Score, 12: Over/Under
     bets_to_get = ["1", "5", "12"] 
     all_odds_for_fixture = []
 
@@ -92,7 +95,7 @@ def get_odds_for_fixture(fixture_id):
             data = response.json().get('response', [])
             if data:
                 all_odds_for_fixture.extend(data[0].get('bookmakers', [{}])[0].get('bets', []))
-            time.sleep(0.5) # Udvarias várakozás
+            time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             print(f"Hiba az oddsok lekérése során (fixture: {fixture_id}, bet: {bet_id}): {e}")
     
@@ -124,7 +127,6 @@ def analyze_and_generate_tips(fixtures):
                 "kezdes": fixture.get('date')
             }
 
-            # 1X2 - Match Winner
             if bet.get('name') == "Match Winner":
                 for value in bet.get('values', []):
                     if float(value.get('odd')) >= 1.4:
@@ -136,7 +138,6 @@ def analyze_and_generate_tips(fixtures):
                         })
                         all_potential_tips.append(tip_info)
 
-            # Over/Under 2.5
             if bet.get('name') == "Over/Under" and any(v['value'] == 'Over 2.5' for v in bet.get('values', [])):
                 value = next(v for v in bet['values'] if v['value'] == 'Over 2.5')
                 if float(value.get('odd')) >= 1.4:
@@ -148,7 +149,6 @@ def analyze_and_generate_tips(fixtures):
                     })
                     all_potential_tips.append(tip_info)
 
-            # Both Teams to Score
             if bet.get('name') == "Both Teams To Score" and any(v['value'] == 'Yes' for v in bet.get('values', [])):
                 value = next(v for v in bet['values'] if v['value'] == 'Yes')
                 if float(value.get('odd')) >= 1.4:
@@ -165,7 +165,6 @@ def analyze_and_generate_tips(fixtures):
 
 
 def save_tips_to_supabase(tips):
-    """Elmenti a kiválasztott tippeket a Supabase adatbázisba."""
     if not tips:
         print("Nincsenek menthető tippek.")
         return []
@@ -198,7 +197,6 @@ def save_tips_to_supabase(tips):
     return saved_tips_with_ids
 
 def create_daily_special(tips):
-    """Összeállítja a 'Napi tuti' szelvényt a legbiztosabb tippekből."""
     if len(tips) < 2:
         return
 
