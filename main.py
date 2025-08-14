@@ -1,32 +1,36 @@
-# main.py
+# main.py (Végleges verzió)
 
 import os
 import asyncio
 from fastapi import FastAPI, Request
 import telegram
-from telegram.ext import Dispatcher
 
-from bot import setup_dispatcher # Ezt a funkciót a bot.py-ból importáljuk
+# A bot.py-ból importáljuk a parancsok beállításáért felelős funkciót
+from bot import add_handlers
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL") # Ezt a Render adja meg automatikusan
+RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-# --- FastAPI Alkalmazás ---
+# --- FastAPI és Telegram Alkalmazás beállítása ---
 api = FastAPI()
-bot = telegram.Bot(token=TOKEN)
 
-# A bot parancskezelőjének beállítása
-dp = Dispatcher(bot, None, workers=0)
-setup_dispatcher(dp)
+# Az új, helyes módja az alkalmazás létrehozásának
+from telegram.ext import Application, CommandHandler
+
+# Létrehozzuk az alkalmazás-objektumot
+application = Application.builder().token(TOKEN).build()
+
+# Hozzáadjuk a parancskezelőket
+add_handlers(application)
 
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     """Fogadja a Telegram által küldött webhook kérést."""
     data = await request.json()
-    update = telegram.Update.de_json(data, bot)
-    dp.process_update(update)
+    update = telegram.Update.de_json(data, application.bot)
+    await application.process_update(update)
     return {"status": "ok"}
 
 @api.get("/")
@@ -42,7 +46,8 @@ async def startup():
         return
     
     webhook_url = f"{RENDER_APP_URL}/{TOKEN}"
-    was_set = await bot.set_webhook(url=webhook_url, allowed_updates=["message"])
+    # Az application objektumot használjuk a bot eléréséhez
+    was_set = await application.bot.set_webhook(url=webhook_url, allowed_updates=telegram.Update.ALL_TYPES)
     if was_set:
         print(f"Webhook sikeresen beállítva: {webhook_url}")
     else:
@@ -51,5 +56,5 @@ async def startup():
 @api.on_event("shutdown")
 async def shutdown():
     """Leálláskor törli a webhookot."""
-    await bot.delete_webhook()
+    await application.bot.delete_webhook()
     print("Webhook törölve.")
