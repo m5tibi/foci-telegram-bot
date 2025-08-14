@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py
+# eredmeny_ellenorzo.py (Végleges Prémium Verzió)
 
 import os
 import requests
@@ -13,7 +13,7 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_fixtures_to_check():
-    """Lekéri azokat a meccseket az adatbázisból, amik már véget értek, de még nincsenek kiértékelve."""
+    """Lekéri a kiértékelendő tippeket."""
     yesterday = datetime.now() - timedelta(days=1)
     return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(yesterday)).execute().data
 
@@ -32,45 +32,46 @@ def get_fixture_result(fixture_id):
         return None
 
 def evaluate_tip(tip_text, fixture_data):
-    """Kiértékeli a tippet a meccs eredménye alapján."""
+    """Kiértékeli a tippet és visszaadja az eredményt és a végeredményt."""
     goals_home = fixture_data.get('goals', {}).get('home')
     goals_away = fixture_data.get('goals', {}).get('away')
     
     if goals_home is None or goals_away is None:
-        return "Hiba"
+        return "Hiba", None
 
+    score_str = f"{goals_home}-{goals_away}"
+    
     # 1X2
-    if tip_text == "Home" and goals_home > goals_away: return "Nyert"
-    if tip_text == "Away" and goals_away > goals_home: return "Nyert"
-    if tip_text == "Draw" and goals_home == goals_away: return "Nyert"
-    
+    if tip_text == "Home" and goals_home > goals_away: return "Nyert", score_str
+    if tip_text == "Away" and goals_away > goals_home: return "Nyert", score_str
+    if tip_text == "Draw" and goals_home == goals_away: return "Nyert", score_str
     # Gólszám
-    if tip_text == "Gólok száma 2.5 felett" and (goals_home + goals_away) > 2.5: return "Nyert"
-    
+    if tip_text == "Gólok száma 2.5 felett" and (goals_home + goals_away) > 2.5: return "Nyert", score_str
     # BTTS
-    if tip_text == "Mindkét csapat szerez gólt" and goals_home > 0 and goals_away > 0: return "Nyert"
+    if tip_text == "Mindkét csapat szerez gólt" and goals_home > 0 and goals_away > 0: return "Nyert", score_str
 
-    return "Veszített"
+    return "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása...")
+    print("Eredmény-ellenőrző indítása (Prémium Verzió)...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
         return
 
-    print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
     for fixture in fixtures_to_check:
-        fixture_id = fixture.get('fixture_id')
-        tip_text = fixture.get('tipp')
-        db_id = fixture.get('id')
-
+        fixture_id, tip_text, db_id = fixture.get('fixture_id'), fixture.get('tipp'), fixture.get('id')
         result_data = get_fixture_result(fixture_id)
+        
         if result_data and result_data.get('fixture', {}).get('status', {}).get('short') == 'FT':
-            final_result = evaluate_tip(tip_text, result_data)
-            print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}")
-            # Adatbázis frissítése
-            supabase.table("meccsek").update({"eredmeny": final_result}).eq("id", db_id).execute()
+            final_result, score_str = evaluate_tip(tip_text, result_data)
+            print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}, Végeredmény: {score_str}")
+            
+            # Adatbázis frissítése az eredménnyel és a végeredménnyel
+            supabase.table("meccsek").update({
+                "eredmeny": final_result,
+                "veg_eredmeny": score_str
+            }).eq("id", db_id).execute()
         else:
             print(f"A(z) {fixture_id} meccs még nem fejeződött be, vagy hiba történt.")
 
