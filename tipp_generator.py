@@ -1,4 +1,4 @@
-# tipp_generator.py (Finomhangolt szűrővel)
+# tipp_generator.py (Végleges Prémium Verzió)
 
 import os
 import requests
@@ -30,6 +30,7 @@ def get_fixtures_from_api():
     current_season = str(datetime.now().year)
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
     all_fixtures = []
+    
     for league_id in TOP_LEAGUES.keys():
         querystring = {"date": today, "league": str(league_id), "season": current_season}
         headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
@@ -41,6 +42,7 @@ def get_fixtures_from_api():
             time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             print(f"Hiba a {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
+            
     return all_fixtures
 
 def get_odds_for_fixture(fixture_id):
@@ -58,6 +60,7 @@ def get_odds_for_fixture(fixture_id):
             time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             print(f"Hiba az oddsok lekérése során (fixture: {fixture_id}): {e}")
+            
     return all_odds_for_fixture
 
 def analyze_and_generate_tips(fixtures):
@@ -65,6 +68,7 @@ def analyze_and_generate_tips(fixtures):
     for fixture_data in fixtures:
         fixture = fixture_data.get('fixture', {})
         teams = fixture_data.get('teams', {})
+        league = fixture_data.get('league', {})
         fixture_id = fixture.get('id')
         if not fixture_id: continue
 
@@ -74,8 +78,12 @@ def analyze_and_generate_tips(fixtures):
         
         tips_for_this_match = []
         tip_template = {
-            "fixture_id": fixture_id, "csapat_H": teams.get('home', {}).get('name'),
-            "csapat_V": teams.get('away', {}).get('name'), "kezdes": fixture.get('date')
+            "fixture_id": fixture_id,
+            "csapat_H": teams.get('home', {}).get('name'),
+            "csapat_V": teams.get('away', {}).get('name'),
+            "kezdes": fixture.get('date'),
+            "liga_nev": league.get('name'), # ÚJ
+            "liga_orszag": league.get('country') # ÚJ
         }
         
         def check_and_add_tip(value, tipp_nev, base_score, score_threshold):
@@ -91,28 +99,23 @@ def analyze_and_generate_tips(fixtures):
             if bet.get('name') == "Match Winner":
                 best_1x2_value = min(bet.get('values', []), key=lambda x: float(x.get('odd', 99)))
                 check_and_add_tip(best_1x2_value, best_1x2_value.get('value'), 100, 75)
-
-            # Enyhébb szűrő a BTTS és Gólszám tippeknek
             if bet.get('name') == "Both Teams To Score" and any(v['value'] == 'Yes' for v in bet.get('values', [])):
                 value = next(v for v in bet['values'] if v['value'] == 'Yes')
-                check_and_add_tip(value, "Mindkét csapat szerez gólt", 90, 65) # <-- Küszöb csökkentve 65-re
-
+                check_and_add_tip(value, "Mindkét csapat szerez gólt", 90, 68) # Enyhített küszöb
             if bet.get('name') == "Over/Under" and any(v['value'] == 'Over 2.5' for v in bet.get('values', [])):
                 value = next(v for v in bet['values'] if v['value'] == 'Over 2.5')
-                check_and_add_tip(value, "Gólok száma 2.5 felett", 85, 65) # <-- Küszöb csökkentve 65-re
+                check_and_add_tip(value, "Gólok száma 2.5 felett", 85, 68) # Enyhített küszöb
         
         final_tips.extend(tips_for_this_match)
     
     return final_tips
 
-# ... a többi függvény (save_tips_to_supabase, create_daily_special, main) változatlan ...
 def save_tips_to_supabase(tips):
-    if not tips:
-        print("Nincsenek menthető tippek.")
-        return []
+    if not tips: return []
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     print("Régi, mai tippek törlése...")
     supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").gte("kezdes", str(today_start)).execute()
+    
     print(f"{len(tips)} új tipp hozzáadása...")
     saved_tips_with_ids = []
     for tip in tips:
@@ -120,7 +123,7 @@ def save_tips_to_supabase(tips):
             data, count = supabase.table("meccsek").insert({
                 "csapat_H": tip["csapat_H"], "csapat_V": tip["csapat_V"], "kezdes": tip["kezdes"],
                 "tipp": tip["tipp"], "eredmeny": "Tipp leadva", "odds": tip["odds"],
-                "fixture_id": tip["fixture_id"]
+                "fixture_id": tip["fixture_id"], "liga_nev": tip["liga_nev"], "liga_orszag": tip["liga_orszag"] # ÚJ
             }).execute()
             if data and len(data[1]) > 0:
                  tip_with_id = tip.copy()
@@ -136,18 +139,17 @@ def create_daily_special(tips):
     if len(tuti_candidates) < 2:
         print("Nem sikerült Napi Tuti szelvényt összeállítani.")
         return
+
     yesterday = datetime.now() - timedelta(days=1)
     supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
     special_tips_1 = tuti_candidates[:2]
     eredo_odds_1 = special_tips_1[0]['odds'] * special_tips_1[1]['odds']
     tipp_id_k_1 = [t['db_id'] for t in special_tips_1]
-    supabase.table("napi_tuti").insert({
-        "tipp_neve": "Napi Tuti", "eredo_odds": eredo_odds_1, "tipp_id_k": tipp_id_k_1
-    }).execute()
+    supabase.table("napi_tuti").insert({"tipp_neve": "Napi Tuti", "eredo_odds": eredo_odds_1, "tipp_id_k": tipp_id_k_1}).execute()
     print("Napi Tuti sikeresen létrehozva.")
 
 def main():
-    print("Tipp generátor indítása (Végleges Verzió)...")
+    print("Tipp generátor indítása (Végleges Prémium Verzió)...")
     fixtures = get_fixtures_from_api()
     if fixtures:
         print(f"Találat: {len(fixtures)} meccs a figyelt ligákban.")
@@ -155,13 +157,9 @@ def main():
         if final_tips:
             print(f"Kiválasztva {len(final_tips)} esélyes tipp.")
             saved_tips = save_tips_to_supabase(final_tips)
-            if saved_tips:
-                create_daily_special(saved_tips)
-                print("Tippek és Napi Tuti szelvények sikeresen generálva és mentve.")
-        else:
-            print("Az elemzés után nem maradt megfelelő tipp.")
-    else:
-        print("Nem találhatóak mai meccsek a figyelt ligákban.")
+            if saved_tips: create_daily_special(saved_tips)
+        else: print("Az elemzés után nem maradt megfelelő tipp.")
+    else: print("Nem találhatóak mai meccsek a figyelt ligákban.")
 
 if __name__ == "__main__":
     main()
