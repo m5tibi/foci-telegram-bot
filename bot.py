@@ -1,4 +1,4 @@
-# bot.py (Végleges Prémium Verzió, Dupla ROI kalkulációval)
+# bot.py (Végleges Prémium Verzió, Külön soros statisztikával)
 
 import os
 import telegram
@@ -121,7 +121,10 @@ async def stat(update: telegram.Update, context: CallbackContext):
 
         stat_message = "📊 *Általános Tipp Statisztika (1 egység/tipp)* 📊\n\n"
         stat_message += f"Összes tipp: *{osszes_db}* db\n"
-        stat_message += f"✅ Nyert: *{nyert_db}* db | ❌ Veszített: *{veszitett_db}* db\n"
+        # --- JAVÍTÁS ITT ---
+        stat_message += f"✅ Nyert: *{nyert_db}* db\n"
+        stat_message += f"❌ Veszített: *{veszitett_db}* db\n"
+        # --- JAVÍTÁS VÉGE ---
         stat_message += f"📈 Találati arány: *{talalati_arany:.2f}%*\n"
         stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {profit_color_tips}\n"
         stat_message += f"📈 *ROI: {roi_tips:+.2f}%*\n"
@@ -141,7 +144,6 @@ async def stat(update: telegram.Update, context: CallbackContext):
 
                 meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
                 
-                # Csak akkor értékeljük, ha a szelvény minden meccse lezajlott
                 if len(meccsek_res.data) == len(tipp_id_k) and not any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
                     evaluated_tuti_count += 1
                     if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
@@ -159,7 +161,10 @@ async def stat(update: telegram.Update, context: CallbackContext):
 
             stat_message += "🔥 *Napi Tuti Statisztika (1 egység/szelvény)* 🔥\n\n"
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+            # --- JAVÍTÁS ITT ---
+            stat_message += f"✅ Nyert: *{won_tuti_count}* db\n"
+            stat_message += f"❌ Veszített: *{lost_tuti_count}* db\n"
+            # --- JAVÍTÁS VÉGE ---
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {profit_color_tuti}\n"
             stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*\n"
