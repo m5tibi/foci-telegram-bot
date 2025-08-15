@@ -1,32 +1,33 @@
-name: Eredmeny Ellenorzo
+# .github/workflows/ellenorzes.yml (Óránkénti futással)
+
+name: Eredmeny Ellenorzes
 
 on:
   schedule:
-    - cron: '0 7,13,23 * * *'
-  workflow_dispatch:
+    # A cron beállítás módosítva: minden óra 0. percében lefut
+    - cron: '0 * * * *'
+  workflow_dispatch: # Ez a sor lehetővé teszi a manuális indítást is
 
 jobs:
-  build:
+  check-results: # A feladat neve, lehet 'build' is, ahogy a logodban láttam
     runs-on: ubuntu-latest
-
     steps:
-      - name: Kod letoltese
+      - name: Kód letöltése
         uses: actions/checkout@v3
 
-      - name: Python beallitasa
+      - name: Python beállítása
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Fuggosegek telepitese
+      - name: Függőségek telepítése
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Eredmeny-ellenorzo futtatasa
+      - name: Eredmények ellenőrzése
+        run: python eredmeny_ellenorzo.py
         env:
-          # JAVÍTVA: A helyes, Supabase titkok átadása
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-        run: python eredmeny_ellenorzo.py
