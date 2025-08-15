@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (Javított, végleges verzió)
+# eredmeny_ellenorzo.py (Végleges, minden státuszt kezelő verzió)
 
 import os
 import requests
@@ -16,7 +16,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def get_fixtures_to_check():
     """Lekéri azokat a meccseket, amik már elkezdődtek, de még nincsenek kiértékelve."""
     now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
-    # A javítás itt van: nem 24 órát várunk, hanem minden múltbeli meccset ellenőrzünk
     return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(now_utc)).execute().data
 
 def get_fixture_result(fixture_id):
@@ -34,16 +33,16 @@ def get_fixture_result(fixture_id):
         return None
 
 def evaluate_tip(tip_text, fixture_data):
-    """Kiértékeli a tippet és visszaadja az eredményt és a végeredményt."""
-    goals_home = fixture_data.get('goals', {}).get('home')
-    goals_away = fixture_data.get('goals', {}).get('away')
+    """Kiértékeli a tippet és visszaadja az eredményt és a végeredményt (a rendes játékidő alapján)."""
+    # Fontos: A kiértékeléshez mindig a rendes játékidő (90 perc) eredményét vesszük alapul
+    goals_home = fixture_data.get('score', {}).get('fulltime', {}).get('home')
+    goals_away = fixture_data.get('score', {}).get('fulltime', {}).get('away')
     
     if goals_home is None or goals_away is None:
         return "Hiba", None
 
     score_str = f"{goals_home}-{goals_away}"
     
-    # Tippek kiértékelése
     if tip_text == "Home" and goals_home > goals_away: return "Nyert", score_str
     if tip_text == "Away" and goals_away > goals_home: return "Nyert", score_str
     if tip_text == "Draw" and goals_home == goals_away: return "Nyert", score_str
@@ -53,23 +52,25 @@ def evaluate_tip(tip_text, fixture_data):
     return "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása (Javított Verzió)...")
+    print("Eredmény-ellenőrző indítása (Okosabb Verzió)...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
         return
 
     print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
+    
+    # --- JAVÍTÁS ITT: Ezeket a státuszokat mind befejezettnek tekintjük ---
+    FINISHED_STATUSES = ["FT", "AET", "PEN"]
+
     for fixture in fixtures_to_check:
         fixture_id, tip_text, db_id = fixture.get('fixture_id'), fixture.get('tipp'), fixture.get('id')
         result_data = get_fixture_result(fixture_id)
         
-        # Csak akkor értékelünk, ha a meccs státusza "FT" (Full Time)
-        if result_data and result_data.get('fixture', {}).get('status', {}).get('short') == 'FT':
+        if result_data and result_data.get('fixture', {}).get('status', {}).get('short') in FINISHED_STATUSES:
             final_result, score_str = evaluate_tip(tip_text, result_data)
             print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}, Végeredmény: {score_str}")
             
-            # Adatbázis frissítése
             supabase.table("meccsek").update({
                 "eredmeny": final_result,
                 "veg_eredmeny": score_str
@@ -81,5 +82,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
