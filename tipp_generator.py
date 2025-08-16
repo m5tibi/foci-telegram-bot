@@ -1,4 +1,4 @@
-# tipp_generator.py (V3 - Statisztikai Elemzéssel)
+# tipp_generator.py (V3.1 - Hibajavítással)
 
 import os
 import requests
@@ -25,6 +25,7 @@ TOP_LEAGUES = {
 
 def get_team_statistics(team_id, league_id):
     """Lekéri egy csapat szezonális statisztikáit (forma, gólok)."""
+    # A szezon meghatározása (pl. 2025)
     current_season = str(datetime.now().year)
     url = f"https://{RAPIDAPI_HOST}/v3/teams/statistics"
     querystring = {"league": str(league_id), "season": current_season, "team": str(team_id)}
@@ -34,7 +35,11 @@ def get_team_statistics(team_id, league_id):
         response = requests.get(url, headers=headers, params=querystring)
         response.raise_for_status()
         data = response.json().get('response')
-        time.sleep(0.5) # API limit miatt
+        time.sleep(0.6) # API rate limit miatt picit növeljük
+        # Ha az API üres választ ad (pl. szezon elején), None-t adunk vissza
+        if not data or not data.get('form'):
+            print(f"  -> Figyelmeztetés: Nem található statisztika a(z) {team_id} csapathoz a {league_id} ligában.")
+            return None
         return data
     except requests.exceptions.RequestException as e:
         print(f"Hiba a statisztika lekérése során (team: {team_id}): {e}")
@@ -53,8 +58,8 @@ def calculate_confidence(tip_type, odds, stats_h, stats_v):
     wins_h = form_h.count('W')
     wins_v = form_v.count('W')
     
-    goals_for_h = stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', 0)
-    goals_for_v = stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', 0)
+    goals_for_h = stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0")
+    goals_for_v = stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0")
     
     if tip_type == "Home":
         if 1.4 <= odds <= 2.2:
@@ -90,14 +95,12 @@ def calculate_confidence(tip_type, odds, stats_h, stats_v):
     elif tip_type == "Mindkét csapat szerez gólt":
         if 1.5 <= odds <= 2.0:
             score = 50
-            # BTTS logika: ha mindkét csapat rúg is és kap is gólokat.
-            conceded_h = stats_h.get('goals', {}).get('against', {}).get('average', {}).get('home', 0)
-            conceded_v = stats_v.get('goals', {}).get('against', {}).get('average', {}).get('away', 0)
+            conceded_h = stats_h.get('goals', {}).get('against', {}).get('average', {}).get('home', "0")
+            conceded_v = stats_v.get('goals', {}).get('against', {}).get('average', {}).get('away', "0")
             if float(goals_for_h) > 1.2 and float(goals_for_v) > 1.1 and float(conceded_h) > 0.7 and float(conceded_v) > 0.7:
                 score += 45
                 reason.append("Mindkét csapat támadó szellemű és sebezhető.")
 
-    # Odds alapján történő finomhangolás: a túl alacsony és túl magas oddsokat is büntetjük
     if score > 0:
       if odds < 1.5 or odds > 2.2:
         score -= 10
@@ -124,7 +127,7 @@ def get_fixtures_from_api():
             response = requests.get(url, headers=headers, params=querystring)
             response.raise_for_status()
             all_fixtures.extend(response.json().get('response', []))
-            time.sleep(0.5)
+            time.sleep(0.6)
         except requests.exceptions.RequestException as e:
             print(f"Hiba a {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
             
@@ -133,7 +136,6 @@ def get_fixtures_from_api():
 def get_odds_for_fixture(fixture_id):
     """Lekéri az összes releváns piac oddsait egy meccshez."""
     all_odds_for_fixture = []
-    # Bet ID-k: 1: 1X2, 5: BTTS, 12: O/U
     for bet_id in [1, 5, 12]: 
         url = f"https://{RAPIDAPI_HOST}/v3/odds"
         querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
@@ -144,7 +146,7 @@ def get_odds_for_fixture(fixture_id):
             data = response.json().get('response', [])
             if data and data[0].get('bookmakers'):
                 all_odds_for_fixture.extend(data[0]['bookmakers'][0].get('bets', []))
-            time.sleep(0.5)
+            time.sleep(0.6)
         except requests.exceptions.RequestException as e:
             print(f"Hiba az oddsok lekérése során (fixture: {fixture_id}): {e}")
             
@@ -174,9 +176,12 @@ def analyze_and_generate_tips(fixtures):
         stats_h = get_team_statistics(home_team_id, league_id)
         stats_v = get_team_statistics(away_team_id, league_id)
 
+        # ------ JAVÍTÁS ITT ------
+        # Ha bármelyik adat hiányzik (pl. nincs statisztika), kihagyjuk a meccset.
         if not odds_data or not stats_h or not stats_v:
             print(" -> Hiányzó odds vagy statisztikai adat, meccs kihagyva.")
             continue
+        # ------------------------
         
         tip_template = {
             "fixture_id": fixture_id, "csapat_H": teams.get('home', {}).get('name'),
@@ -184,7 +189,6 @@ def analyze_and_generate_tips(fixtures):
             "liga_nev": league.get('name'), "liga_orszag": league.get('country')
         }
         
-        # 2. Tippek keresése és elemzése
         for bet in odds_data:
             for value in bet.get('values', []):
                 tip_name_map = {
@@ -198,7 +202,6 @@ def analyze_and_generate_tips(fixtures):
                     tipp_nev = tip_name_map[lookup_key]
                     odds = float(value.get('odd'))
                     
-                    # 3. Bizalmi pontszám kalkulálása
                     score, reason = calculate_confidence(tipp_nev, odds, stats_h, stats_v)
                     
                     if score > 0:
@@ -216,15 +219,32 @@ def analyze_and_generate_tips(fixtures):
 
 def save_tips_to_supabase(tips):
     if not tips: return []
+    # Az adatbázisba szánt adatok listája
+    tips_to_insert = []
+    for tip in tips:
+        tips_to_insert.append({
+            "fixture_id": tip["fixture_id"],
+            "csapat_H": tip["csapat_H"],
+            "csapat_V": tip["csapat_V"],
+            "kezdes": tip["kezdes"],
+            "liga_nev": tip["liga_nev"],
+            "liga_orszag": tip["liga_orszag"],
+            "tipp": tip["tipp"],
+            "odds": tip["odds"],
+            "confidence_score": tip["confidence_score"],
+            "indoklas": tip["indoklas"],
+            "eredmeny": "Tipp leadva", # Alapértelmezett érték
+        })
+
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     print("Régi, mai 'Tipp leadva' státuszú tippek törlése...")
     supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").gte("created_at", str(today_start)).execute()
     
-    print(f"{len(tips)} új tipp hozzáadása az adatbázishoz...")
+    print(f"{len(tips_to_insert)} új tipp hozzáadása az adatbázishoz...")
     try:
-        # A 'returning="minimal"' miatt nem kapunk adatot vissza, gyorsabb a feltöltés
-        data, count = supabase.table("meccsek").insert(tips, returning="minimal").execute()
-        return tips # Visszaadjuk a tippeket a Napi Tuti generáláshoz
+        data, count = supabase.table("meccsek").insert(tips_to_insert).execute()
+        # Visszaadjuk az eredeti tippeket, amiben még benne van a fixture_id a Napi Tutihoz
+        return tips
     except Exception as e:
         print(f"Hiba a tippek mentése során: {e}")
         return []
@@ -234,36 +254,32 @@ def create_daily_special(tips):
         print("Nem volt elég tipp a Napi Tutihoz.")
         return
     
-    # A legjobb 2-3 tippet választjuk a bizalmi pontszám alapján
     tuti_candidates = sorted(tips, key=lambda x: x['confidence_score'], reverse=True)
     
     if len(tuti_candidates) < 2:
         print("Nem sikerült Napi Tuti szelvényt összeállítani a minősítés alapján.")
         return
 
-    # A Supabase nem tudja a tippek ID-jét, ha 'minimal' a visszatérés, ezért fixture_id alapján azonosítunk
-    # Először töröljük a tegnapi Napi Tutit
     yesterday = datetime.now() - timedelta(days=1)
     supabase.table("napi_tuti").delete().lt("created_at", str(yesterday)).execute()
     
     special_tips = tuti_candidates[:2]
     eredo_odds = special_tips[0]['odds'] * special_tips[1]['odds']
     
-    # Lekérjük az imént beszúrt tippek adatbázis ID-jait a fixture_id alapján
     fixture_ids = [t['fixture_id'] for t in special_tips]
-    res = supabase.table("meccsek").select("id, fixture_id").in_("fixture_id", fixture_ids).execute().data
+    # Fontos: A tippek frissen lettek beszúrva, ezért a created_at alapján szűrünk, hogy biztosan a maiakat kapjuk vissza
+    today_start_utc = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    res = supabase.table("meccsek").select("id, fixture_id").in_("fixture_id", fixture_ids).gte("created_at", today_start_utc).execute().data
     
-    if len(res) != 2:
-        print("Hiba: Nem sikerült visszakeresni a Napi Tuti tippjeit az adatbázisból.")
-        return
-
-    tipp_id_k = [r['id'] for r in res]
-    
-    supabase.table("napi_tuti").insert({"tipp_neve": "Napi Tuti", "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k}).execute()
-    print("Napi Tuti sikeresen létrehozva a legmagasabb bizalmi pontszámú tippekből.")
+    if res and len(res) >= 2:
+        tipp_id_k = [r['id'] for r in res]
+        supabase.table("napi_tuti").insert({"tipp_neve": "Napi Tuti", "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k}).execute()
+        print("Napi Tuti sikeresen létrehozva a legmagasabb bizalmi pontszámú tippekből.")
+    else:
+        print(f"Hiba: Nem sikerült visszakeresni a Napi Tuti tippjeit az adatbázisból. Visszakapott tippek: {len(res) if res else 0}")
 
 def main():
-    print("Statisztika-alapú Tipp Generátor (V3) indítása...")
+    print("Statisztika-alapú Tipp Generátor (V3.1) indítása...")
     fixtures = get_fixtures_from_api()
     if fixtures:
         print(f"Találat: {len(fixtures)} meccs a figyelt ligákban.")
