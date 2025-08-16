@@ -1,4 +1,4 @@
-# bot.py (V6.1 - Javított Dátumkezeléssel)
+# bot.py (V6.2 - Végleges, Intelligens Lekérdezéssel)
 
 import os
 import telegram
@@ -23,11 +23,11 @@ def get_tip_details(tip_text):
     tip_map = {"Home": "Hazai nyer", "Away": "Vendég nyer", "Gólok száma 2.5 felett": "Gólok 2.5 felett"}
     return tip_map.get(tip_text, tip_text)
 
-# --- Parancskezelők ---
+# --- Parancskezelők (start, button_handler, tippek, eredmenyek változatlanok) ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
-        supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
+        supabase.table("felhasnalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e: print(f"Hiba a felhasználó mentése során: {e}")
 
     keyboard = [[InlineKeyboardButton("📈 Tippek", callback_data="show_tips"), InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")],
@@ -96,10 +96,12 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         message_parts.append(f"{line1}\n{line2}\n{line3}")
     await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
 
-# --- JAVÍTOTT FÜGGVÉNY ---
+# --- VÉGLEGES, JAVÍTOTT NAPI TUTI FÜGGVÉNY ---
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
+    now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
     
+    # 1. Lekérjük a legutóbbi szelvényeket
     yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=True).execute()
         
@@ -107,11 +109,28 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
         return
     
-    full_message = []
-    for i, szelveny in enumerate(response.data):
-        # HELYES LOGIKA: A szelvény nevéből vesszük a fejlécet, ami a meccsek dátumát tartalmazza
-        header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
+    # 2. Kiszűrjük azokat, amik már elkezdődtek
+    future_szelvenyek = []
+    for szelveny in response.data:
+        tipp_id_k = szelveny.get('tipp_id_k', [])
+        if not tipp_id_k: continue
         
+        # Lekérjük a szelvény legkorábbi meccsének idejét
+        meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes', asc=True).limit(1).execute()
+        
+        if meccsek_res.data:
+            first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes']).replace(tzinfo=pytz.utc)
+            if first_match_start_utc > now_utc:
+                future_szelvenyek.append(szelveny)
+
+    if not future_szelvenyek:
+        await reply_obj.reply_text("🔎 Jelenleg nincsenek jövőbeli 'Napi Tuti' szelvények.")
+        return
+
+    # 3. Csak a jövőbeli szelvényeket jelenítjük meg
+    full_message = []
+    for i, szelveny in enumerate(future_szelvenyek):
+        header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
         message_parts = [header]
         meccsek_res = supabase.table("meccsek").select("*").in_("id", szelveny.get('tipp_id_k', [])).execute()
 
@@ -124,34 +143,24 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
             message_parts.append(tip_line)
         
         message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
-        
-        if i < len(response.data) - 1:
+        if i < len(future_szelvenyek) - 1:
             message_parts.append("--------------------")
-
         full_message.extend(message_parts)
 
     await reply_obj.reply_text("\n\n".join(full_message), parse_mode='Markdown')
 
+# --- Statisztika függvény (változatlan) ---
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    
     now = datetime.now(HUNGARY_TZ)
     start_of_month_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     next_month_first_day = (start_of_month_local.replace(day=28) + timedelta(days=4)).replace(day=1)
     end_of_month_local = next_month_first_day - timedelta(seconds=1)
-    
     start_of_month_utc_str = start_of_month_local.astimezone(pytz.utc).isoformat()
     end_of_month_utc_str = end_of_month_local.astimezone(pytz.utc).isoformat()
-    
     month_header = f"*{now.year}. {HUNGARIAN_MONTHS[now.month - 1]}*"
-
     try:
-        response_tips = supabase.table("meccsek").select("eredmeny, odds") \
-            .in_("eredmeny", ["Nyert", "Veszített"]) \
-            .gte("created_at", start_of_month_utc_str) \
-            .lte("created_at", end_of_month_utc_str) \
-            .execute()
-
+        response_tips = supabase.table("meccsek").select("eredmeny, odds").in_("eredmeny", ["Nyert", "Veszített"]).gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
         stat_message = f"📊 *Általános Tipp Statisztika*\n{month_header}\n\n"
         if not response_tips.data:
             stat_message += "Ebben a hónapban még nincsenek kiértékelt tippek."
@@ -166,13 +175,8 @@ async def stat(update: telegram.Update, context: CallbackContext):
             stat_message += f"📈 Találati arány: *{talalati_arany:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {'✅' if net_profit_tips >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tips:+.2f}%*"
-
         stat_message += "\n-----------------------------------\n\n"
-        
-        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds") \
-            .gte("created_at", start_of_month_utc_str) \
-            .lte("created_at", end_of_month_utc_str) \
-            .execute()
+        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
         stat_message += f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         if response_tuti.data:
@@ -204,10 +208,6 @@ async def stat(update: telegram.Update, context: CallbackContext):
 
 def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("tippek", tippek))
-    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
-    application.add_handler(CommandHandler("eredmenyek", eredmenyek))
-    application.add_handler(CommandHandler("stat", stat))
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Parancs- és gombkezelők sikeresen hozzáadva.")
     return application
