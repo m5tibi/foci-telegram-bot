@@ -1,9 +1,10 @@
-# send_notification.py
+# send_notification.py (V1.1 - Interaktív Gombbal)
 
 import os
 import asyncio
 from supabase import create_client, Client
 import telegram
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -16,7 +17,7 @@ async def send_notifications():
         print("Hiba: A szükséges környezeti változók (Supabase/Telegram) nincsenek beállítva.")
         return
 
-    print("Értesítő szkript indítása...")
+    print("Interaktív értesítő szkript indítása...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
@@ -34,20 +35,29 @@ async def send_notifications():
         print(f"Hiba a felhasználók lekérése során: {e}")
         return
 
-    # 2. Üzenet kiküldése minden felhasználónak
-    message_text = "Szia! 👋 Elkészültek a holnapi tippek! Nézd meg őket a '📈 Tippek' gombbal!"
+    # 2. Üzenet és gomb előkészítése
+    message_text = "Szia! 👋 Elkészültek a holnapi tippek és a Napi Tuti! Kattints a gombra a megtekintéshez."
     
+    keyboard = [
+        [InlineKeyboardButton("📈 Tippek Megtekintése", callback_data="show_tips")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 3. Üzenet kiküldése minden felhasználónak
     for chat_id in chat_ids:
         try:
-            await bot.send_message(chat_id=chat_id, text=message_text)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             print(f"Értesítés sikeresen elküldve a(z) {chat_id} felhasználónak.")
         except telegram.error.Forbidden:
             print(f"Hiba: A(z) {chat_id} felhasználó letiltotta a botot. Inaktiválásra jelölés...")
-            # Opcionális: A botot letiltó felhasználókat inaktívvá tehetjük
-            # supabase.table("felhasznalok").update({"is_active": False}).eq("chat_id", chat_id).execute()
         except Exception as e:
             print(f"Ismeretlen hiba történt a(z) {chat_id} felhasználónak küldés során: {e}")
-        await asyncio.sleep(0.1) # Elkerüljük, hogy túlterheljük a Telegram API-t
+        await asyncio.sleep(0.1) 
 
     print("Értesítések kiküldése befejezve.")
 
