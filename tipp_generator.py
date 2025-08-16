@@ -1,9 +1,9 @@
-# tipp_generator.py (V4.0 - Végleges, Robusztus Verzió)
+# tipp_generator.py (V4.1 - Mai és Holnapi Meccsek Keresése)
 
 import os
 import requests
 from supabase import create_client, Client
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import pytz
 
@@ -31,7 +31,7 @@ def get_team_statistics(team_id, league_id):
         response = requests.get(url, headers=headers, params=querystring)
         response.raise_for_status()
         data = response.json().get('response')
-        time.sleep(0.7) # API rate limit miatt
+        time.sleep(0.7)
         if not data or not data.get('form'): return None
         return data
     except requests.exceptions.RequestException: return None
@@ -59,21 +59,35 @@ def calculate_confidence(tip_type, odds, stats_h, stats_v):
     if score >= 75: return score, " ".join(reason) if reason else "Jó megérzés."
     return 0, ""
 
+# --- JAVÍTOTT FÜGGVÉNY ---
 def get_fixtures_from_api():
-    today = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
-    current_season = str(datetime.now().year)
+    """Lekéri a mai ÉS a holnapi meccseket is a figyelt ligákból."""
+    now_in_budapest = datetime.now(BUDAPEST_TZ)
+    today_str = now_in_budapest.strftime("%Y-%m-%d")
+    tomorrow_str = (now_in_budapest + timedelta(days=1)).strftime("%Y-%m-%d")
+    dates_to_check = [today_str, tomorrow_str]
+    
+    current_season = str(now_in_budapest.year)
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
     all_fixtures = []
-    print(f"Meccsek keresése a mai napra: {today}")
-    for league_id in TOP_LEAGUES.keys():
-        querystring = {"date": today, "league": str(league_id), "season": current_season}
-        headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-        try:
-            response = requests.get(url, headers=headers, params=querystring)
-            response.raise_for_status()
-            all_fixtures.extend(response.json().get('response', []))
-            time.sleep(0.7)
-        except requests.exceptions.RequestException as e: print(f"Hiba a {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
+
+    for date_str in dates_to_check:
+        print(f"--- Meccsek keresése a következő napra: {date_str} ---")
+        for league_id in TOP_LEAGUES.keys():
+            querystring = {"date": date_str, "league": str(league_id), "season": current_season}
+            headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+            try:
+                # A printet a ciklus belsejébe helyezzük a jobb követhetőségért
+                # print(f"Meccsek lekérése: {TOP_LEAGUES[league_id]}...")
+                response = requests.get(url, headers=headers, params=querystring)
+                response.raise_for_status()
+                found_fixtures = response.json().get('response', [])
+                if found_fixtures:
+                    print(f"  -> Találat: {len(found_fixtures)} meccs a(z) {TOP_LEAGUES[league_id]} ligában.")
+                    all_fixtures.extend(found_fixtures)
+                time.sleep(0.7)
+            except requests.exceptions.RequestException as e: 
+                print(f"Hiba a {TOP_LEAGUES[league_id]} liga lekérése során: {e}")
     return all_fixtures
 
 def get_odds_for_fixture(fixture_id):
@@ -93,10 +107,16 @@ def get_odds_for_fixture(fixture_id):
 
 def analyze_and_generate_tips(fixtures):
     final_tips = []
+    # A duplikált meccsek elkerülésére, ha a mai és holnapi hívás átfedne
+    processed_fixtures = set()
+
     for fixture_data in fixtures:
         fixture, teams, league = fixture_data.get('fixture', {}), fixture_data.get('teams', {}), fixture_data.get('league', {})
-        if not fixture.get('id'): continue
-        print(f"Elemzés: {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')}")
+        fixture_id = fixture.get('id')
+        if not fixture_id or fixture_id in processed_fixtures: continue
+        processed_fixtures.add(fixture_id)
+
+        print(f"Elemzés: {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')} ({fixture.get('date')[:10]})")
         
         stats_h = get_team_statistics(teams.get('home', {}).get('id'), league.get('id'))
         stats_v = get_team_statistics(teams.get('away', {}).get('id'), league.get('id'))
@@ -123,12 +143,18 @@ def analyze_and_generate_tips(fixtures):
 
 def save_tips_to_supabase(tips):
     if not tips: return []
+    
+    # Mielőtt bármit beszúrnánk, töröljük az összes jövőbeli, "Tipp leadva" státuszú tippet,
+    # hogy a generátor többszöri futtatása ne okozzon duplikációt.
+    now_utc_str = datetime.utcnow().replace(tzinfo=pytz.utc).isoformat()
+    print("Korábbi, még nem kiértékelt tippek törlése...")
+    supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").gte("kezdes", now_utc_str).execute()
+
     tips_to_insert = [{k: v for k, v in tip.items()} for tip in tips]
     for t in tips_to_insert: t["eredmeny"] = "Tipp leadva"
     
     print(f"{len(tips_to_insert)} új tipp hozzáadása az adatbázishoz...")
     try:
-        # Visszakérjük a beszúrt sorokat az adatbázis ID-vel együtt
         response = supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute()
         return response.data
     except Exception as e:
@@ -140,15 +166,12 @@ def create_daily_special(saved_tips_with_ids):
         print("Nem volt elég tipp a Napi Tutihoz.")
         return
     
-    # --- TELJESEN ÚJ, BIZTOS LOGIKA ---
     today_start = datetime.now(BUDAPEST_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     print("Korábbi mai Napi Tuti szelvény(ek) törlése...")
     supabase.table("napi_tuti").delete().gte("created_at", str(today_start)).execute()
 
-    # Sorba rendezzük a tippeket pontszám szerint
     tuti_candidates = sorted(saved_tips_with_ids, key=lambda x: x['confidence_score'], reverse=True)
     
-    # Kiválasztjuk a 2 legjobb tippet, de csak KÜLÖNBÖZŐ meccsekről
     special_tips = []
     used_fixtures = set()
     for candidate in tuti_candidates:
@@ -163,22 +186,23 @@ def create_daily_special(saved_tips_with_ids):
         return
 
     eredo_odds = special_tips[0]['odds'] * special_tips[1]['odds']
-    # Az ID-k már rendelkezésre állnak, nincs szükség újabb lekérdezésre
     tipp_id_k = [t['id'] for t in special_tips]
     
     supabase.table("napi_tuti").insert({"tipp_neve": "Napi Tuti", "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k}).execute()
     print("Napi Tuti sikeresen létrehozva a 2 legjobb, különböző meccsből.")
 
 def main():
-    print(f"Statisztika-alapú Tipp Generátor (V4.0) indítása - {datetime.now(BUDAPEST_TZ)}...")
+    print(f"Statisztika-alapú Tipp Generátor (V4.1) indítása - {datetime.now(BUDAPEST_TZ)}...")
     fixtures = get_fixtures_from_api()
     if fixtures:
+        print(f"Összesen {len(fixtures)} meccs a következő 2 napra a figyelt ligákban.")
         final_tips = analyze_and_generate_tips(fixtures)
         if final_tips:
+            print(f"Kiválasztva {len(final_tips)} esélyes tipp statisztikai elemzés alapján.")
             saved_tips = save_tips_to_supabase(final_tips)
             if saved_tips: create_daily_special(saved_tips)
         else: print("Az elemzés után nem maradt megfelelő tipp.")
-    else: print("Nem találhatóak mai meccsek a figyelt ligákban.")
+    else: print("Nem találhatóak meccsek a következő 2 napban a figyelt ligákban.")
 
 if __name__ == "__main__":
     main()
