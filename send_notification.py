@@ -1,4 +1,4 @@
-# send_notification.py (V1.1 - Interaktív Gombbal)
+# send_notification.py (V1.2 - Kétgombos Értesítő)
 
 import os
 import asyncio
@@ -17,7 +17,7 @@ async def send_notifications():
         print("Hiba: A szükséges környezeti változók (Supabase/Telegram) nincsenek beállítva.")
         return
 
-    print("Interaktív értesítő szkript indítása...")
+    print("Interaktív, kétgombos értesítő szkript indítása...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
@@ -35,11 +35,14 @@ async def send_notifications():
         print(f"Hiba a felhasználók lekérése során: {e}")
         return
 
-    # 2. Üzenet és gomb előkészítése
-    message_text = "Szia! 👋 Elkészültek a holnapi tippek és a Napi Tuti! Kattints a gombra a megtekintéshez."
+    # 2. Üzenet és a két gomb előkészítése
+    message_text = "Szia! 👋 Elkészültek a holnapi tippek és a Napi Tuti! Kattints a gombokra a megtekintéshez."
     
     keyboard = [
-        [InlineKeyboardButton("📈 Tippek Megtekintése", callback_data="show_tips")]
+        [
+            InlineKeyboardButton("📈 Tippek", callback_data="show_tips"),
+            InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
