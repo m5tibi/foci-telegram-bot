@@ -1,4 +1,4 @@
-# bot.py (V6.3 - Végleges, Javított Időkezeléssel)
+# bot.py (V6.4 - Végleges Hibajavítással)
 
 import os
 import telegram
@@ -47,7 +47,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
 
 async def tippek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
+    now_utc = datetime.now(pytz.utc)
     response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(now_utc)).order('kezdes').execute()
     
     if not response.data:
@@ -96,7 +96,6 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         message_parts.append(f"{line1}\n{line2}\n{line3}")
     await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
 
-# --- VÉGLEGES, JAVÍTOTT NAPI TUTI FÜGGVÉNY ---
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now_utc = datetime.now(pytz.utc)
@@ -113,13 +112,11 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         tipp_id_k = szelveny.get('tipp_id_k', [])
         if not tipp_id_k: continue
         
-        meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes', asc=True).limit(1).execute()
+        # --- JAVÍTÁS ITT: A hibás 'asc=True' paraméter eltávolítva ---
+        meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes').limit(1).execute()
         
         if meccsek_res.data:
-            # --- JAVÍTÁS ITT ---
-            # A .fromisoformat() már helyesen kezeli az időzónát a Supabase stringből, a .replace() rontotta el.
             first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes'])
-            
             if first_match_start_utc > now_utc:
                 future_szelvenyek.append(szelveny)
 
@@ -148,7 +145,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
 
     await reply_obj.reply_text("\n\n".join(full_message), parse_mode='Markdown')
 
-# --- Statisztika függvény (változatlan) ---
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now = datetime.now(HUNGARY_TZ)
