@@ -1,4 +1,4 @@
-# bot.py (V3 - Indoklással)
+# bot.py (V3.1 - Robusztusabb Napi Tuti lekérdezéssel)
 
 import os
 import telegram
@@ -16,14 +16,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- Segédfüggvények ---
 def get_tip_details(tip_text):
-    """Visszaadja a tipp nevét."""
-    tip_map = {
-        "Home": "Hazai nyer",
-        "Away": "Vendég nyer",
-        "Draw": "Döntetlen",
-        "Gólok száma 2.5 felett": "Gólok 2.5 felett",
-        "Mindkét csapat szerez gólt": "BTTS - Igen"
-    }
+    tip_map = {"Home": "Hazai nyer", "Away": "Vendég nyer", "Draw": "Döntetlen", "Gólok száma 2.5 felett": "Gólok 2.5 felett", "Mindkét csapat szerez gólt": "BTTS - Igen"}
     return tip_map.get(tip_text, tip_text)
 
 # --- Parancskezelők ---
@@ -39,8 +32,7 @@ async def start(update: telegram.Update, context: CallbackContext):
     keyboard = [[InlineKeyboardButton("📈 Mai Tippek", callback_data="show_tips"), InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")],
                 [InlineKeyboardButton("📊 Eredmények", callback_data="show_results"), InlineKeyboardButton("💰 Statisztika", callback_data="show_stat")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    welcome_text = (f"Üdv, {user.first_name}!\n\n"
-                    "Én a Prémium Foci Tippadó Bot vagyok. Az alábbi gombokkal navigálhatsz a funkciók között:")
+    welcome_text = f"Üdv, {user.first_name}!\n\nÉn a Prémium Foci Tippadó Bot vagyok. Az alábbi gombokkal navigálhatsz a funkciók között:"
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 async def button_handler(update: telegram.Update, context: CallbackContext):
@@ -54,7 +46,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
 
 async def tippek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    # Most már lekérjük az indoklást is
     response = supabase.table("meccsek").select("*, indoklas").eq("eredmeny", "Tipp leadva").gte("kezdes", str(datetime.utcnow().replace(tzinfo=pytz.utc))).order('kezdes').execute()
     
     if not response.data:
@@ -66,23 +57,19 @@ async def tippek(update: telegram.Update, context: CallbackContext):
         utc_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00'))
         local_time = utc_time.astimezone(HUNGARY_TZ)
         tipp_nev = get_tip_details(tip['tipp'])
-        
         line1 = f"⚽️ *{tip['csapat_H']} vs {tip['csapat_V']}*"
         line2 = f"🏆 Bajnokság: {tip['liga_nev']} ({tip['liga_orszag']})"
         line3 = f"⏰ Kezdés: {local_time.strftime('%H:%M')}"
         line4 = f"💡 Tipp: {tipp_nev} `@{tip['odds']:.2f}`"
-        # ÚJ SOR: Megjelenítjük az indoklást, ha van
         indoklas_text = tip.get('indoklas')
         line5 = f"📄 Indoklás: _{indoklas_text}_" if indoklas_text else ""
-        
         message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}\n{line5}".strip())
     await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
 
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    # Most már lekérjük az indoklást is
-    response = supabase.table("meccsek").select("*, indoklas").in_("eredmeny", ["Nyert", "Veszített"]).gte("kezdes", str(today_start)).order('kezdes', desc=True).execute()
+    today_start = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    response = supabase.table("meccsek").select("*, indoklas").in_("eredmeny", ["Nyert", "Veszített"]).gte("kezdes", str(today_start.astimezone(pytz.utc))).order('kezdes', desc=True).execute()
     
     if not response.data:
         await reply_obj.reply_text("🔎 A mai napon még nincsenek kiértékelt meccsek.")
@@ -94,44 +81,51 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         local_time = utc_time.astimezone(HUNGARY_TZ)
         tipp_nev = get_tip_details(tip['tipp'])
         eredmeny_jel = "✅" if tip['eredmeny'] == 'Nyert' else "❌"
-        
         line1 = f"⚽️ *{tip['csapat_H']} vs {tip['csapat_V']}*"
         line2 = f"🏆 Bajnokság: {tip['liga_nev']} ({tip['liga_orszag']})"
         line3 = f"🏁 Végeredmény: {tip.get('veg_eredmeny', 'N/A')}"
         line4 = f"💡 Tipp: {tipp_nev} {eredmeny_jel}"
-        # ÚJ SOR: Megjelenítjük az indoklást, ha van
         indoklas_text = tip.get('indoklas')
         line5 = f"📄 Indoklás: _{indoklas_text}_" if indoklas_text else ""
-
         message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}\n{line5}".strip())
     await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
 
-# A napi_tuti és stat függvények változatlanok maradhatnak
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     try:
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start)).execute()
+        # --- JAVÍTÁS ITT: Csak a legfrissebb mai szelvényt kérjük le ---
+        today_start = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        response = supabase.table("napi_tuti").select("*").gte("created_at", str(today_start.astimezone(pytz.utc))).order('created_at', desc=True).limit(1).execute()
+        # -------------------------------------------------------------
+        
         if not response.data:
             await reply_obj.reply_text("🔎 Ma még nem készült 'Napi tuti' szelvény.")
             return
-        for szelveny in response.data:
-            message_parts = [f"🔥 *{szelveny['tipp_neve']}* 🔥"]
-            tipp_id_k = szelveny.get('tipp_id_k', [])
-            meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
-            if not meccsek_res.data: continue
-            for tip in meccsek_res.data:
-                tipp_type = get_tip_details(tip['tipp'])
-                odds = f"{tip['odds']:.2f}"
-                match_name = f"{tip.get('csapat_H')} vs {tip.get('csapat_V')}"
-                tip_line = f"⚽️ *{match_name}*\n `•` {tipp_type}: *{odds}*"
-                message_parts.append(tip_line)
-            eredo_odds = szelveny.get('eredo_odds', 0)
-            message_parts.append(f"🎯 *Eredő odds:* `{eredo_odds:.2f}`")
-            await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
+        
+        # Mivel már csak egy szelvény van, nincs szükség a for ciklusra
+        szelveny = response.data[0]
+        
+        message_parts = [f"🔥 *{szelveny['tipp_neve']}* 🔥"]
+        tipp_id_k = szelveny.get('tipp_id_k', [])
+        meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
+        if not meccsek_res.data:
+             await reply_obj.reply_text("Hiba: A Napi Tuti szelvényhez tartozó meccsek nem találhatóak.")
+             return
+
+        for tip in meccsek_res.data:
+            tipp_type = get_tip_details(tip['tipp'])
+            odds = f"{tip['odds']:.2f}"
+            match_name = f"{tip.get('csapat_H')} vs {tip.get('csapat_V')}"
+            tip_line = f"⚽️ *{match_name}*\n `•` {tipp_type}: *{odds}*"
+            message_parts.append(tip_line)
+        eredo_odds = szelveny.get('eredo_odds', 0)
+        message_parts.append(f"🎯 *Eredő odds:* `{eredo_odds:.2f}`")
+        await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
+
     except Exception as e:
         await reply_obj.reply_text(f"Hiba a Napi tuti lekérése közben: {e}")
 
+# A stat függvény változatlan
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     try:
@@ -190,7 +184,6 @@ async def stat(update: telegram.Update, context: CallbackContext):
             stat_message += "🔥 *Napi Tuti Statisztika*\n\nMég nincsenek kiértékelt 'Napi tuti' szelvények."
 
         await reply_obj.reply_text(stat_message, parse_mode='Markdown')
-        
     except Exception as e:
         await reply_obj.reply_text(f"Hiba a statisztika készítése közben: {e}")
 
