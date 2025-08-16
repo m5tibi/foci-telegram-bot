@@ -1,4 +1,4 @@
-# bot.py (V6.2 - Végleges, Intelligens Lekérdezéssel)
+# bot.py (V6.3 - Végleges, Javított Időkezeléssel)
 
 import os
 import telegram
@@ -27,7 +27,7 @@ def get_tip_details(tip_text):
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
-        supabase.table("felhasnalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
+        supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e: print(f"Hiba a felhasználó mentése során: {e}")
 
     keyboard = [[InlineKeyboardButton("📈 Tippek", callback_data="show_tips"), InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")],
@@ -99,9 +99,8 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
 # --- VÉGLEGES, JAVÍTOTT NAPI TUTI FÜGGVÉNY ---
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
+    now_utc = datetime.now(pytz.utc)
     
-    # 1. Lekérjük a legutóbbi szelvényeket
     yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=True).execute()
         
@@ -109,17 +108,18 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
         return
     
-    # 2. Kiszűrjük azokat, amik már elkezdődtek
     future_szelvenyek = []
     for szelveny in response.data:
         tipp_id_k = szelveny.get('tipp_id_k', [])
         if not tipp_id_k: continue
         
-        # Lekérjük a szelvény legkorábbi meccsének idejét
         meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes', asc=True).limit(1).execute()
         
         if meccsek_res.data:
-            first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes']).replace(tzinfo=pytz.utc)
+            # --- JAVÍTÁS ITT ---
+            # A .fromisoformat() már helyesen kezeli az időzónát a Supabase stringből, a .replace() rontotta el.
+            first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes'])
+            
             if first_match_start_utc > now_utc:
                 future_szelvenyek.append(szelveny)
 
@@ -127,7 +127,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         await reply_obj.reply_text("🔎 Jelenleg nincsenek jövőbeli 'Napi Tuti' szelvények.")
         return
 
-    # 3. Csak a jövőbeli szelvényeket jelenítjük meg
     full_message = []
     for i, szelveny in enumerate(future_szelvenyek):
         header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
