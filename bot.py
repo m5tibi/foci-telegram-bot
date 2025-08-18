@@ -1,4 +1,4 @@
-# bot.py (V7.8 - Végleges Szezon Kezelés Javítással)
+# bot.py (V7.9 - Hálózati Diagnosztikával - TELJES VERZIÓ)
 
 import os
 import telegram
@@ -61,8 +61,9 @@ def get_tip_details(tip_text):
 
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 def run_generator_for_date(date_str: str):
+    error_log = []
+
     def get_fixtures_for_date(date_str_inner):
-        # --- JAVÍTÁS ITT: A szezont a keresett dátumból vesszük, nem a mai napból! ---
         season = date_str_inner[:4]
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures"
         all_fixtures = []
@@ -71,12 +72,14 @@ def run_generator_for_date(date_str: str):
             querystring = {"date": date_str_inner, "league": str(league_id), "season": season}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
-                response = requests.get(url, headers=headers, params=querystring, timeout=15)
+                response = requests.get(url, headers=headers, params=querystring, timeout=20)
                 response.raise_for_status()
                 found_fixtures = response.json().get('response', [])
                 if found_fixtures: all_fixtures.extend(found_fixtures)
                 time.sleep(0.8)
-            except requests.exceptions.RequestException as e: print(f"ADMIN Hiba: {e}")
+            except requests.exceptions.RequestException as e:
+                error_log.append(f"Hiba '{league_name}': {e}")
+                print(f"ADMIN Hiba: {e}")
         return all_fixtures
     
     def get_odds_for_fixture(fixture_id):
@@ -86,11 +89,13 @@ def run_generator_for_date(date_str: str):
             querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
-                response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
+                response = requests.get(url, headers=headers, params=querystring, timeout=20); response.raise_for_status()
                 data = response.json().get('response', [])
                 if data and data[0].get('bookmakers'): all_odds_for_fixture.extend(data[0]['bookmakers'][0].get('bets', []))
                 time.sleep(0.8)
-            except requests.exceptions.RequestException: pass
+            except requests.exceptions.RequestException as e:
+                error_log.append(f"Hiba odds lekérésekor ({fixture_id}): {e}")
+                pass
         return all_odds_for_fixture
 
     def calculate_confidence_fallback(tip_type, odds):
@@ -134,7 +139,7 @@ def run_generator_for_date(date_str: str):
         tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]
         try: return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
         except Exception as e:
-            print(f"ADMIN Hiba mentéskor: {e}"); return []
+            error_log.append(f"Hiba a Supabase mentéskor: {e}"); print(f"ADMIN Hiba mentéskor: {e}"); return []
 
     def create_single_daily_special(tips, date_str_inner, count):
         tipp_neve = f"Napi Tuti #{count} - {date_str_inner}"
@@ -167,8 +172,14 @@ def run_generator_for_date(date_str: str):
             else: break
         return created_count
 
+    # --- Fő futtató logika ---
     fixtures = get_fixtures_for_date(date_str)
-    if not fixtures: return f"Nem találtam meccseket a(z) {date_str} napra.", 0
+    if not fixtures:
+        if error_log:
+            error_message = "\n".join(error_log[:3])
+            return f"Nem találtam meccseket a(z) {date_str} napra. A következő hálózati hibák történtek a háttérben:\n\n`{error_message}`", 0
+        return f"Nem találtam meccseket a(z) {date_str} napra.", 0
+    
     final_tips = analyze_and_generate_tips(fixtures)
     if not final_tips: return f"Találtam {len(fixtures)} meccset, de a stratégia alapján egyik sem volt megfelelő tippnek.", 0
     saved_tips = save_tips_to_supabase(final_tips)
