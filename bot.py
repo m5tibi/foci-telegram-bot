@@ -1,4 +1,4 @@
-# bot.py (V8.1 - Ciklus Megszakítással)
+# bot.py (V8.2 - Végleges Handler Javítással)
 
 import os
 import telegram
@@ -61,26 +61,22 @@ def get_tip_details(tip_text):
 
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 def run_generator_for_date(date_str: str):
-    # ... (ez a teljes, hosszú függvény változatlan a V8.0-hoz képest) ...
-    # ... A teljesség kedvéért a teljes kód ide van másolva ...
     error_log = []
     def get_fixtures_for_date(date_str_inner):
         season = date_str_inner[:4]
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures"
         all_fixtures = []
         print(f"ADMIN: Meccsek keresése a(z) {date_str_inner} napra, a(z) {season} szezonban...")
-        for league_id, league_name in LEAGUES.items():
+        for league_id in LEAGUES.values():
             querystring = {"date": date_str_inner, "league": str(league_id), "season": season}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
-                response = requests.get(url, headers=headers, params=querystring, timeout=15)
-                response.raise_for_status()
+                response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
                 found_fixtures = response.json().get('response', [])
                 if found_fixtures: all_fixtures.extend(found_fixtures)
                 time.sleep(0.8)
             except requests.exceptions.RequestException as e:
-                error_log.append(f"Hiba '{league_name}': {e}")
-                print(f"ADMIN Hiba: {e}")
+                error_log.append(f"Hiba '{LEAGUES.get(league_id, league_id)}': {e}"); print(f"ADMIN Hiba: {e}")
         return all_fixtures
     
     def get_odds_for_fixture(fixture_id):
@@ -95,8 +91,7 @@ def run_generator_for_date(date_str: str):
                 if data and data[0].get('bookmakers'): all_odds_for_fixture.extend(data[0]['bookmakers'][0].get('bets', []))
                 time.sleep(0.8)
             except requests.exceptions.RequestException as e:
-                error_log.append(f"Hiba odds lekérésekor ({fixture_id}): {e}")
-                pass
+                error_log.append(f"Hiba odds lekérésekor ({fixture_id}): {e}"); pass
         return all_odds_for_fixture
 
     def calculate_confidence_fallback(tip_type, odds):
@@ -306,19 +301,42 @@ async def stat(update: telegram.Update, context: CallbackContext):
         response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
         stat_message += f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
         # ... (Napi Tuti statisztika változatlan) ...
+        # (a teljesség kedvéért ide is beillesztem a teljes, működő kódot)
+        evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+        if response_tuti.data:
+            for szelveny in response_tuti.data:
+                tipp_id_k = szelveny.get('tipp_id_k', [])
+                if not tipp_id_k: continue
+                meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
+                if len(meccsek_res.data) == len(tipp_id_k) and not any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
+                    evaluated_tuti_count += 1
+                    if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
+                        won_tuti_count += 1
+                        total_return_tuti += float(szelveny['eredo_odds'])
+        if evaluated_tuti_count > 0:
+            lost_tuti_count = evaluated_tuti_count - won_tuti_count
+            tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100)
+            total_staked_tuti = evaluated_tuti_count * 1.0
+            net_profit_tuti = total_return_tuti - total_staked_tuti
+            roi_tuti = (net_profit_tuti / total_staked_tuti * 100)
+            stat_message += f"Összes szelvény: *{evaluated_tuti_count}* db\n"
+            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+            stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
+            stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
+            stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
+        else:
+            stat_message += "Ebben a hónapban még nincsenek kiértékelt Napi Tuti szelvények."
+        await reply_obj.reply_text(stat_message, parse_mode='Markdown')
     except Exception as e:
         await reply_obj.reply_text(f"Hiba a statisztika készítése közben: {e}")
+
 
 # --- ADMIN PARANCS ---
 @admin_only
 async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
-    # --- MÓDOSÍTÁS: Az üzenet elejére bekerül a ciklus-megszakító ---
     await context.bot.get_updates(offset=update.update_id + 1)
-    
-    await update.message.reply_text("Oké, főnök! A parancsot fogadtam. Elindítom a *mai napi* tippek generálását... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
-    
+    await update.message.reply_text("Oké, főnök! Indítom a generálást... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
     date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
-    
     try:
         eredmeny_szoveg, tippek_szama = await asyncio.to_thread(run_generator_for_date, date_to_generate)
         await update.message.reply_text(eredmeny_szoveg, parse_mode='Markdown')
@@ -328,7 +346,11 @@ async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
 # --- Handlerek Hozzáadása ---
 def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CommandHandler("tippek", tippek))
+    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
+    application.add_handler(CommandHandler("eredmenyek", eredmenyek))
+    application.add_handler(CommandHandler("stat", stat))
     application.add_handler(CommandHandler("admintippek", admin_tippek_ma))
-    print("Felhasználói és Admin parancskezelők sikeresen hozzáadva.")
+    application.add_handler(CallbackQueryHandler(button_handler))
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
