@@ -1,4 +1,4 @@
-# tipp_generator.py (V7.1 - Teljes, Kimeneti Változóval)
+# tipp_generator.py (V9.0 - "Piacbővítés")
 
 import os
 import requests
@@ -21,6 +21,7 @@ TOP_LEAGUES = {
     39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A",
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie",
     94: "Portugál Primeira Liga", 1: "Bajnokok Ligája", 2: "Európa-liga",
+    3: "Európa-konferencialiga", 203: "Török Süper Lig", 144: "Belga Jupiler Pro League",
 }
 
 # --- SEGÉDFÜGGVÉNYEK ---
@@ -31,10 +32,8 @@ def get_team_statistics(team_id, league_id):
     querystring = {"league": str(league_id), "season": current_season, "team": str(team_id)}
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     try:
-        response = requests.get(url, headers=headers, params=querystring)
-        response.raise_for_status()
-        data = response.json().get('response')
-        time.sleep(0.7)
+        response = requests.get(url, headers=headers, params=querystring); response.raise_for_status()
+        data = response.json().get('response'); time.sleep(0.8)
         if not data or not data.get('form'): return None
         return data
     except requests.exceptions.RequestException: return None
@@ -44,84 +43,97 @@ def get_h2h_results(team_id_1, team_id_2):
     querystring = {"h2h": f"{team_id_1}-{team_id_2}", "last": "5"}
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     try:
-        response = requests.get(url, headers=headers, params=querystring)
-        response.raise_for_status()
-        data = response.json().get('response', [])
-        time.sleep(0.7)
+        response = requests.get(url, headers=headers, params=querystring); response.raise_for_status()
+        data = response.json().get('response', []); time.sleep(0.8)
         if not data: return None
-        
-        results = {'wins1': 0, 'wins2': 0, 'draws': 0, 'total_goals': 0, 'count': 0}
+        results = {'wins1': 0, 'wins2': 0, 'draws': 0, 'total_goals': 0, 'count': 0, 'btts_count': 0}
         for match in data:
-            goals_h = match['goals']['home']
-            goals_a = match['goals']['away']
+            goals_h, goals_a = match['goals']['home'], match['goals']['away']
             if goals_h is None or goals_a is None: continue
-            
-            results['total_goals'] += goals_h + goals_a
-            results['count'] += 1
-            if goals_h == goals_a:
-                results['draws'] += 1
+            results['total_goals'] += goals_h + goals_a; results['count'] += 1
+            if goals_h > 0 and goals_a > 0: results['btts_count'] += 1
+            if goals_h == goals_a: results['draws'] += 1
             elif (match['teams']['home']['id'] == team_id_1 and goals_h > goals_a) or \
-                 (match['teams']['away']['id'] == team_id_1 and goals_a > goals_h):
-                results['wins1'] += 1
-            else:
-                results['wins2'] += 1
+                 (match['teams']['away']['id'] == team_id_1 and goals_a > goals_h): results['wins1'] += 1
+            else: results['wins2'] += 1
         return results
-    except requests.exceptions.RequestException:
-        return None
+    except requests.exceptions.RequestException: return None
 
+# --- MÓDOSÍTÁS: Új piacokat is lekérdezünk ---
 def get_odds_for_fixture(fixture_id):
     all_odds_for_fixture = []
-    for bet_id in [1, 12]:
+    # Bet ID-k: 1(1X2), 5(O/U), 8(BTTS), 12(Dupla Esély), 21(Hazai gólok), 22(Vendég gólok)
+    for bet_id in [1, 5, 8, 12, 21, 22]:
         url = f"https://{RAPIDAPI_HOST}/v3/odds"
         querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
         headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
         try:
-            response = requests.get(url, headers=headers, params=querystring)
-            response.raise_for_status()
+            response = requests.get(url, headers=headers, params=querystring); response.raise_for_status()
             data = response.json().get('response', [])
             if data and data[0].get('bookmakers'): all_odds_for_fixture.extend(data[0]['bookmakers'][0].get('bets', []))
-            time.sleep(0.7)
+            time.sleep(0.8)
         except requests.exceptions.RequestException: pass
     return all_odds_for_fixture
 
 def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats):
     score, reason = 0, []
-    
     form_h, form_v = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
     wins_h, wins_v = form_h.count('W'), form_v.count('W')
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
+    goals_against_h = float(stats_h.get('goals', {}).get('against', {}).get('average', {}).get('home', "0"))
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
-    
-    if tip_type == "Home" and 1.4 <= odds <= 2.2:
-        score += 50
-        if wins_h >= 3 and wins_h > wins_v + 1: score += 20; reason.append(f"Hazai forma ({form_h}).")
-        if goals_for_h > 1.8: score += 15; reason.append("Gólerős otthon.")
-    elif tip_type == "Away" and 1.4 <= odds <= 2.2:
-        score += 50
-        if wins_v >= 3 and wins_v > wins_h + 1: score += 20; reason.append(f"Vendég forma ({form_v}).")
-        if goals_for_v > 1.7: score += 15; reason.append("Gólerős idegenben.")
-    elif tip_type == "Gólok száma 2.5 felett" and 1.5 <= odds <= 2.1:
-        score += 40
-        avg_goals_total = goals_for_h + goals_for_v
-        if avg_goals_total > 3.0: score += 30; reason.append(f"Gólerős csapatok.")
+    goals_against_v = float(stats_v.get('goals', {}).get('against', {}).get('average', {}).get('away', "0"))
 
-    if h2h_stats and h2h_stats['count'] > 0:
-        home_h2h_wins = h2h_stats['wins1']
-        away_h2h_wins = h2h_stats['wins2']
-        avg_h2h_goals = h2h_stats['total_goals'] / h2h_stats['count']
-        if tip_type == "Home" and home_h2h_wins > away_h2h_wins + 1: score += 20; reason.append("Domináns H2H.")
-        elif tip_type == "Away" and away_h2h_wins > home_h2h_wins + 1: score += 20; reason.append("Domináns H2H.")
-        elif tip_type == "Gólok száma 2.5 felett" and avg_h2h_goals >= 3.0: score += 20; reason.append("H2H gólátlag magas.")
+    # Különböző piacok elemzése
+    if tip_type == "Home" and 1.4 <= odds <= 2.3:
+        score += 40;
+        if wins_h > wins_v: score += 20; reason.append(f"Jobb forma ({form_h}).")
+        if goals_for_h > 1.6: score += 15; reason.append("Gólerős otthon.")
+    elif tip_type == "Away" and 1.4 <= odds <= 2.3:
+        score += 40;
+        if wins_v > wins_h: score += 20; reason.append(f"Jobb forma ({form_v}).")
+        if goals_for_v > 1.5: score += 15; reason.append("Gólerős idegenben.")
+    elif tip_type == "Over 2.5" and 1.5 <= odds <= 2.2:
+        score += 40;
+        if goals_for_h + goals_for_v > 3.0: score += 30; reason.append(f"Gólerős csapatok.")
+    elif tip_type == "Over 1.5" and 1.20 <= odds <= 1.5: # ÚJ
+        score += 50;
+        if goals_for_h + goals_for_v > 2.5: score += 25; reason.append(f"Gólveszélyes meccs.")
+    elif tip_type == "BTTS" and 1.5 <= odds <= 2.1:
+        score += 40;
+        if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8: score += 35; reason.append("Nyílt játék várható.")
+    elif tip_type == "1X" and 1.25 <= odds <= 1.55:
+        score += 50;
+        if stats_h.get('form', 'L')[-1] != 'L' and wins_h + form_h.count('D') >= 3: score += 25; reason.append("Hazai nehezen kap ki.")
+    elif tip_type == "X2" and 1.25 <= odds <= 1.55:
+        score += 50;
+        if stats_v.get('form', 'L')[-1] != 'L' and wins_v + form_v.count('D') >= 3: score += 25; reason.append("Vendég nehezen kap ki.")
+    elif tip_type == "Home Over 1.5" and 1.7 <= odds <= 2.8: # ÚJ
+        score += 40;
+        if goals_for_h >= 2.0: score += 35; reason.append("Hazai gólátlag magas.")
+    elif tip_type == "Away Over 1.5" and 1.8 <= odds <= 3.0: # ÚJ
+        score += 40;
+        if goals_for_v >= 1.8: score += 35; reason.append("Vendég gólátlag magas.")
 
+    if h2h_stats and h2h_stats['count'] > 2:
+        # H2H bónuszok
+        if tip_type in ["Home", "1X"] and h2h_stats['wins1'] > h2h_stats['wins2']: score += 15; reason.append("Jobb H2H.")
+        if tip_type in ["Away", "X2"] and h2h_stats['wins2'] > h2h_stats['wins1']: score += 15; reason.append("Jobb H2H.")
+        if tip_type == "BTTS" and h2h_stats['btts_count'] >= 3: score += 20; reason.append("H2H BTTS gyakori.")
+        if "Over" in tip_type and (h2h_stats['total_goals'] / h2h_stats['count']) >= 3.0: score += 15; reason.append("H2H gólátlag magas.")
+            
     final_score = min(score, 100)
-    if final_score >= 80: return final_score, " ".join(reason) if reason else "Jó megérzés."
+    if final_score >= 75: return final_score, " ".join(list(dict.fromkeys(reason)))
     return 0, ""
 
 def calculate_confidence_fallback(tip_type, odds):
-    score = 0
-    if tip_type in ["Home", "Away"] and 1.45 <= odds <= 1.85: score = 75
-    elif tip_type == "Gólok száma 2.5 felett" and 1.60 <= odds <= 1.9: score = 75
-    if score > 0: return score, "Odds-alapú tipp (nincs statisztika)."
+    if tip_type in ["Home", "Away"] and 1.40 <= odds <= 2.10: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Over 2.5" and 1.55 <= odds <= 2.10: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Over 1.5" and 1.20 <= odds <= 1.45: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "BTTS" and 1.50 <= odds <= 1.95: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type in ["1X", "X2"] and 1.25 <= odds <= 1.50: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Home Over 1.5" and 1.6 <= odds <= 2.5: return 75, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Away Over 1.5" and 1.7 <= odds <= 2.8: return 75, "Odds-alapú tipp (nincs stat)."
     return 0, ""
 
 def get_fixtures_from_api():
@@ -135,11 +147,10 @@ def get_fixtures_from_api():
         querystring = {"date": tomorrow_str, "league": str(league_id), "season": current_season}
         headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
         try:
-            response = requests.get(url, headers=headers, params=querystring)
-            response.raise_for_status()
+            response = requests.get(url, headers=headers, params=querystring); response.raise_for_status()
             found_fixtures = response.json().get('response', [])
             if found_fixtures: all_fixtures.extend(found_fixtures)
-            time.sleep(0.7)
+            time.sleep(0.8)
         except requests.exceptions.RequestException as e: print(f"Hiba: {e}")
     return all_fixtures
 
@@ -158,13 +169,24 @@ def analyze_and_generate_tips(fixtures):
         h2h_stats = get_h2h_results(home_team_id, away_team_id)
         use_fallback = not stats_h or not stats_v
         if use_fallback: print(" -> Figyelmeztetés: Statisztika nem elérhető, tartalék logika aktív.")
-        odds_data = get_odds_for_fixture(fixture.get('id'))
+        odds_data = get_odds_for_fixture(fixture_id)
         if not odds_data: print(" -> Odds adatok hiányoznak, meccs kihagyva."); continue
         tip_template = {"fixture_id": fixture_id, "csapat_H": teams.get('home', {}).get('name'), "csapat_V": teams.get('away', {}).get('name'), "kezdes": fixture.get('date'), "liga_nev": league.get('name'), "liga_orszag": league.get('country')}
         for bet in odds_data:
             for value in bet.get('values', []):
-                tip_name_map = {"Match Winner.Home": "Home", "Match Winner.Away": "Away", "Over/Under.Over 2.5": "Gólok száma 2.5 felett"}
-                lookup_key = f"{bet.get('name')}.{value.get('value')}"
+                tip_name_map = {
+                    "Match Winner.Home": "Home", "Match Winner.Away": "Away",
+                    "Over/Under.Over 2.5": "Over 2.5", "Over/Under.Over 1.5": "Over 1.5",
+                    "Both Teams To Score.Yes": "BTTS",
+                    "Double Chance.Home/Draw": "1X", "Double Chance.Draw/Away": "X2",
+                    "Home Team Exact Goals.Over 1.5": "Home Over 1.5", # API válasz alapján pontosítva
+                    "Away Team Exact Goals.Over 1.5": "Away Over 1.5"  # API válasz alapján pontosítva
+                }
+                # A Bet365 API-ja néha másképp nevezi a csapatgólokat
+                if bet.get('id') == 21 and value.get('value') == "Over 1.5": lookup_key = "Home Team Exact Goals.Over 1.5"
+                elif bet.get('id') == 22 and value.get('value') == "Over 1.5": lookup_key = "Away Team Exact Goals.Over 1.5"
+                else: lookup_key = f"{bet.get('name')}.{value.get('value')}"
+
                 if lookup_key in tip_name_map:
                     tipp_nev, odds = tip_name_map[lookup_key], float(value.get('odd'))
                     score, reason = (0, "")
@@ -174,7 +196,7 @@ def analyze_and_generate_tips(fixtures):
                         tip_info = tip_template.copy()
                         tip_info.update({"tipp": tipp_nev, "odds": odds, "confidence_score": score, "indoklas": reason})
                         final_tips.append(tip_info)
-                        print(f"  -> TALÁLAT! Tipp: {tipp_nev}, Pont: {score}, Indok: {reason}")
+                        print(f"  -> TALÁLAT! Tipp: {tipp_nev}, Pontszám: {score}, Indok: {reason}")
     return final_tips
 
 def save_tips_to_supabase(tips):
@@ -200,8 +222,7 @@ def create_daily_special_for_day(tips_for_day, date_str):
     print(f"Korábbi '{tipp_neve_to_delete}' szelvény törlése...")
     supabase.table("napi_tuti").delete().eq("tipp_neve", tipp_neve_to_delete).execute()
     tuti_candidates = sorted(tips_for_day, key=lambda x: x['confidence_score'], reverse=True)
-    special_tips = []
-    used_fixtures = set()
+    special_tips, used_fixtures = [], set()
     for candidate in tuti_candidates:
         if candidate['fixture_id'] not in used_fixtures:
             special_tips.append(candidate)
@@ -217,7 +238,7 @@ def create_daily_special_for_day(tips_for_day, date_str):
     print(f"'{tipp_neve}' sikeresen létrehozva.")
 
 def main():
-    print(f"Statisztika-alapú Tipp Generátor (V7.1) indítása - {datetime.now(BUDAPEST_TZ)}...")
+    print(f"Statisztika-alapú Tipp Generátor (V9.0) indítása - {datetime.now(BUDAPEST_TZ)}...")
     tips_found_flag = False
     fixtures = get_fixtures_from_api()
     if fixtures:
@@ -232,10 +253,8 @@ def main():
                     grouped_tips[date_key].append(tip)
                 for date_str, tips_on_day in grouped_tips.items():
                     create_daily_special_for_day(tips_on_day, date_str)
-        if not tips_found_flag:
-            print("Az elemzés után nem maradt megfelelő tipp.")
-    else:
-        print("Nem találhatóak meccsek a következő napra.")
+        if not tips_found_flag: print("Az elemzés után nem maradt megfelelő tipp.")
+    else: print("Nem találhatóak meccsek a következő napra.")
     
     if "GITHUB_OUTPUT" in os.environ:
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
