@@ -1,4 +1,4 @@
-# bot.py (V6.5 - Statisztika Javítással)
+# bot.py (V7.0 - Új Piacok Megjelenítése)
 
 import os
 import telegram
@@ -19,17 +19,29 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 HUNGARIAN_DAYS = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
+# --- MÓDOSÍTÁS: Új tipp-nevek hozzáadva ---
 def get_tip_details(tip_text):
-    tip_map = {"Home": "Hazai nyer", "Away": "Vendég nyer", "Gólok száma 2.5 felett": "Gólok 2.5 felett"}
+    tip_map = {
+        "Home": "Hazai nyer", 
+        "Away": "Vendég nyer", 
+        "Over 2.5": "Gólok 2.5 felett",
+        "Over 1.5": "Gólok 1.5 felett",
+        "BTTS": "Mindkét csapat szerez gólt",
+        "1X": "Dupla esély: Hazai vagy Döntetlen",
+        "X2": "Dupla esély: Döntetlen vagy Vendég",
+        "Home Over 1.5": "Hazai csapat 1.5 gól felett",
+        "Away Over 1.5": "Vendég csapat 1.5 gól felett"
+    }
     return tip_map.get(tip_text, tip_text)
 
-# --- Parancskezelők (start, button_handler, tippek, eredmenyek változatlanok) ---
+# --- A fájl többi része VÁLTOZATLAN a legutóbbi, V6.5-ös verzióhoz képest ---
+# (start, button_handler, tippek, eredmenyek, napi_tuti, stat, add_handlers)
+
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
         supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e: print(f"Hiba a felhasználó mentése során: {e}")
-
     keyboard = [[InlineKeyboardButton("📈 Tippek", callback_data="show_tips"), InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")],
                 [InlineKeyboardButton("📊 Eredmények", callback_data="show_results"), InlineKeyboardButton("💰 Statisztika", callback_data="show_stat")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -49,24 +61,20 @@ async def tippek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now_utc = datetime.now(pytz.utc)
     response = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").gte("kezdes", str(now_utc)).order('kezdes').execute()
-    
     if not response.data:
         await reply_obj.reply_text("🔎 Jelenleg nincsenek aktív (jövőbeli) tippek.")
         return
-
     grouped_tips = defaultdict(list)
     for tip in response.data:
         local_time = datetime.fromisoformat(tip['kezdes']).astimezone(HUNGARY_TZ)
         date_key = local_time.strftime("%Y.%m.%d.")
         grouped_tips[date_key].append(tip)
-
     message_parts = []
     for date_str, tips_on_day in grouped_tips.items():
         date_obj = datetime.strptime(date_str, "%Y.%m.%d.")
         day_name = HUNGARIAN_DAYS[date_obj.weekday()]
         header = f"*--- Tippek - {date_str} ({day_name}) ---*"
         message_parts.append(header)
-
         for tip in tips_on_day:
             local_time = datetime.fromisoformat(tip['kezdes']).astimezone(HUNGARY_TZ)
             line1 = f"⚽️ *{tip['csapat_H']} vs {tip['csapat_V']}*"
@@ -75,18 +83,15 @@ async def tippek(update: telegram.Update, context: CallbackContext):
             line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
             line5 = f"📄 Indoklás: _{tip.get('indoklas', 'N/A')}_"
             message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}\n{line5}")
-    
     await reply_obj.reply_text("\n\n".join(message_parts), parse_mode='Markdown')
 
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     today_start_utc = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     response = supabase.table("meccsek").select("*").in_("eredmeny", ["Nyert", "Veszített"]).gte("kezdes", str(today_start_utc)).order('kezdes', desc=True).execute()
-    
     if not response.data:
         await reply_obj.reply_text("🔎 A mai napon még nincsenek kiértékelt meccsek.")
         return
-
     message_parts = ["*--- Mai Eredmények ---*"]
     for tip in response.data:
         eredmeny_jel = "✅" if tip['eredmeny'] == 'Nyert' else "❌"
@@ -99,71 +104,49 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now_utc = datetime.now(pytz.utc)
-    
     yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=True).execute()
-        
     if not response.data:
         await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
         return
-    
     future_szelvenyek = []
     for szelveny in response.data:
         tipp_id_k = szelveny.get('tipp_id_k', [])
         if not tipp_id_k: continue
-        
         meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes').limit(1).execute()
-        
         if meccsek_res.data:
             first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes'])
-            if first_match_start_utc > now_utc:
-                future_szelvenyek.append(szelveny)
-
+            if first_match_start_utc > now_utc: future_szelvenyek.append(szelveny)
     if not future_szelvenyek:
         await reply_obj.reply_text("🔎 Jelenleg nincsenek jövőbeli 'Napi Tuti' szelvények.")
         return
-
     full_message = []
     for i, szelveny in enumerate(future_szelvenyek):
         header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
         message_parts = [header]
         meccsek_res = supabase.table("meccsek").select("*").in_("id", szelveny.get('tipp_id_k', [])).execute()
-
         if not meccsek_res.data: continue
-
         for tip in meccsek_res.data:
             local_time = datetime.fromisoformat(tip['kezdes']).astimezone(HUNGARY_TZ)
             time_str = local_time.strftime('%H:%M')
             tip_line = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}* `({time_str})`\n `•` {get_tip_details(tip['tipp'])}: *{tip['odds']:.2f}*"
             message_parts.append(tip_line)
-        
         message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
-        if i < len(future_szelvenyek) - 1:
-            message_parts.append("--------------------")
+        if i < len(future_szelvenyek) - 1: message_parts.append("--------------------")
         full_message.extend(message_parts)
-
     await reply_obj.reply_text("\n\n".join(full_message), parse_mode='Markdown')
 
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
-    
     now = datetime.now(HUNGARY_TZ)
     start_of_month_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     next_month_first_day = (start_of_month_local.replace(day=28) + timedelta(days=4)).replace(day=1)
     end_of_month_local = next_month_first_day - timedelta(seconds=1)
-    
     start_of_month_utc_str = start_of_month_local.astimezone(pytz.utc).isoformat()
     end_of_month_utc_str = end_of_month_local.astimezone(pytz.utc).isoformat()
-    
     month_header = f"*{now.year}. {HUNGARIAN_MONTHS[now.month - 1]}*"
-
     try:
-        response_tips = supabase.table("meccsek").select("eredmeny, odds") \
-            .in_("eredmeny", ["Nyert", "Veszített"]) \
-            .gte("created_at", start_of_month_utc_str) \
-            .lte("created_at", end_of_month_utc_str) \
-            .execute()
-
+        response_tips = supabase.table("meccsek").select("eredmeny, odds").in_("eredmeny", ["Nyert", "Veszített"]).gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
         stat_message = f"📊 *Általános Tipp Statisztika*\n{month_header}\n\n"
         if not response_tips.data:
             stat_message += "Ebben a hónapban még nincsenek kiértékelt tippek."
@@ -173,24 +156,15 @@ async def stat(update: telegram.Update, context: CallbackContext):
             talalati_arany = (nyert_db / osszes_db * 100) if osszes_db > 0 else 0
             total_staked_tips = osszes_db * 1.0
             total_return_tips = sum(float(tip['odds']) for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
-            
-            # --- JAVÍTÁS ITT: A problémás sor kettébontva ---
             net_profit_tips = total_return_tips - total_staked_tips
             roi_tips = (net_profit_tips / total_staked_tips * 100) if total_staked_tips > 0 else 0
-            # -----------------------------------------------
-
             stat_message += f"Összes tipp: *{osszes_db}* db\n"
             stat_message += f"✅ Nyert: *{nyert_db}* db | ❌ Veszített: *{veszitett_db}* db\n"
             stat_message += f"📈 Találati arány: *{talalati_arany:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {'✅' if net_profit_tips >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tips:+.2f}%*"
-
         stat_message += "\n-----------------------------------\n\n"
-        
-        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds") \
-            .gte("created_at", start_of_month_utc_str) \
-            .lte("created_at", end_of_month_utc_str) \
-            .execute()
+        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
         stat_message += f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         if response_tuti.data:
