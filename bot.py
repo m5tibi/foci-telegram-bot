@@ -1,4 +1,4 @@
-# bot.py (V7.9 - Hálózati Diagnosztikával - TELJES VERZIÓ)
+# bot.py (V8.0 - Végleges, Élesített Admin Parancs)
 
 import os
 import telegram
@@ -62,7 +62,6 @@ def get_tip_details(tip_text):
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 def run_generator_for_date(date_str: str):
     error_log = []
-
     def get_fixtures_for_date(date_str_inner):
         season = date_str_inner[:4]
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures"
@@ -72,7 +71,7 @@ def run_generator_for_date(date_str: str):
             querystring = {"date": date_str_inner, "league": str(league_id), "season": season}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
-                response = requests.get(url, headers=headers, params=querystring, timeout=20)
+                response = requests.get(url, headers=headers, params=querystring, timeout=15)
                 response.raise_for_status()
                 found_fixtures = response.json().get('response', [])
                 if found_fixtures: all_fixtures.extend(found_fixtures)
@@ -89,7 +88,7 @@ def run_generator_for_date(date_str: str):
             querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
-                response = requests.get(url, headers=headers, params=querystring, timeout=20); response.raise_for_status()
+                response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
                 data = response.json().get('response', [])
                 if data and data[0].get('bookmakers'): all_odds_for_fixture.extend(data[0]['bookmakers'][0].get('bets', []))
                 time.sleep(0.8)
@@ -172,7 +171,6 @@ def run_generator_for_date(date_str: str):
             else: break
         return created_count
 
-    # --- Fő futtató logika ---
     fixtures = get_fixtures_for_date(date_str)
     if not fixtures:
         if error_log:
@@ -314,11 +312,8 @@ async def stat(update: telegram.Update, context: CallbackContext):
 async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
     await update.message.reply_text("Oké, főnök! Indítom a generálást... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
     
-    # Teszteléshez a dátum egy ismert, meccsekkel teli napra van állítva
-    date_to_generate = "2024-10-05" # TESZT EGY MÚLTBELI SZOMBATRA
-    
-    # Ha a teszt sikeres, ezt a sort kell majd használni a "# TESZT" sor helyett:
-    # date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
+    # Élesítés: A parancs most már mindig az aktuális napra fog keresni
+    date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
     
     try:
         eredmeny_szoveg, tippek_szama = await asyncio.to_thread(run_generator_for_date, date_to_generate)
