@@ -2,8 +2,8 @@ name: Napi Tippek Generalasa es Ertesites
 
 on:
   schedule:
-    # Minden este 20:00 UTC-kor fut le (ez 22:00 nyáron, 21:00 télen Magyarországon)
-    - cron: '0 20 * * *'
+    # Minden este 17:00 UTC-kor fut le (ez 19:00 nyáron, 18:00 télen Magyarországon)
+    - cron: '0 17 * * *'
   workflow_dispatch:
 
 jobs:
@@ -24,15 +24,16 @@ jobs:
           pip install --no-cache-dir -r requirements.txt
 
       - name: Tippek generálása
-        id: generate_step # Lépés azonosítója
+        id: generate_step # Ez az ID fontos a hivatkozáshoz
         run: python tipp_generator.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
 
-      - name: Értesítések kiküldése (ha a generálás sikeres volt)
-        if: success()
+      - name: Értesítések kiküldése
+        # Csak akkor fut le, ha a 'generate_step' lépés 'TIPS_FOUND' kimenete 'true'
+        if: steps.generate_step.outputs.TIPS_FOUND == 'true'
         run: python send_notification.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
