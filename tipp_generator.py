@@ -1,13 +1,9 @@
-# tipp_generator.py (V13.2 - Végleges)
+# tipp_generator.py (V13.2 - Javított Törléssel)
 
-import os
-import requests
+import os, requests, time, pytz, math
 from supabase import create_client, Client
 from datetime import datetime, timedelta
-import time
-import pytz
 from collections import defaultdict
-import math
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -20,7 +16,7 @@ BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 # --- "ALL-IN" Globális Liga Lista ---
 LEAGUES = { 39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 61: "Francia Ligue 1", 40: "Angol Championship", 141: "Spanyol La Liga 2", 136: "Olasz Serie B", 79: "Német 2. Bundesliga", 62: "Francia Ligue 2", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 144: "Belga Jupiler Pro League", 203: "Török Süper Lig", 119: "Svéd Allsvenskan", 103: "Norvég Eliteserien", 106: "Dán Superliga", 218: "Svájci Super League", 113: "Osztrák Bundesliga", 253: "USA MLS", 262: "Mexikói Liga MX", 71: "Brazil Serie A", 128: "Argentin Liga Profesional", 98: "Japán J1 League", 188: "Ausztrál A-League", 292: "Dél-Koreai K League 1", 1: "Bajnokok Ligája", 2: "Európa-liga", 3: "Európa-konferencialiga", 13: "Copa Libertadores" }
 
-# --- Segédfüggvények ---
+# --- Segédfüggvények (változatlanok) ---
 def get_fixtures_from_api():
     now_in_budapest = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (now_in_budapest + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -43,8 +39,7 @@ def get_fixtures_from_api():
 def get_odds_for_fixture(fixture_id):
     all_odds_for_fixture = []
     for bet_id in [1, 5, 8, 12, 21, 22]:
-        url = f"https://{RAPIDAPI_HOST}/v3/odds"
-        querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
+        url = f"https://{RAPIDAPI_HOST}/v3/odds"; querystring = {"fixture": str(fixture_id), "bookmaker": "8", "bet": str(bet_id)}
         headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
         try:
             response = requests.get(url, headers=headers, params=querystring, timeout=20); response.raise_for_status()
@@ -85,10 +80,16 @@ def analyze_and_generate_tips(fixtures):
                         final_tips.append(tip_info)
     return final_tips
 
+# --- JAVÍTÁS: Robusztusabb törlési logika ---
 def save_tips_to_supabase(tips):
     if not tips: return []
+    print("Minden korábbi, még nem kiértékelt tipp törlése...")
+    # Ez a parancs letöröl minden olyan sort, ami 'Tipp leadva' állapotban van,
+    # biztosítva, hogy minden futás tiszta lappal induljon.
     supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").execute()
+    
     tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]
+    print(f"{len(tips_to_insert)} új tipp hozzáadása az adatbázishoz...")
     try:
         return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
     except Exception as e:
