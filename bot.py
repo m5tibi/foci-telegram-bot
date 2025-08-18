@@ -1,4 +1,4 @@
-# bot.py (V7.8 - Szezon Kezelés Javítással és Teszttel - TELJES VERZIÓ)
+# bot.py (V7.8 - Végleges Szezon Kezelés Javítással)
 
 import os
 import telegram
@@ -62,6 +62,7 @@ def get_tip_details(tip_text):
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 def run_generator_for_date(date_str: str):
     def get_fixtures_for_date(date_str_inner):
+        # --- JAVÍTÁS ITT: A szezont a keresett dátumból vesszük, nem a mai napból! ---
         season = date_str_inner[:4]
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures"
         all_fixtures = []
@@ -291,8 +292,9 @@ async def stat(update: telegram.Update, context: CallbackContext):
             stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {'✅' if net_profit_tips >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tips:+.2f}%*"
         stat_message += "\n-----------------------------------\n\n"
+        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
+        stat_message += f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
         # ... (Napi Tuti statisztika változatlan) ...
-        await reply_obj.reply_text(stat_message, parse_mode='Markdown')
     except Exception as e:
         await reply_obj.reply_text(f"Hiba a statisztika készítése közben: {e}")
 
@@ -301,10 +303,10 @@ async def stat(update: telegram.Update, context: CallbackContext):
 async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
     await update.message.reply_text("Oké, főnök! Indítom a generálást... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
     
-    # --- MÓDOSÍTÁS ITT: A dátum egy ismert, meccsekkel teli napra van állítva ---
+    # Teszteléshez a dátum egy ismert, meccsekkel teli napra van állítva
     date_to_generate = "2024-10-05" # TESZT EGY MÚLTBELI SZOMBATRA
     
-    # Ha a teszt sikeres, ezt a két sort kell majd használni a "# TESZT" sor helyett:
+    # Ha a teszt sikeres, ezt a sort kell majd használni a "# TESZT" sor helyett:
     # date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
     
     try:
