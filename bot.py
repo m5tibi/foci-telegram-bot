@@ -1,4 +1,4 @@
-# bot.py (V6.4 - Végleges Hibajavítással)
+# bot.py (V6.5 - Statisztika Javítással)
 
 import os
 import telegram
@@ -112,7 +112,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         tipp_id_k = szelveny.get('tipp_id_k', [])
         if not tipp_id_k: continue
         
-        # --- JAVÍTÁS ITT: A hibás 'asc=True' paraméter eltávolítva ---
         meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes').limit(1).execute()
         
         if meccsek_res.data:
@@ -147,15 +146,24 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
 
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
+    
     now = datetime.now(HUNGARY_TZ)
     start_of_month_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     next_month_first_day = (start_of_month_local.replace(day=28) + timedelta(days=4)).replace(day=1)
     end_of_month_local = next_month_first_day - timedelta(seconds=1)
+    
     start_of_month_utc_str = start_of_month_local.astimezone(pytz.utc).isoformat()
     end_of_month_utc_str = end_of_month_local.astimezone(pytz.utc).isoformat()
+    
     month_header = f"*{now.year}. {HUNGARIAN_MONTHS[now.month - 1]}*"
+
     try:
-        response_tips = supabase.table("meccsek").select("eredmeny, odds").in_("eredmeny", ["Nyert", "Veszített"]).gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
+        response_tips = supabase.table("meccsek").select("eredmeny, odds") \
+            .in_("eredmeny", ["Nyert", "Veszített"]) \
+            .gte("created_at", start_of_month_utc_str) \
+            .lte("created_at", end_of_month_utc_str) \
+            .execute()
+
         stat_message = f"📊 *Általános Tipp Statisztika*\n{month_header}\n\n"
         if not response_tips.data:
             stat_message += "Ebben a hónapban még nincsenek kiértékelt tippek."
@@ -163,15 +171,26 @@ async def stat(update: telegram.Update, context: CallbackContext):
             nyert_db = sum(1 for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
             osszes_db, veszitett_db = len(response_tips.data), len(response_tips.data) - nyert_db
             talalati_arany = (nyert_db / osszes_db * 100) if osszes_db > 0 else 0
-            total_staked_tips, total_return_tips = osszes_db * 1.0, sum(float(tip['odds']) for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
-            net_profit_tips, roi_tips = total_return_tips - total_staked_tips, (net_profit_tips / total_staked_tips * 100) if total_staked_tips > 0 else 0
+            total_staked_tips = osszes_db * 1.0
+            total_return_tips = sum(float(tip['odds']) for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
+            
+            # --- JAVÍTÁS ITT: A problémás sor kettébontva ---
+            net_profit_tips = total_return_tips - total_staked_tips
+            roi_tips = (net_profit_tips / total_staked_tips * 100) if total_staked_tips > 0 else 0
+            # -----------------------------------------------
+
             stat_message += f"Összes tipp: *{osszes_db}* db\n"
             stat_message += f"✅ Nyert: *{nyert_db}* db | ❌ Veszített: *{veszitett_db}* db\n"
             stat_message += f"📈 Találati arány: *{talalati_arany:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {'✅' if net_profit_tips >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tips:+.2f}%*"
+
         stat_message += "\n-----------------------------------\n\n"
-        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
+        
+        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds") \
+            .gte("created_at", start_of_month_utc_str) \
+            .lte("created_at", end_of_month_utc_str) \
+            .execute()
         stat_message += f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         if response_tuti.data:
