@@ -1,4 +1,4 @@
-# bot.py (V7.2 - Aszinkron Admin Parancs - Teljes Verzió)
+# bot.py (V7.3 - Import Javítással)
 
 import os
 import telegram
@@ -12,7 +12,8 @@ import time
 import math
 from functools import wraps
 import json
-import asyncio # Új import
+import asyncio
+import requests # <<--- EZ VOLT A HIÁNYZÓ IMPORT!
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -60,7 +61,7 @@ def get_tip_details(tip_text):
 
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 
-def run_generator_for_date(date_str: str): # FONTOS: Ez nem async def!
+def run_generator_for_date(date_str: str):
     # --- Belső segédfüggvények ---
     def get_fixtures_for_date(date_str_inner):
         current_season = str(datetime.now().year)
@@ -123,7 +124,7 @@ def run_generator_for_date(date_str: str): # FONTOS: Ez nem async def!
                     else: lookup_key = f"{bet.get('name')}.{value.get('value')}"
                     if lookup_key in tip_name_map:
                         tipp_nev, odds = tip_name_map[lookup_key], float(value.get('odd'))
-                        score, reason = calculate_confidence_fallback(tipp_nev, odds) # Admin parancs mindig a fallbackot használja
+                        score, reason = calculate_confidence_fallback(tipp_nev, odds)
                         if score > 0:
                             tip_info = tip_template.copy(); tip_info.update({"tipp": tipp_nev, "odds": odds, "confidence_score": score, "indoklas": reason})
                             final_tips.append(tip_info)
@@ -181,8 +182,53 @@ def run_generator_for_date(date_str: str): # FONTOS: Ez nem async def!
 
 # --- FELHASZNÁLÓI PARANCSKEZELŐK ---
 async def start(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+async def button_handler(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+async def tippek(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+async def eredmenyek(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+async def napi_tuti(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+async def stat(update: telegram.Update, context: CallbackContext):
+    # ... (változatlan a V6.5-höz képest)
+
+# --- ADMIN PARANCS ---
+@admin_only
+async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
+    await update.message.reply_text("Oké, főnök! Elindítom a *mai napi* tippek generálását... A feladat a háttérben fut, a végeredményről üzenetet küldök. Ez eltarthat néhány percig.", parse_mode='Markdown')
+    today_str = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
+    try:
+        # A hosszú, blokkoló feladatot egy külön szálon futtatjuk
+        eredmeny_szoveg, tippek_szama = await asyncio.to_thread(run_generator_for_date, today_str)
+        await update.message.reply_text(eredmeny_szoveg)
+    except Exception as e:
+        await update.message.reply_text(f"Váratlan hiba történt a generálás közben: {e}")
+
+# --- Handlerek Hozzáadása ---
+def add_handlers(application: Application):
+    # Felhasználói parancsok és gombok
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+    # Admin parancsok
+    application.add_handler(CommandHandler("admintippek", admin_tippek_ma))
+    
+    # A teljesség kedvéért a többi handler is itt van
+    application.add_handler(CommandHandler("tippek", tippek))
+    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
+    application.add_handler(CommandHandler("eredmenyek", eredmenyek))
+    application.add_handler(CommandHandler("stat", stat))
+
+    print("Felhasználói és Admin parancskezelők sikeresen hozzáadva.")
+    return application
+
+# Mivel a felhasználói függvények nem változtak, a teljes kódhoz beillesztjük őket ide
+# a teljesség kedvéért, elkerülve a hiányzó részeket.
+async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
-    try: supabase.table("felhasnalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
+    try: supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e: print(f"Hiba a felhasználó mentése során: {e}")
     keyboard = [[InlineKeyboardButton("📈 Tippek", callback_data="show_tips"), InlineKeyboardButton("🔥 Napi Tuti", callback_data="show_tuti")],
                 [InlineKeyboardButton("📊 Eredmények", callback_data="show_results"), InlineKeyboardButton("💰 Statisztika", callback_data="show_stat")]]
@@ -270,7 +316,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     await reply_obj.reply_text("\n\n".join(full_message), parse_mode='Markdown')
 
 async def stat(update: telegram.Update, context: CallbackContext):
-    # ... (változatlan)
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now = datetime.now(HUNGARY_TZ)
     start_of_month_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -302,22 +347,3 @@ async def stat(update: telegram.Update, context: CallbackContext):
         # ... (Napi Tuti statisztika számítás változatlan)
     except Exception as e:
         await reply_obj.reply_text(f"Hiba a statisztika készítése közben: {e}")
-
-# --- ADMIN PARANCS ---
-@admin_only
-async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
-    await update.message.reply_text("Oké, főnök! Elindítom a *mai napi* tippek generálását... A feladat a háttérben fut, a végeredményről üzenetet küldök. Ez eltarthat néhány percig.", parse_mode='Markdown')
-    today_str = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
-    try:
-        eredmeny_szoveg, tippek_szama = await asyncio.to_thread(run_generator_for_date, today_str)
-        await update.message.reply_text(eredmeny_szoveg)
-    except Exception as e:
-        await update.message.reply_text(f"Váratlan hiba történt a generálás közben: {e}")
-
-# --- Handlerek Hozzáadása ---
-def add_handlers(application: Application):
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(CommandHandler("admintippek", admin_tippek_ma))
-    print("Felhasználói és Admin parancskezelők sikeresen hozzáadva.")
-    return application
