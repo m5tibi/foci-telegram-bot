@@ -1,4 +1,4 @@
-# bot.py (V9.1 - Végleges "Csak Tuti" Mód)
+# bot.py (V9.2 - Végleges "Csak Tuti" Mód, Javításokkal)
 
 import os
 import telegram
@@ -60,7 +60,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now_utc = datetime.now(pytz.utc)
     
-    # Az esti generálás miatt a tegnap hajnaltól készült szelvényeket nézzük
     yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     
     response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', asc=True).execute()
@@ -69,19 +68,24 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
         return
     
+    all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+    if not all_tip_ids:
+        await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
+
+    meccsek_response = supabase.table("meccsek").select("id, kezdes, liga_nev").in_("id", all_tip_ids).execute()
+    if not meccsek_response.data:
+        await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
+
+    kezdes_map = {meccs['id']: datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')) for meccs in meccsek_response.data}
+    
     future_szelvenyek = []
     for szelveny in response.data:
         tipp_id_k = szelveny.get('tipp_id_k', [])
-        if not tipp_id_k:
-            continue
+        if not tipp_id_k: continue
         
-        # Ellenőrizzük, hogy a szelvényen lévő legkorábbi meccs elkezdődött-e már
-        meccsek_res = supabase.table("meccsek").select("kezdes").in_("id", tipp_id_k).order('kezdes', desc=False).limit(1).execute()
-        
-        if meccsek_res.data:
-            first_match_start_utc = datetime.fromisoformat(meccsek_res.data[0]['kezdes'].replace('Z', '+00:00'))
-            if first_match_start_utc > now_utc:
-                future_szelvenyek.append(szelveny)
+        earliest_start = min(kezdes_map.get(tip_id, now_utc) for tip_id in tipp_id_k)
+        if earliest_start > now_utc:
+            future_szelvenyek.append(szelveny)
 
     if not future_szelvenyek:
         await reply_obj.reply_text("🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények.")
@@ -93,15 +97,15 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         message_parts = [header]
         
         meccsek_res = supabase.table("meccsek").select("*").in_("id", szelveny.get('tipp_id_k', [])).execute()
-
-        if not meccsek_res.data:
-            continue
+        if not meccsek_res.data: continue
 
         for tip in meccsek_res.data:
             local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-            time_str = local_time.strftime('%H:%M')
-            tip_line = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}* `({time_str})`\n `•` {get_tip_details(tip['tipp'])}: *{tip['odds']:.2f}*"
-            message_parts.append(tip_line)
+            line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"
+            line2 = f"🏆 {tip['liga_nev']}"
+            line3 = f"⏰ Kezdés: {local_time.strftime('%H:%M')}"
+            line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
+            message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
         
         message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
         
@@ -123,24 +127,25 @@ async def stat(update: telegram.Update, context: CallbackContext):
     
     try:
         response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
-        
         stat_message = f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
-        
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         
         if response_tuti.data:
-            for szelveny in response_tuti.data:
-                tipp_id_k = szelveny.get('tipp_id_k', [])
-                if not tipp_id_k:
-                    continue
-                
-                meccsek_res = supabase.table("meccsek").select("eredmeny").in_("id", tipp_id_k).execute()
-                
-                if len(meccsek_res.data) == len(tipp_id_k) and not any(m['eredmeny'] == 'Tipp leadva' for m in meccsek_res.data):
-                    evaluated_tuti_count += 1
-                    if all(m['eredmeny'] == 'Nyert' for m in meccsek_res.data):
-                        won_tuti_count += 1
-                        total_return_tuti += float(szelveny['eredo_odds'])
+            all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
+            if all_tip_ids_stat:
+                meccsek_res_stat = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
+                eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
+
+                for szelveny in response_tuti.data:
+                    tipp_id_k = szelveny.get('tipp_id_k', [])
+                    if not tipp_id_k: continue
+                    
+                    results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
+                    if all(r is not None and r != 'Tipp leadva' for r in results):
+                        evaluated_tuti_count += 1
+                        if all(r == 'Nyert' for r in results):
+                            won_tuti_count += 1
+                            total_return_tuti += float(szelveny['eredo_odds'])
         
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
@@ -168,5 +173,5 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("napi_tuti", napi_tuti))
     application.add_handler(CommandHandler("stat", stat))
     application.add_handler(CallbackQueryHandler(button_handler))
-    print("Minden parancs- és gombkezelő sikeresen hozzáadva ('Csak Tuti' módbban).")
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva ('Csak Tuti' módban).")
     return application
