@@ -1,4 +1,4 @@
-# bot.py (V9.2 - Végleges "Csak Tuti" Mód, Javításokkal)
+# bot.py (V9.3 - Végleges "Csak Tuti" Mód, Garantált Javítással)
 
 import os
 import telegram
@@ -62,59 +62,53 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     
     yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
     
-    response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', asc=True).execute()
+    try:
+        response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=True).execute()
         
-    if not response.data:
-        await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
-        return
-    
-    all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
-    if not all_tip_ids:
-        await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
+        if not response.data:
+            await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények.")
+            return
 
-    meccsek_response = supabase.table("meccsek").select("id, kezdes, liga_nev").in_("id", all_tip_ids).execute()
-    if not meccsek_response.data:
-        await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
+        future_szelvenyek_messages = []
+        for szelveny in response.data:
+            tipp_id_k = szelveny.get('tipp_id_k', [])
+            if not tipp_id_k:
+                continue
 
-    kezdes_map = {meccs['id']: datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')) for meccs in meccsek_response.data}
-    
-    future_szelvenyek = []
-    for szelveny in response.data:
-        tipp_id_k = szelveny.get('tipp_id_k', [])
-        if not tipp_id_k: continue
+            meccsek_res = supabase.table("meccsek").select("*").in_("id", tipp_id_k).execute()
+            
+            if not meccsek_res.data:
+                continue
+
+            # Ellenőrizzük, hogy az összes meccs a jövőben van-e
+            is_future = all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in meccsek_res.data)
+            
+            if is_future:
+                header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
+                message_parts = [header]
+                for tip in meccsek_res.data:
+                    local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+                    line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"
+                    line2 = f"🏆 {tip['liga_nev']}"
+                    line3 = f"⏰ Kezdés: {local_time.strftime('%H:%M')}"
+                    line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
+                    message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
+                
+                message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
+                future_szelvenyek_messages.append("\n\n".join(message_parts))
+
+        if not future_szelvenyek_messages:
+            await reply_obj.reply_text("🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények.")
+            return
         
-        earliest_start = min(kezdes_map.get(tip_id, now_utc) for tip_id in tipp_id_k)
-        if earliest_start > now_utc:
-            future_szelvenyek.append(szelveny)
+        # A szelvényeket egyetlen üzenetben küldjük el, elválasztóval
+        final_message = ("\n\n" + "-"*20 + "\n\n").join(future_szelvenyek_messages)
+        await reply_obj.reply_text(final_message, parse_mode='Markdown')
 
-    if not future_szelvenyek:
-        await reply_obj.reply_text("🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények.")
-        return
+    except Exception as e:
+        print(f"Hiba a napi tuti lekérésekor: {e}")
+        await reply_obj.reply_text(f"Hiba történt a szelvények lekérése közben. Próbáld újra később.")
 
-    full_message_parts = []
-    for i, szelveny in enumerate(future_szelvenyek):
-        header = f"🔥 *{szelveny['tipp_neve']}* 🔥"
-        message_parts = [header]
-        
-        meccsek_res = supabase.table("meccsek").select("*").in_("id", szelveny.get('tipp_id_k', [])).execute()
-        if not meccsek_res.data: continue
-
-        for tip in meccsek_res.data:
-            local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-            line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"
-            line2 = f"🏆 {tip['liga_nev']}"
-            line3 = f"⏰ Kezdés: {local_time.strftime('%H:%M')}"
-            line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
-            message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
-        
-        message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
-        
-        if i < len(future_szelvenyek) - 1:
-            message_parts.append("--------------------")
-        
-        full_message_parts.append("\n\n".join(message_parts))
-
-    await reply_obj.reply_text("\n".join(full_message_parts), parse_mode='Markdown')
 
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
