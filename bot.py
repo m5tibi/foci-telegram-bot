@@ -1,4 +1,4 @@
-# bot.py (V7.4 - IndentationError Javítással)
+# bot.py (V7.5 - Szombati Teszt Verzió - Teljes Fájl)
 
 import os
 import telegram
@@ -132,8 +132,7 @@ def run_generator_for_date(date_str: str):
     def save_tips_to_supabase(tips):
         if not tips: return []
         tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]
-        try:
-            return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
+        try: return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
         except Exception as e:
             print(f"ADMIN Hiba mentéskor: {e}"); return []
 
@@ -149,8 +148,7 @@ def run_generator_for_date(date_str: str):
         best_tip_per_fixture = {}
         for tip in tips_for_day:
             fid = tip['fixture_id']
-            if fid not in best_tip_per_fixture or tip['confidence_score'] > best_tip_per_fixture[fid]['confidence_score']:
-                best_tip_per_fixture[fid] = tip
+            if fid not in best_tip_per_fixture or tip['confidence_score'] > best_tip_per_fixture[fid]['confidence_score']: best_tip_per_fixture[fid] = tip
         candidates = sorted(list(best_tip_per_fixture.values()), key=lambda x: x['confidence_score'], reverse=True)
         if len(candidates) < 2: return 0
         created_count = 0
@@ -170,9 +168,9 @@ def run_generator_for_date(date_str: str):
         return created_count
 
     fixtures = get_fixtures_for_date(date_str)
-    if not fixtures: return "Nem találtam meccseket a mai napra.", 0
+    if not fixtures: return f"Nem találtam meccseket a(z) {date_str} napra.", 0
     final_tips = analyze_and_generate_tips(fixtures)
-    if not final_tips: return "Találtam meccseket, de a stratégia alapján egyik sem volt megfelelő tippnek.", 0
+    if not final_tips: return f"Találtam {len(fixtures)} meccset, de a stratégia alapján egyik sem volt megfelelő tippnek.", 0
     saved_tips = save_tips_to_supabase(final_tips)
     if not saved_tips: return "Hiba történt a tippek adatbázisba mentése során.", 0
     tuti_count = create_daily_specials(saved_tips, date_str)
