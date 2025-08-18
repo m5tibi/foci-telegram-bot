@@ -1,4 +1,4 @@
-# main.py (V2.0 - Ciklus Megszakítóval)
+# main.py (V2.1 - Indítási Hiba Javítva)
 
 import os
 import asyncio
@@ -19,8 +19,8 @@ application = Application.builder().token(TOKEN).build()
 @api.on_event("startup")
 async def startup():
     """Elinduláskor inicializálja a botot és beállítja a webhookot."""
-    # --- JAVÍTÁS ITT: Megakadályozza, hogy a bot újrainduláskor régi üzeneteket dolgozzon fel ---
-    await application.initialize(drop_pending_updates=True)
+    # --- JAVÍTÁS ITT: A hibás paraméter eltávolítva ---
+    await application.initialize()
     
     add_handlers(application)
     
