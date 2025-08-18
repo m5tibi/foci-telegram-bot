@@ -1,4 +1,4 @@
-# tipp_generator.py (V10.1 - "Optimalizált Globális Lista")
+# tipp_generator.py (V11.0 - "Agresszív Mód")
 
 import os
 import requests
@@ -16,42 +16,17 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- MÓDOSÍTÁS: Optimalizált, de továbbra is globális liga lista ---
+# --- Optimalizált Globális Liga Lista ---
 TOP_LEAGUES = {
-    # === Top Európai Első Osztályok ===
-    39: "Angol Premier League",
-    140: "Spanyol La Liga",
-    135: "Olasz Serie A",
-    78: "Német Bundesliga",
-    61: "Francia Ligue 1",
-    
-    # === Top Európai Másodosztályok ===
-    40: "Angol Championship",
-    141: "Spanyol La Liga 2",
-    79: "Német 2. Bundesliga",
-    
-    # === Egyéb Figyelemre Méltó Európai Ligák ===
-    88: "Holland Eredivisie",
-    94: "Portugál Primeira Liga",
-    144: "Belga Jupiler Pro League",
-    203: "Török Süper Lig",
-    119: "Svéd Allsvenskan",
-    103: "Norvég Eliteserien",
-    
-    # === Amerikai Ligák ===
-    253: "USA MLS",
-    71: "Brazil Serie A",
-    
-    # === Ázsia ===
-    98: "Japán J1 League",
-
-    # === Nemzetközi Kupák ===
-    1: "Bajnokok Ligája",
-    2: "Európa-liga",
-    3: "Európa-konferencialiga",
+    39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 61: "Francia Ligue 1",
+    40: "Angol Championship", 141: "Spanyol La Liga 2", 79: "Német 2. Bundesliga",
+    88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 144: "Belga Jupiler Pro League", 203: "Török Süper Lig",
+    119: "Svéd Allsvenskan", 103: "Norvég Eliteserien",
+    253: "USA MLS", 71: "Brazil Serie A", 98: "Japán J1 League",
+    1: "Bajnokok Ligája", 2: "Európa-liga", 3: "Európa-konferencialiga",
 }
 
-# --- A FÁJL TÖBBI RÉSZE VÁLTOZATLAN ---
+# --- SEGÉDFÜGGVÉNYEK ---
 
 def get_team_statistics(team_id, league_id):
     current_season = str(datetime.now().year)
@@ -100,8 +75,11 @@ def get_odds_for_fixture(fixture_id):
         except requests.exceptions.RequestException: pass
     return all_odds_for_fixture
 
+# --- MÓDOSÍTÁS: Lazább feltételek és pontozás ---
 def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats):
     score, reason = 0, []
+    
+    # Statisztikai adatok kinyerése
     form_h, form_v = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
     wins_h, wins_v = form_h.count('W'), form_v.count('W')
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
@@ -109,56 +87,61 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats)
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
     goals_against_v = float(stats_v.get('goals', {}).get('against', {}).get('average', {}).get('away', "0"))
 
-    if tip_type == "Home" and 1.4 <= odds <= 2.3:
+    # Piacok elemzése (bőkezűbb pontozással)
+    if tip_type == "Home" and 1.35 <= odds <= 2.4:
+        score += 35;
+        if wins_h > wins_v: score += 25; reason.append(f"Jobb forma ({form_h}).")
+        if goals_for_h > 1.5: score += 15; reason.append("Gólerős otthon.")
+    elif tip_type == "Away" and 1.35 <= odds <= 2.4:
+        score += 35;
+        if wins_v > wins_h: score += 25; reason.append(f"Jobb forma ({form_v}).")
+        if goals_for_v > 1.4: score += 15; reason.append("Gólerős idegenben.")
+    elif tip_type == "Over 2.5" and 1.5 <= odds <= 2.3:
         score += 40;
-        if wins_h > wins_v: score += 20; reason.append(f"Jobb forma ({form_h}).")
-        if goals_for_h > 1.6: score += 15; reason.append("Gólerős otthon.")
-    elif tip_type == "Away" and 1.4 <= odds <= 2.3:
+        if goals_for_h + goals_for_v > 2.8: score += 30; reason.append(f"Gólerős csapatok.")
+    elif tip_type == "Over 1.5" and 1.20 <= odds <= 1.55:
+        score += 45;
+        if goals_for_h + goals_for_v > 2.4: score += 25; reason.append(f"Gólveszélyes meccs.")
+    elif tip_type == "BTTS" and 1.5 <= odds <= 2.2:
         score += 40;
-        if wins_v > wins_h: score += 20; reason.append(f"Jobb forma ({form_v}).")
-        if goals_for_v > 1.5: score += 15; reason.append("Gólerős idegenben.")
-    elif tip_type == "Over 2.5" and 1.5 <= odds <= 2.2:
-        score += 40;
-        if goals_for_h + goals_for_v > 3.0: score += 30; reason.append(f"Gólerős csapatok.")
-    elif tip_type == "Over 1.5" and 1.20 <= odds <= 1.5:
+        if goals_for_h > 1.1 and goals_for_v > 0.9 and goals_against_h > 0.7 and goals_against_v > 0.7: score += 35; reason.append("Nyílt játék várható.")
+    elif tip_type == "1X" and 1.20 <= odds <= 1.60:
         score += 50;
-        if goals_for_h + goals_for_v > 2.5: score += 25; reason.append(f"Gólveszélyes meccs.")
-    elif tip_type == "BTTS" and 1.5 <= odds <= 2.1:
-        score += 40;
-        if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8: score += 35; reason.append("Nyílt játék várható.")
-    elif tip_type == "1X" and 1.25 <= odds <= 1.55:
+        if stats_h.get('form', 'L')[-1] != 'L': score += 20; reason.append("Hazai veretlen sorozat.")
+    elif tip_type == "X2" and 1.20 <= odds <= 1.60:
         score += 50;
-        if stats_h.get('form', 'L')[-1] != 'L' and wins_h + form_h.count('D') >= 3: score += 25; reason.append("Hazai nehezen kap ki.")
-    elif tip_type == "X2" and 1.25 <= odds <= 1.55:
-        score += 50;
-        if stats_v.get('form', 'L')[-1] != 'L' and wins_v + form_v.count('D') >= 3: score += 25; reason.append("Vendég nehezen kap ki.")
-    elif tip_type == "Home Over 1.5" and 1.7 <= odds <= 2.8:
+        if stats_v.get('form', 'L')[-1] != 'L': score += 20; reason.append("Vendég veretlen sorozat.")
+    elif tip_type == "Home Over 1.5" and 1.6 <= odds <= 2.9:
         score += 40;
-        if goals_for_h >= 2.0: score += 35; reason.append("Hazai gólátlag magas.")
-    elif tip_type == "Away Over 1.5" and 1.8 <= odds <= 3.0:
+        if goals_for_h >= 1.8: score += 35; reason.append("Hazai gólátlag magas.")
+    elif tip_type == "Away Over 1.5" and 1.7 <= odds <= 3.2:
         score += 40;
-        if goals_for_v >= 1.8: score += 35; reason.append("Vendég gólátlag magas.")
+        if goals_for_v >= 1.7: score += 35; reason.append("Vendég gólátlag magas.")
 
     if h2h_stats and h2h_stats['count'] > 2:
         if tip_type in ["Home", "1X"] and h2h_stats['wins1'] > h2h_stats['wins2']: score += 15; reason.append("Jobb H2H.")
         if tip_type in ["Away", "X2"] and h2h_stats['wins2'] > h2h_stats['wins1']: score += 15; reason.append("Jobb H2H.")
         if tip_type == "BTTS" and h2h_stats['btts_count'] >= 3: score += 20; reason.append("H2H BTTS gyakori.")
-        if "Over" in tip_type and (h2h_stats['total_goals'] / h2h_stats['count']) >= 3.0: score += 15; reason.append("H2H gólátlag magas.")
+        if "Over" in tip_type and (h2h_stats['total_goals'] / h2h_stats['count']) >= 2.8: score += 15; reason.append("H2H gólátlag magas.")
             
     final_score = min(score, 100)
-    if final_score >= 75: return final_score, " ".join(list(dict.fromkeys(reason)))
+    # LAZÁBB FELTÉTEL: a küszöböt 75-ről 70-re csökkentjük
+    if final_score >= 70: return final_score, " ".join(list(dict.fromkeys(reason)))
     return 0, ""
 
+# --- MÓDOSÍTÁS: Sokkal lazább feltételek ---
 def calculate_confidence_fallback(tip_type, odds):
-    if tip_type in ["Home", "Away"] and 1.40 <= odds <= 2.10: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type == "Over 2.5" and 1.55 <= odds <= 2.10: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type == "Over 1.5" and 1.20 <= odds <= 1.45: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type == "BTTS" and 1.50 <= odds <= 1.95: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type in ["1X", "X2"] and 1.25 <= odds <= 1.50: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type == "Home Over 1.5" and 1.6 <= odds <= 2.5: return 75, "Odds-alapú tipp (nincs stat)."
-    if tip_type == "Away Over 1.5" and 1.7 <= odds <= 2.8: return 75, "Odds-alapú tipp (nincs stat)."
+    # Jelentősen kitágított odds-tartományok, hogy több tippet találjunk
+    if tip_type in ["Home", "Away"] and 1.35 <= odds <= 2.50: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Over 2.5" and 1.50 <= odds <= 2.30: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Over 1.5" and 1.18 <= odds <= 1.60: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "BTTS" and 1.45 <= odds <= 2.20: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type in ["1X", "X2"] and 1.20 <= odds <= 1.65: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Home Over 1.5" and 1.50 <= odds <= 3.0: return 70, "Odds-alapú tipp (nincs stat)."
+    if tip_type == "Away Over 1.5" and 1.60 <= odds <= 3.2: return 70, "Odds-alapú tipp (nincs stat)."
     return 0, ""
 
+# --- A fájl többi része VÁLTOZATLAN ---
 def get_fixtures_from_api():
     now_in_budapest = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (now_in_budapest + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -260,7 +243,7 @@ def create_daily_special_for_day(tips_for_day, date_str):
     print(f"'{tipp_neve}' sikeresen létrehozva.")
 
 def main():
-    print(f"Statisztika-alapú Tipp Generátor (V10.1) indítása - {datetime.now(BUDAPEST_TZ)}...")
+    print(f"Statisztika-alapú Tipp Generátor (V11.0) indítása - {datetime.now(BUDAPEST_TZ)}...")
     tips_found_flag = False
     fixtures = get_fixtures_from_api()
     if fixtures:
