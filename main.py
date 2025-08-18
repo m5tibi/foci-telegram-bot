@@ -1,4 +1,4 @@
-# main.py (V2.1 - Indítási Hiba Javítva)
+# main.py (V2.2 - Végleges Ciklus Megszakítóval)
 
 import os
 import asyncio
@@ -19,17 +19,18 @@ application = Application.builder().token(TOKEN).build()
 @api.on_event("startup")
 async def startup():
     """Elinduláskor inicializálja a botot és beállítja a webhookot."""
-    # --- JAVÍTÁS ITT: A hibás paraméter eltávolítva ---
     await application.initialize()
-    
     add_handlers(application)
     
     if RENDER_APP_URL:
         webhook_url = f"{RENDER_APP_URL}/{TOKEN}"
+        # --- JAVÍTÁS ITT: Megakadályozza, hogy a bot újrainduláskor régi üzeneteket dolgozzon fel ---
         await application.bot.set_webhook(
-            url=webhook_url, allowed_updates=telegram.Update.ALL_TYPES
+            url=webhook_url,
+            allowed_updates=telegram.Update.ALL_TYPES,
+            drop_pending_updates=True
         )
-        print(f"Webhook sikeresen beállítva: {webhook_url}")
+        print(f"Webhook sikeresen beállítva a 'drop_pending_updates' opcióval: {webhook_url}")
     else:
         print("Hiba: RENDER_EXTERNAL_URL nincs beállítva. Webhook nem lett beállítva.")
 
