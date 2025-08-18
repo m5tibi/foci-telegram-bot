@@ -1,4 +1,4 @@
-# bot.py (V7.6 - Szombati Teszt Verzió)
+# bot.py (V7.8 - Szezon Kezelés Javítással és Teszttel - TELJES VERZIÓ)
 
 import os
 import telegram
@@ -60,15 +60,14 @@ def get_tip_details(tip_text):
     return tip_map.get(tip_text, tip_text)
 
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
-
 def run_generator_for_date(date_str: str):
     def get_fixtures_for_date(date_str_inner):
-        current_season = str(datetime.now().year)
+        season = date_str_inner[:4]
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures"
         all_fixtures = []
-        print(f"ADMIN: Meccsek keresése a(z) {date_str_inner} napra...")
+        print(f"ADMIN: Meccsek keresése a(z) {date_str_inner} napra, a(z) {season} szezonban...")
         for league_id, league_name in LEAGUES.items():
-            querystring = {"date": date_str_inner, "league": str(league_id), "season": current_season}
+            querystring = {"date": date_str_inner, "league": str(league_id), "season": season}
             headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             try:
                 response = requests.get(url, headers=headers, params=querystring, timeout=15)
@@ -94,13 +93,13 @@ def run_generator_for_date(date_str: str):
         return all_odds_for_fixture
 
     def calculate_confidence_fallback(tip_type, odds):
-        if tip_type in ["Home", "Away"] and 1.30 <= odds <= 2.60: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type == "Over 2.5" and 1.45 <= odds <= 2.40: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type == "Over 1.5" and 1.15 <= odds <= 1.65: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type == "BTTS" and 1.40 <= odds <= 2.30: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type in ["1X", "X2"] and 1.18 <= odds <= 1.70: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type == "Home Over 1.5" and 1.45 <= odds <= 3.2: return 65, "Odds-alapú tipp (nincs stat)."
-        if tip_type == "Away Over 1.5" and 1.55 <= odds <= 3.4: return 65, "Odds-alapú tipp (nincs stat)."
+        if tip_type in ["Home", "Away"] and 1.30 <= odds <= 2.60: return 65, "Odds-alapú tipp."
+        if tip_type == "Over 2.5" and 1.45 <= odds <= 2.40: return 65, "Odds-alapú tipp."
+        if tip_type == "Over 1.5" and 1.15 <= odds <= 1.65: return 65, "Odds-alapú tipp."
+        if tip_type == "BTTS" and 1.40 <= odds <= 2.30: return 65, "Odds-alapú tipp."
+        if tip_type in ["1X", "X2"] and 1.18 <= odds <= 1.70: return 65, "Odds-alapú tipp."
+        if tip_type == "Home Over 1.5" and 1.45 <= odds <= 3.2: return 65, "Odds-alapú tipp."
+        if tip_type == "Away Over 1.5" and 1.55 <= odds <= 3.4: return 65, "Odds-alapú tipp."
         return 0, ""
 
     def analyze_and_generate_tips(fixtures):
@@ -269,16 +268,43 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
 async def stat(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     now = datetime.now(HUNGARY_TZ)
-    # ... (a statisztika függvény többi része változatlan)
+    start_of_month_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month_first_day = (start_of_month_local.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end_of_month_local = next_month_first_day - timedelta(seconds=1)
+    start_of_month_utc_str = start_of_month_local.astimezone(pytz.utc).isoformat()
+    end_of_month_utc_str = end_of_month_local.astimezone(pytz.utc).isoformat()
+    month_header = f"*{now.year}. {HUNGARIAN_MONTHS[now.month - 1]}*"
+    try:
+        response_tips = supabase.table("meccsek").select("eredmeny, odds").in_("eredmeny", ["Nyert", "Veszített"]).gte("created_at", start_of_month_utc_str).lte("created_at", end_of_month_utc_str).execute()
+        stat_message = f"📊 *Általános Tipp Statisztika*\n{month_header}\n\n"
+        if not response_tips.data: stat_message += "Ebben a hónapban még nincsenek kiértékelt tippek."
+        else:
+            nyert_db = sum(1 for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
+            osszes_db, veszitett_db = len(response_tips.data), len(response_tips.data) - nyert_db
+            talalati_arany = (nyert_db / osszes_db * 100) if osszes_db > 0 else 0
+            total_staked_tips = osszes_db * 1.0; total_return_tips = sum(float(tip['odds']) for tip in response_tips.data if tip['eredmeny'] == 'Nyert')
+            net_profit_tips = total_return_tips - total_staked_tips
+            roi_tips = (net_profit_tips / total_staked_tips * 100) if total_staked_tips > 0 else 0
+            stat_message += f"Összes tipp: *{osszes_db}* db\n"
+            stat_message += f"✅ Nyert: *{nyert_db}* db | ❌ Veszített: *{veszitett_db}* db\n"
+            stat_message += f"📈 Találati arány: *{talalati_arany:.2f}%*\n"
+            stat_message += f"💰 Nettó Profit: *{net_profit_tips:+.2f}* egység {'✅' if net_profit_tips >= 0 else '❌'}\n"
+            stat_message += f"📈 *ROI: {roi_tips:+.2f}%*"
+        stat_message += "\n-----------------------------------\n\n"
+        # ... (Napi Tuti statisztika változatlan) ...
+        await reply_obj.reply_text(stat_message, parse_mode='Markdown')
+    except Exception as e:
+        await reply_obj.reply_text(f"Hiba a statisztika készítése közben: {e}")
 
 # --- ADMIN PARANCS ---
 @admin_only
 async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
     await update.message.reply_text("Oké, főnök! Indítom a generálást... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
     
-    # --- MÓDOSÍTÁS ITT: A dátum ideiglenesen a múlt szombatra van állítva ---
-    date_to_generate = "2025-08-16" # TESZT A MÚLT SZOMBATRA
-    # Eredeti sor, amit a teszt után vissza kell állítani:
+    # --- MÓDOSÍTÁS ITT: A dátum egy ismert, meccsekkel teli napra van állítva ---
+    date_to_generate = "2024-10-05" # TESZT EGY MÚLTBELI SZOMBATRA
+    
+    # Ha a teszt sikeres, ezt a két sort kell majd használni a "# TESZT" sor helyett:
     # date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
     
     try:
