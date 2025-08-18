@@ -1,4 +1,4 @@
-# main.py
+# main.py (V2.0 - Ciklus Megszakítóval)
 
 import os
 import asyncio
@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 import telegram
 from telegram.ext import Application
 
-# A bot.py-ból importáljuk a parancsok beállításáért felelős funkciót
 from bot import add_handlers
 
 # --- Konfiguráció ---
@@ -20,7 +19,9 @@ application = Application.builder().token(TOKEN).build()
 @api.on_event("startup")
 async def startup():
     """Elinduláskor inicializálja a botot és beállítja a webhookot."""
-    await application.initialize()
+    # --- JAVÍTÁS ITT: Megakadályozza, hogy a bot újrainduláskor régi üzeneteket dolgozzon fel ---
+    await application.initialize(drop_pending_updates=True)
+    
     add_handlers(application)
     
     if RENDER_APP_URL:
@@ -34,12 +35,10 @@ async def startup():
 
 @api.on_event("shutdown")
 async def shutdown():
-    """Leálláskor leállítja a botot."""
     await application.shutdown()
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
-    """Fogadja a Telegram által küldött webhook kérést."""
     data = await request.json()
     update = telegram.Update.de_json(data, application.bot)
     await application.process_update(update)
@@ -47,5 +46,4 @@ async def process_telegram_update(request: Request):
 
 @api.get("/")
 def index():
-    """Egyszerű üdvözlőoldal, ami jelzi, hogy a bot fut."""
     return {"message": "Bot is running..."}
