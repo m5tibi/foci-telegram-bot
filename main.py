@@ -1,4 +1,4 @@
-# main.py (V2.2 - Végleges Ciklus Megszakítóval)
+# main.py (Végleges, Stabil Verzió)
 
 import os
 import asyncio
@@ -18,13 +18,12 @@ application = Application.builder().token(TOKEN).build()
 
 @api.on_event("startup")
 async def startup():
-    """Elinduláskor inicializálja a botot és beállítja a webhookot."""
     await application.initialize()
     add_handlers(application)
     
     if RENDER_APP_URL:
         webhook_url = f"{RENDER_APP_URL}/{TOKEN}"
-        # --- JAVÍTÁS ITT: Megakadályozza, hogy a bot újrainduláskor régi üzeneteket dolgozzon fel ---
+        # A `drop_pending_updates` megakadályozza az újraindulási hurkot
         await application.bot.set_webhook(
             url=webhook_url,
             allowed_updates=telegram.Update.ALL_TYPES,
