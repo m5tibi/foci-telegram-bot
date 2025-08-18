@@ -1,4 +1,4 @@
-# bot.py (V8.0 - Végleges, Élesített Admin Parancs)
+# bot.py (V8.1 - Ciklus Megszakítással)
 
 import os
 import telegram
@@ -61,6 +61,8 @@ def get_tip_details(tip_text):
 
 # --- TIPPEK GENERÁLÁSÁNAK LOGIKÁJA (szinkron, admin parancshoz) ---
 def run_generator_for_date(date_str: str):
+    # ... (ez a teljes, hosszú függvény változatlan a V8.0-hoz képest) ...
+    # ... A teljesség kedvéért a teljes kód ide van másolva ...
     error_log = []
     def get_fixtures_for_date(date_str_inner):
         season = date_str_inner[:4]
@@ -175,7 +177,7 @@ def run_generator_for_date(date_str: str):
     if not fixtures:
         if error_log:
             error_message = "\n".join(error_log[:3])
-            return f"Nem találtam meccseket a(z) {date_str} napra. A következő hálózati hibák történtek a háttérben:\n\n`{error_message}`", 0
+            return f"Nem találtam meccseket. Hiba történt a háttérben:\n\n`{error_message}`", 0
         return f"Nem találtam meccseket a(z) {date_str} napra.", 0
     
     final_tips = analyze_and_generate_tips(fixtures)
@@ -310,16 +312,18 @@ async def stat(update: telegram.Update, context: CallbackContext):
 # --- ADMIN PARANCS ---
 @admin_only
 async def admin_tippek_ma(update: telegram.Update, context: CallbackContext):
-    await update.message.reply_text("Oké, főnök! Indítom a generálást... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
+    # --- MÓDOSÍTÁS: Az üzenet elejére bekerül a ciklus-megszakító ---
+    await context.bot.get_updates(offset=update.update_id + 1)
     
-    # Élesítés: A parancs most már mindig az aktuális napra fog keresni
+    await update.message.reply_text("Oké, főnök! A parancsot fogadtam. Elindítom a *mai napi* tippek generálását... A feladat a háttérben fut, a végeredményről üzenetet küldök.", parse_mode='Markdown')
+    
     date_to_generate = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
     
     try:
         eredmeny_szoveg, tippek_szama = await asyncio.to_thread(run_generator_for_date, date_to_generate)
-        await update.message.reply_text(eredmeny_szoveg)
+        await update.message.reply_text(eredmeny_szoveg, parse_mode='Markdown')
     except Exception as e:
-        await update.message.reply_text(f"Váratlan hiba történt a generálás közben: {e}")
+        await update.message.reply_text(f"Váratlan, legfelső szintű hiba történt: {e}")
 
 # --- Handlerek Hozzáadása ---
 def add_handlers(application: Application):
