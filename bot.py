@@ -1,4 +1,4 @@
-# bot.py (V13.3 - Sérülés Ellenőrzővel)
+# bot.py (V13.4 - Hiányzó Admin Gomb Pótolva)
 
 import os
 import telegram
@@ -73,6 +73,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
+    elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": await query.message.delete()
 
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -194,6 +195,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_all_stats")],
         [InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet Küldése", callback_data="admin_broadcast_start")],
+        [InlineKeyboardButton("🔍 Sérültek Ellenőrzése", callback_data="admin_check_tickets")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -223,12 +225,9 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
         headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
         response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
-        if response.json().get('response'):
-             status_text += "✅ *RapidAPI*: Kapcsolat és API kulcs rendben"
-        else:
-             status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz érkezett!"
-    except Exception as e:
-        status_text += f"❌ *RapidAPI*: Hiba a kapcsolatban!\n`{e}`"
+        if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és API kulcs rendben"
+        else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz érkezett!"
+    except Exception as e: status_text += f"❌ *RapidAPI*: Hiba a kapcsolatban!\n`{e}`"
     await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
 @admin_only
@@ -266,6 +265,58 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     except Exception as e:
         await update.message.reply_text(f"❌ Hiba a körüzenet küldése közben: {e}")
 
+def get_injuries_for_fixture(fixture_id):
+    url = f"https://api-football-v1.p.rapidapi.com/v3/injuries"
+    querystring = {"fixture": str(fixture_id)}
+    headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+    try:
+        response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
+        return response.json().get('response', [])
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a sérültek lekérésekor ({fixture_id}): {e}"); return []
+
+@admin_only
+async def admin_check_tickets(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.message.edit_text("🔍 Ellenőrzés indítása a holnapi szelvényekre...")
+    now_utc = datetime.now(pytz.utc)
+    
+    tomorrow_start_utc = (datetime.now(HUNGARY_TZ)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+    response = supabase.table("napi_tuti").select("*").gte("created_at", str(tomorrow_start_utc)).order('created_at', desc=False).execute()
+    if not response.data:
+        await query.message.edit_text("Nincsenek holnapi 'Napi Tuti' szelvények, amiket ellenőrizni lehetne."); return
+
+    all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+    meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+    meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
+
+    report_parts = ["*--- 🔍 Meccs Előtti Ellenőrző Jelentés ---*"]
+    any_future_ticket_found = False
+    for szelveny in response.data:
+        tipp_id_k = szelveny.get('tipp_id_k', [])
+        if not tipp_id_k: continue
+        szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
+        if not szelveny_meccsei or not all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
+            continue
+        
+        any_future_ticket_found = True
+        report_parts.append(f"\n🔥 *{szelveny['tipp_neve']}*")
+        for meccs in szelveny_meccsei:
+            fixture_id = meccs['fixture_id']; home_team_name = meccs['csapat_H']; away_team_name = meccs['csapat_V']
+            report_parts.append(f"\n⚽️ *{home_team_name} vs {away_team_name}*")
+            injuries_data = get_injuries_for_fixture(fixture_id)
+            home_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == home_team_name]
+            away_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == away_team_name]
+            if home_injuries: report_parts.append(f"  - Hazai hiányzók: {', '.join(home_injuries)}")
+            else: report_parts.append("  - Hazai csapatnál nincs jelentett hiányzó.")
+            if away_injuries: report_parts.append(f"  - Vendég hiányzók: {', '.join(away_injuries)}")
+            else: report_parts.append("  - Vendég csapatnál nincs jelentett hiányzó.")
+    
+    if not any_future_ticket_found:
+        await query.message.edit_text("Nincsenek jövőbeli szelvények, amiket ellenőrizni lehetne."); return
+
+    await query.message.edit_text("\n".join(report_parts), parse_mode='Markdown', reply_markup=query.message.reply_markup)
+
 # --- Handlerek ---
 def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
@@ -273,6 +324,7 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("eredmenyek", eredmenyek))
     application.add_handler(CommandHandler("stat", stat))
     application.add_handler(CommandHandler("admin", admin_menu))
+    application.add_handler(CommandHandler("check", admin_check_tickets))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
