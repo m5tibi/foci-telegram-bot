@@ -1,4 +1,4 @@
-# bot.py (V14.1 - Statisztika és Admin Javításokkal)
+# bot.py (V14.2 - Kódlista Funkcióval)
 
 import os
 import telegram
@@ -48,7 +48,7 @@ def subscriber_only(func):
             if res.data and res.data.get("subscription_status") == "active":
                 return await func(update, context, *args, **kwargs)
             else:
-                await context.bot.send_message(chat_id=user_id, text="Ez a funkció csak aktív előfizetők számára elérhető. A hozzáféréshez a /start paranccsal tudsz megadni egy meghívó kódot.")
+                await context.bot.send_message(chat_id=user_id, text="Ez a funkció csak aktív előfizetők számára elérhető.")
         except Exception as e:
             print(f"Hiba az előfizető ellenőrzésekor: {e}")
             await context.bot.send_message(chat_id=user_id, text="Hiba történt a jogosultság ellenőrzése közben.")
@@ -57,7 +57,6 @@ def subscriber_only(func):
 # --- Konstansok ---
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 HUNGARIAN_DAYS = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
-
 
 def get_tip_details(tip_text):
     tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
@@ -121,6 +120,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
     elif command == "admin_generate_codes_start": await admin_generate_codes_start(update, context)
+    elif command == "admin_list_codes": await admin_list_codes(update, context)
     elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": await query.message.delete()
 
@@ -282,7 +282,7 @@ async def admin_broadcast_start(update: telegram.Update, context: CallbackContex
     return AWAITING_BROADCAST
 
 async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
-    if not context.user_data.get('awaiting_broadcast'): return ConversationHandler.END
+    if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return ConversationHandler.END
     del context.user_data['awaiting_broadcast']
     message_to_send = update.message.text
     await update.message.reply_text(f"Körüzenet küldése...")
@@ -295,7 +295,8 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
             try:
                 await context.bot.send_message(chat_id=chat_id, text=message_to_send)
                 sent_count += 1
-            except Exception: failed_count += 1
+            except Exception:
+                failed_count += 1
             await asyncio.sleep(0.1)
         await update.message.reply_text(f"✅ Körüzenet kiküldve!\nSikeres: {sent_count} | Sikertelen: {failed_count}")
     except Exception as e:
@@ -395,11 +396,6 @@ def add_handlers(application: Application):
     
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Text-based commands for subscribed users (optional fallback)
-    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
-    application.add_handler(CommandHandler("eredmenyek", eredmenyek))
-    application.add_handler(CommandHandler("stat", stat))
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
