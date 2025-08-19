@@ -1,4 +1,4 @@
-# bot.py (V11.1 - Végleges Stabilitási Javítás)
+# bot.py (V11.2 - Végleges Statisztika Javítással)
 
 import os
 import telegram
@@ -41,6 +41,7 @@ async def start(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
     welcome_text = (f"Üdv, {user.first_name}!\n\n"
                     "Ez a bot minden nap a legjobb meccsekből összeállított szelvényeket, azaz 'Napi Tutikat' készít.\n\n"
                     "Használd a gombokat a navigációhoz!")
@@ -62,8 +63,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     
     try:
         yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-        
-        # JAVÍTÁS: A helyes sorrend `desc=False` (növekvő), hogy a #1 legyen elöl
         response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
         
         if not response.data:
@@ -114,10 +113,17 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         await reply_obj.reply_text(f"Hiba történt a szelvények lekérése közben. Próbáld újra később.")
 
 async def stat(update: telegram.Update, context: CallbackContext):
-    reply_obj = update.callback_query.message if update.callback_query else update.message
-    
+    # --- JAVÍTÁS ITT: Helyes objektumok használata a válaszhoz/szerkesztéshez ---
+    query = update.callback_query
+    message_obj = query.message if query else update.message
+
     try:
-        await reply_obj.reply_text("📈 Statisztika készítése, kis türelmet...")
+        # A "dolgozom rajta" üzenet küldése vagy szerkesztése
+        if query:
+            await query.edit_message_text("📈 Statisztika készítése, kis türelmet...")
+        else:
+            # Ha parancsból jön, új üzenetet küldünk, amit később szerkeszthetünk
+            message_obj = await update.message.reply_text("📈 Statisztika készítése, kis türelmet...")
 
         now = datetime.now(HUNGARY_TZ)
         start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
@@ -125,51 +131,48 @@ async def stat(update: telegram.Update, context: CallbackContext):
 
         response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_of_month_utc)).execute()
         
-        if not response_tuti.data:
-            await reply_obj.edit_message_text(f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\nEbben a hónapban még nincsenek szelvények.", parse_mode='Markdown')
-            return
-
-        evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
-        
-        all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
-        
-        if all_tip_ids_stat:
-            meccsek_res_stat = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
-            eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
-
-            for szelveny in response_tuti.data:
-                tipp_id_k = szelveny.get('tipp_id_k', [])
-                if not tipp_id_k: continue
-                
-                results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
-                
-                if all(r is not None and r != 'Tipp leadva' for r in results):
-                    evaluated_tuti_count += 1
-                    if all(r == 'Nyert' for r in results):
-                        won_tuti_count += 1
-                        total_return_tuti += float(szelveny['eredo_odds'])
-        
         stat_message = f"🔥 *Napi Tuti Statisztika*\n{month_header}\n\n"
-        if evaluated_tuti_count > 0:
-            lost_tuti_count = evaluated_tuti_count - won_tuti_count
-            tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100)
-            total_staked_tuti = evaluated_tuti_count * 1.0
-            net_profit_tuti = total_return_tuti - total_staked_tuti
-            roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
-            
-            stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
-            stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
-            stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
-            stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
-        else:
-            stat_message += "Ebben a hónapban még nincsenek kiértékelt Napi Tuti szelvények."
         
-        await reply_obj.edit_message_text(stat_message, parse_mode='Markdown')
+        if not response_tuti.data:
+            stat_message += "Ebben a hónapban még nincsenek szelvények."
+        else:
+            evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+            all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
+            if all_tip_ids_stat:
+                meccsek_res_stat = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
+                eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
+
+                for szelveny in response_tuti.data:
+                    tipp_id_k = szelveny.get('tipp_id_k', [])
+                    if not tipp_id_k: continue
+                    results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
+                    if all(r is not None and r != 'Tipp leadva' for r in results):
+                        evaluated_tuti_count += 1
+                        if all(r == 'Nyert' for r in results):
+                            won_tuti_count += 1
+                            total_return_tuti += float(szelveny['eredo_odds'])
+            
+            if evaluated_tuti_count > 0:
+                lost_tuti_count = evaluated_tuti_count - won_tuti_count
+                tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100)
+                total_staked_tuti = evaluated_tuti_count * 1.0
+                net_profit_tuti = total_return_tuti - total_staked_tuti
+                roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
+                
+                stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
+                stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+                stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
+                stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
+                stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
+            else:
+                stat_message += "Ebben a hónapban még nincsenek kiértékelt Napi Tuti szelvények."
+        
+        # A végső üzenetet a helyes objektummal szerkesztjük
+        await message_obj.edit_text(stat_message, parse_mode='Markdown')
 
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}")
-        await reply_obj.edit_message_text(f"Hiba a statisztika készítése közben: {e}", parse_mode='Markdown')
+        await message_obj.edit_text(f"Hiba a statisztika készítése közben: {e}", parse_mode='Markdown')
 
 
 # --- Handlerek ---
