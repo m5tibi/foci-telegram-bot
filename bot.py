@@ -1,34 +1,45 @@
-# bot.py (V12.6 - Végleges Gombkezelő Javítással)
+# bot.py (V13.0 - Admin Panellel)
 
 import os
 import telegram
 import pytz
 import math
+import requests
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from functools import wraps
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") # Szükséges az admin státusz ellenőrzéshez
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
+
+# --- ADMIN BEÁLLÍTÁSOK ---
+ADMIN_CHAT_ID = 1326707238
+
+def admin_only(func):
+    @wraps(func)
+    async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
+        user_id = update.effective_user.id
+        if user_id != ADMIN_CHAT_ID:
+            print(f"Jogosulatlan hozzáférési kísérlet az admin panelhez. User ID: {user_id}")
+            return
+        return await func(update, context, *args, **kwargs)
+    return wrapped
 
 # --- Konstansok ---
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
-    tip_map = {
-        "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett",
-        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt",
-        "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2",
-        "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"
-    }
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
     return tip_map.get(tip_text, tip_text)
 
-# --- FŐ FUNKCIÓK ---
+# --- FELHASZNÁLÓI FUNKCIÓK ---
 
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
@@ -56,19 +67,20 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     await query.answer()
     command = query.data
 
-    if command == "show_tuti":
-        await napi_tuti(update, context)
-    elif command == "show_results":
-        await eredmenyek(update, context)
-    # --- JAVÍTÁS ITT: Robusztusabb feldolgozás ---
+    # Felhasználói gombok
+    if command == "show_tuti": await napi_tuti(update, context)
+    elif command == "show_results": await eredmenyek(update, context)
     elif command.startswith("show_stat_"):
         parts = command.split("_")
-        try:
-            offset = int(parts[-1])
-            period = "_".join(parts[2:-1])
-            await stat(update, context, period=period, month_offset=offset)
-        except (ValueError, IndexError):
-            print(f"Hiba a statisztika callback_data feldolgozásakor: {command}")
+        period = "_".join(parts[2:-1])
+        offset = int(parts[-1])
+        await stat(update, context, period=period, month_offset=offset)
+    
+    # Admin gombok
+    elif command == "admin_show_users": await admin_show_users(update, context)
+    elif command == "admin_show_all_stats": await stat(update, context, period="all")
+    elif command == "admin_check_status": await admin_check_status(update, context)
+    elif command == "admin_close": await query.message.delete()
 
 
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -156,26 +168,23 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
 
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query
-    message_obj_to_edit = None
+    message_to_edit = None
 
     try:
-        if query:
-            message_obj_to_edit = query.message
-            await query.edit_message_text("📈 Statisztika készítése...")
-        else:
-            message_obj_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
+        if query: message_to_edit = query.message; await query.edit_message_text("📈 Statisztika készítése...")
+        else: message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
 
         now = datetime.now(HUNGARY_TZ)
-        start_date_utc, end_date_utc, header = None, None, ""
+        start_date_utc, header = None, ""
 
         if period == "all":
             start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
             header = "*Összesített (All-Time)*"
             response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute()
-        else:
+        else: # Hónap alapú
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-            start_date_utc = target_month_start.astimezone(pytz.utc)
             end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
+            start_date_utc = target_month_start.astimezone(pytz.utc)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
             response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         
@@ -193,8 +202,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                     if all(r is not None and r != 'Tipp leadva' for r in results):
                         evaluated_tuti_count += 1
-                        if all(r == 'Nyert' for r in results):
-                            won_tuti_count += 1; total_return_tuti += float(szelveny['eredo_odds'])
+                        if all(r == 'Nyert' for r in results): won_tuti_count += 1; total_return_tuti += float(szelveny['eredo_odds'])
         
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
@@ -212,16 +220,64 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         keyboard = [[
             InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"show_stat_month_{month_offset + 1}"),
             InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"show_stat_month_{max(0, month_offset - 1)}")
-        ], [
-            InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0")
-        ]]
+        ], [ InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0") ]]
         if period != "current_month" or month_offset > 0:
             keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
             
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await message_obj_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
+        await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
-        print(f"Hiba a statisztika készítésekor: {e}"); await message_obj_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
+        print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
+
+# --- ADMIN FUNKCIÓK ---
+@admin_only
+async def admin_menu(update: telegram.Update, context: CallbackContext):
+    keyboard = [
+        [InlineKeyboardButton("👥 Felhasználók Száma", callback_data="admin_show_users")],
+        [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_all_stats")],
+        [InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
+        [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Üdv az Admin Panelben! Válassz egy funkciót:", reply_markup=reply_markup)
+
+@admin_only
+async def admin_show_users(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    try:
+        response = supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
+        user_count = response.count
+        await query.answer(f"✅ Aktív felhasználók száma: {user_count}", show_alert=True)
+    except Exception as e:
+        await query.answer(f"❌ Hiba a felhasználók lekérésekor: {e}", show_alert=True)
+
+@admin_only
+async def admin_check_status(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer("❤️ Rendszer ellenőrzése...", cache_time=5) # Gyors visszajelzés a felhasználónak
+    status_text = "❤️ *Rendszer Státusz Jelentés* ❤️\n\n"
+    # Supabase teszt
+    try:
+        supabase.table("meccsek").select('id', count='exact').limit(1).execute()
+        status_text += "✅ *Supabase*: Kapcsolat rendben\n"
+    except Exception as e:
+        status_text += f"❌ *Supabase*: Hiba a kapcsolatban!\n`{e}`\n"
+    
+    # RapidAPI teszt
+    try:
+        url = f"https://api-football-v1.p.rapidapi.com/v3/status"
+        headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        api_status = response.json().get('response', {})
+        if api_status.get('subscription', {}).get('active'):
+             status_text += "✅ *RapidAPI*: Kapcsolat és előfizetés rendben"
+        else:
+             status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de az előfizetés inaktív!"
+    except Exception as e:
+        status_text += f"❌ *RapidAPI*: Hiba a kapcsolatban!\n`{e}`"
+
+    await query.edit_message_text(status_text, parse_mode='Markdown')
 
 # --- Handlerek ---
 def add_handlers(application: Application):
@@ -229,6 +285,7 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("napi_tuti", napi_tuti))
     application.add_handler(CommandHandler("eredmenyek", eredmenyek))
     application.add_handler(CommandHandler("stat", stat))
+    application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
