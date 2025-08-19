@@ -1,4 +1,4 @@
-# bot.py (V14.3 - Hiányzó Admin Gomb Pótolva)
+# bot.py (V14.4 - Admin Üzenet Szerkesztés Javítva)
 
 import os
 import telegram
@@ -242,6 +242,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("🏛️ Teljes Stat.", callback_data="admin_show_all_stats"), InlineKeyboardButton("✉️ Kódok Listázása", callback_data="admin_list_codes")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start"), InlineKeyboardButton("🔑 Kód Generálás", callback_data="admin_generate_codes_start")],
+        [InlineKeyboardButton("🔍 Sérültek", callback_data="admin_check_tickets")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -341,6 +342,51 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown', reply_markup=query.message.reply_markup)
         
+def get_injuries_for_fixture(fixture_id):
+    url = f"https://api-football-v1.p.rapidapi.com/v3/injuries"; querystring = {"fixture": str(fixture_id)}
+    headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+    try:
+        response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
+        return response.json().get('response', [])
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a sérültek lekérésekor ({fixture_id}): {e}"); return []
+
+@admin_only
+async def admin_check_tickets(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.message.edit_text("🔍 Ellenőrzés indítása a holnapi szelvényekre...")
+    now_utc = datetime.now(pytz.utc)
+    tomorrow_start_utc = (datetime.now(HUNGARY_TZ)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+    response = supabase.table("napi_tuti").select("*").gte("created_at", str(tomorrow_start_utc)).order('created_at', desc=False).execute()
+    if not response.data:
+        await query.message.edit_text("Nincsenek holnapi 'Napi Tuti' szelvények."); return
+    all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+    meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+    meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
+    report_parts = ["*--- 🔍 Meccs Előtti Ellenőrző Jelentés ---*"]
+    any_future_ticket_found = False
+    for szelveny in response.data:
+        tipp_id_k = szelveny.get('tipp_id_k', [])
+        if not tipp_id_k: continue
+        szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
+        if not szelveny_meccsei or not all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
+            continue
+        any_future_ticket_found = True
+        report_parts.append(f"\n🔥 *{szelveny['tipp_neve']}*")
+        for meccs in szelveny_meccsei:
+            fixture_id = meccs['fixture_id']; home_team_name = meccs['csapat_H']; away_team_name = meccs['csapat_V']
+            report_parts.append(f"\n⚽️ *{home_team_name} vs {away_team_name}*")
+            injuries_data = get_injuries_for_fixture(fixture_id)
+            home_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == home_team_name]
+            away_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == away_team_name]
+            if home_injuries: report_parts.append(f"  - Hazai hiányzók: {', '.join(home_injuries)}")
+            else: report_parts.append("  - Hazai csapatnál nincs jelentett hiányzó.")
+            if away_injuries: report_parts.append(f"  - Vendég hiányzók: {', '.join(away_injuries)}")
+            else: report_parts.append("  - Vendég csapatnál nincs jelentett hiányzó.")
+    if not any_future_ticket_found:
+        await query.message.edit_text("Nincsenek jövőbeli szelvények, amiket ellenőrizni lehetne."); return
+    await query.message.edit_text("\n".join(report_parts), parse_mode='Markdown', reply_markup=query.message.reply_markup)
+
 # --- Handlerek ---
 def add_handlers(application: Application):
     registration_conv = ConversationHandler(
