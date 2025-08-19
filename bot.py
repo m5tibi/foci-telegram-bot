@@ -33,6 +33,7 @@ def get_tip_details(tip_text):
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
+        # JAVÍTÁS: A tábla neve "felhasznalk" helyett "felhasznAlok"
         supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e:
         print(f"Hiba a felhasználó mentése során: {e}")
@@ -55,7 +56,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     command = query.data
-
     if command == "show_tuti":
         await napi_tuti(update, context)
     elif command == "show_results":
@@ -170,7 +170,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         else:
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
             start_date_utc = target_month_start.astimezone(pytz.utc)
-            end_date_utc = (target_month_start + relativedelta(months=1) - timedelta(seconds=1)).astimezone(pytz.utc)
+            end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
             response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         
@@ -210,9 +210,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         ], [
             InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0")
         ]]
-        # Az "Aktuális Hónap" gombot csak akkor mutatjuk, ha nem azt nézzük éppen
         if period != "current_month" or month_offset > 0:
-            # Ha már van két gomb a második sorban, a harmadikat új sorba tesszük
             if len(keyboard[1]) == 2:
                 keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0")])
             else:
