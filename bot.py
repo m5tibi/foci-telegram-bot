@@ -1,12 +1,13 @@
-# bot.py (V13.1 - Admin Javításokkal)
+# bot.py (V13.2 - Broadcast Funkcióval)
 
 import os
 import telegram
 import pytz
 import math
 import requests
+import asyncio
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -25,9 +26,8 @@ ADMIN_CHAT_ID = 1326707238
 def admin_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
-        user_id = update.effective_user.id
-        if user_id != ADMIN_CHAT_ID:
-            print(f"Jogosulatlan hozzáférési kísérlet az admin panelhez. User ID: {user_id}")
+        if update.effective_user.id != ADMIN_CHAT_ID:
+            print(f"Jogosulatlan hozzáférési kísérlet. User ID: {update.effective_user.id}")
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -203,6 +203,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("👥 Felhasználók Száma", callback_data="admin_show_users")],
         [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_all_stats")],
         [InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
+        [InlineKeyboardButton("📣 Körüzenet Küldése", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -231,8 +232,7 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     try:
         url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
         headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
         if response.json().get('response'):
              status_text += "✅ *RapidAPI*: Kapcsolat és API kulcs rendben"
         else:
