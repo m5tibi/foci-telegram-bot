@@ -1,4 +1,4 @@
-# bot.py (V13.3 - Végleges, Teljes Kód)
+# bot.py (V13.3 - Sérülés Ellenőrzővel)
 
 import os
 import telegram
@@ -86,7 +86,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         
         all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
         if not all_tip_ids: await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
-
         meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
         if not meccsek_response.data: await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
             
@@ -206,9 +205,9 @@ async def admin_show_users(update: telegram.Update, context: CallbackContext):
     try:
         response = supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
         user_count = response.count
-        await query.message.edit_text(f"👥 Aktív felhasználók száma: *{user_count}*", parse_mode='Markdown')
+        await query.message.edit_text(f"👥 Aktív felhasználók száma: *{user_count}*", parse_mode='Markdown', reply_markup=query.message.reply_markup)
     except Exception as e:
-        await query.message.edit_text(f"❌ Hiba a felhasználók lekérésekor:\n`{e}`", parse_mode='Markdown')
+        await query.message.edit_text(f"❌ Hiba a felhasználók lekérésekor:\n`{e}`", parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
@@ -224,10 +223,13 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
         headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
         response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
-        if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és API kulcs rendben"
-        else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz érkezett!"
-    except Exception as e: status_text += f"❌ *RapidAPI*: Hiba a kapcsolatban!\n`{e}`"
-    await query.message.edit_text(status_text, parse_mode='Markdown')
+        if response.json().get('response'):
+             status_text += "✅ *RapidAPI*: Kapcsolat és API kulcs rendben"
+        else:
+             status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz érkezett!"
+    except Exception as e:
+        status_text += f"❌ *RapidAPI*: Hiba a kapcsolatban!\n`{e}`"
+    await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
@@ -241,7 +243,7 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     
     del context.user_data['awaiting_broadcast']
     message_to_send = update.message.text
-    if message_to_send == "/cancel":
+    if message_to_send.lower() == "/cancel":
         await update.message.reply_text("Körüzenet küldése megszakítva.")
         return
 
