@@ -1,4 +1,4 @@
-# bot.py (V12.5 - Végleges Stabilitási Javítás)
+# bot.py (V12.6 - Végleges Gombkezelő Javítással)
 
 import os
 import telegram
@@ -33,7 +33,6 @@ def get_tip_details(tip_text):
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
-        # JAVÍTÁS: A tábla neve "felhasznalk" helyett "felhasznAlok"
         supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e:
         print(f"Hiba a felhasználó mentése során: {e}")
@@ -56,15 +55,21 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     command = query.data
+
     if command == "show_tuti":
         await napi_tuti(update, context)
     elif command == "show_results":
         await eredmenyek(update, context)
+    # --- JAVÍTÁS ITT: Robusztusabb feldolgozás ---
     elif command.startswith("show_stat_"):
         parts = command.split("_")
-        period = parts[2] if len(parts) > 2 else "current"
-        offset = int(parts[3]) if len(parts) > 3 else 0
-        await stat(update, context, period=period, month_offset=offset)
+        try:
+            offset = int(parts[-1])
+            period = "_".join(parts[2:-1])
+            await stat(update, context, period=period, month_offset=offset)
+        except (ValueError, IndexError):
+            print(f"Hiba a statisztika callback_data feldolgozásakor: {command}")
+
 
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
@@ -166,13 +171,13 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         if period == "all":
             start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
             header = "*Összesített (All-Time)*"
-            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).execute()
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute()
         else:
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
             start_date_utc = target_month_start.astimezone(pytz.utc)
             end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
-            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         
         stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
@@ -193,7 +198,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
-            tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100)
+            tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
             total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
@@ -211,10 +216,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0")
         ]]
         if period != "current_month" or month_offset > 0:
-            if len(keyboard[1]) == 2:
-                keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0")])
-            else:
-                keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
+            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
             
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message_obj_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
