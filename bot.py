@@ -1,4 +1,4 @@
-# bot.py (V12.3 - Végleges Stabilitási Javítás)
+# bot.py (V12.4 - Végleges Stabilitási Javítás)
 
 import os
 import telegram
@@ -149,32 +149,32 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt az eredmények lekérése közben.")
 
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
-    query = update.callback_query
+    reply_obj = update.callback_query.message if update.callback_query else update.message
+    message_to_edit = None
     
     try:
-        # A válaszobjektum meghatározása
-        if query:
-            # Ha gombnyomás történt, az eredeti üzenetet szerkesztjük
-            await query.edit_message_text("📈 Statisztika készítése...")
-            message_obj = query.message
+        # Ez a logika biztosítja, hogy mindig legyen egy üzenet, amit szerkeszthetünk
+        if update.callback_query:
+            message_to_edit = update.callback_query.message
+            await update.callback_query.edit_message_text("📈 Statisztika készítése...")
         else:
-            # Ha parancsot írtak be, új üzenetet küldünk, és azt fogjuk szerkeszteni
-            message_obj = await update.message.reply_text("📈 Statisztika készítése...")
+            message_to_edit = await reply_obj.reply_text("📈 Statisztika készítése...")
 
         now = datetime.now(HUNGARY_TZ)
         start_date_utc, end_date_utc, header = None, None, ""
 
         if period == "all":
             start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
-            end_date_utc = now.astimezone(pytz.utc)
             header = "*Összesített (All-Time)*"
+            # Az end_date_utc nem szükséges, a gte() elég
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).execute()
         else:
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
+            end_of_month = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
             start_date_utc = target_month_start.astimezone(pytz.utc)
-            end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
+            end_date_utc = end_of_month.astimezone(pytz.utc)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
-
-        response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         
         stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
@@ -216,10 +216,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
             
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await message_obj.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
+        await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
 
     except Exception as e:
-        print(f"Hiba a statisztika készítésekor: {e}"); await message_obj.edit_text(f"Hiba a statisztika készítése közben: {e}")
+        print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
 
 # --- Handlerek ---
 def add_handlers(application: Application):
