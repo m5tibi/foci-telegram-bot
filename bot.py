@@ -1,4 +1,4 @@
-# bot.py (V14.4 - Admin Üzenet Szerkesztés Javítva)
+# bot.py (V14.5 - Mobilbarát Kódlista)
 
 import os
 import telegram
@@ -242,7 +242,6 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("🏛️ Teljes Stat.", callback_data="admin_show_all_stats"), InlineKeyboardButton("✉️ Kódok Listázása", callback_data="admin_list_codes")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start"), InlineKeyboardButton("🔑 Kód Generálás", callback_data="admin_generate_codes_start")],
-        [InlineKeyboardButton("🔍 Sérültek", callback_data="admin_check_tickets")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -331,17 +330,21 @@ async def admin_generate_codes_received_count(update: telegram.Update, context: 
 @admin_only
 async def admin_list_codes(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
+    await query.message.edit_text("✉️ Kódok keresése...")
     try:
         response = supabase.table("invitation_codes").select("code").eq("is_used", False).execute()
         if not response.data:
-            await query.message.edit_text("✅ Jelenleg nincsenek felhasználatlan kódok.", reply_markup=query.message.reply_markup)
+            await query.message.edit_text("✅ Jelenleg nincsenek felhasználatlan meghívó kódok.")
             return
+
         codes = [item['code'] for item in response.data]
-        message_text = f"✅ Találtam {len(codes)} db felhasználatlan kódot:\n\n`" + "\n".join(codes) + "`"
-        await query.message.edit_text(message_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
+        await query.message.edit_text(f"✅ Találtam {len(codes)} db felhasználatlan kódot. Küldöm őket külön-külön a könnyebb másolás érdekében:")
+        for code in codes:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"`{code}`", parse_mode='Markdown')
+            await asyncio.sleep(0.1)
     except Exception as e:
-        await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown', reply_markup=query.message.reply_markup)
-        
+        await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
+
 def get_injuries_for_fixture(fixture_id):
     url = f"https://api-football-v1.p.rapidapi.com/v3/injuries"; querystring = {"fixture": str(fixture_id)}
     headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
@@ -385,7 +388,7 @@ async def admin_check_tickets(update: telegram.Update, context: CallbackContext)
             else: report_parts.append("  - Vendég csapatnál nincs jelentett hiányzó.")
     if not any_future_ticket_found:
         await query.message.edit_text("Nincsenek jövőbeli szelvények, amiket ellenőrizni lehetne."); return
-    await query.message.edit_text("\n".join(report_parts), parse_mode='Markdown', reply_markup=query.message.reply_markup)
+    await query.message.edit_text("\n".join(report_parts), parse_mode='Markdown')
 
 # --- Handlerek ---
 def add_handlers(application: Application):
