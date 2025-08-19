@@ -1,4 +1,4 @@
-# bot.py (V12.4 - Végleges Stabilitási Javítás)
+# bot.py (V12.5 - Végleges Stabilitási Javítás)
 
 import os
 import telegram
@@ -33,7 +33,7 @@ def get_tip_details(tip_text):
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
-        supabase.table("felhasznalk").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
+        supabase.table("felhasznalok").upsert({"chat_id": user.id, "is_active": True}, on_conflict="chat_id").execute()
     except Exception as e:
         print(f"Hiba a felhasználó mentése során: {e}")
 
@@ -55,14 +55,15 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     command = query.data
+
     if command == "show_tuti":
         await napi_tuti(update, context)
     elif command == "show_results":
         await eredmenyek(update, context)
     elif command.startswith("show_stat_"):
         parts = command.split("_")
-        period = parts[2]
-        offset = int(parts[3])
+        period = parts[2] if len(parts) > 2 else "current"
+        offset = int(parts[3]) if len(parts) > 3 else 0
         await stat(update, context, period=period, month_offset=offset)
 
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -149,16 +150,15 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt az eredmények lekérése közben.")
 
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
-    reply_obj = update.callback_query.message if update.callback_query else update.message
-    message_to_edit = None
-    
+    query = update.callback_query
+    message_obj_to_edit = None
+
     try:
-        # Ez a logika biztosítja, hogy mindig legyen egy üzenet, amit szerkeszthetünk
-        if update.callback_query:
-            message_to_edit = update.callback_query.message
-            await update.callback_query.edit_message_text("📈 Statisztika készítése...")
+        if query:
+            message_obj_to_edit = query.message
+            await query.edit_message_text("📈 Statisztika készítése...")
         else:
-            message_to_edit = await reply_obj.reply_text("📈 Statisztika készítése...")
+            message_obj_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
 
         now = datetime.now(HUNGARY_TZ)
         start_date_utc, end_date_utc, header = None, None, ""
@@ -166,13 +166,11 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         if period == "all":
             start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
             header = "*Összesített (All-Time)*"
-            # Az end_date_utc nem szükséges, a gte() elég
             response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).execute()
         else:
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-            end_of_month = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1)
             start_date_utc = target_month_start.astimezone(pytz.utc)
-            end_date_utc = end_of_month.astimezone(pytz.utc)
+            end_date_utc = (target_month_start + relativedelta(months=1) - timedelta(seconds=1)).astimezone(pytz.utc)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
             response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds").gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         
@@ -212,14 +210,18 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         ], [
             InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0")
         ]]
+        # Az "Aktuális Hónap" gombot csak akkor mutatjuk, ha nem azt nézzük éppen
         if period != "current_month" or month_offset > 0:
-            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
+            # Ha már van két gomb a második sorban, a harmadikat új sorba tesszük
+            if len(keyboard[1]) == 2:
+                keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0")])
+            else:
+                keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
             
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
-
+        await message_obj_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
-        print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
+        print(f"Hiba a statisztika készítésekor: {e}"); await message_obj_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
 
 # --- Handlerek ---
 def add_handlers(application: Application):
