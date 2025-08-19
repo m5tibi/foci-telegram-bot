@@ -1,4 +1,4 @@
-# tipp_generator.py (V15.0 - Teljes, Tabella Analízissel)
+# tipp_generator.py (V16.0 - API Jóslatokkal)
 
 import os
 import requests
@@ -13,7 +13,7 @@ import math
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
+RAPIDAPI_HOST = "api-football-vv1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
@@ -22,19 +22,30 @@ LEAGUES = { 39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Seri
 
 # --- SEGÉDFÜGGVÉNYEK ---
 
-def get_standings(league_id, season):
-    url = f"https://{RAPIDAPI_HOST}/v3/standings"
-    querystring = {"league": str(league_id), "season": str(season)}
+def get_api_prediction(fixture_id):
+    url = f"https://{RAPIDAPI_HOST}/v3/predictions"
+    querystring = {"fixture": str(fixture_id)}
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     try:
         response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
         data = response.json().get('response', [])
         time.sleep(0.8)
+        if not data: return None
+        return data[0].get('predictions', {}).get('winner')
+    except requests.exceptions.RequestException as e:
+        print(f"  - Hiba az API jóslat lekérésekor: {e}")
+        return None
+
+def get_standings(league_id, season):
+    url = f"https://{RAPIDAPI_HOST}/v3/standings"; querystring = {"league": str(league_id), "season": str(season)}
+    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+    try:
+        response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
+        data = response.json().get('response', []); time.sleep(0.8)
         if not data or not data[0].get('league', {}).get('standings'): return None
         return data[0]['league']['standings'][0]
     except requests.exceptions.RequestException as e:
-        print(f"  - Hiba a tabella lekérésekor: {e}")
-        return None
+        print(f"  - Hiba a tabella lekérésekor: {e}"); return None
 
 def get_team_statistics(team_id, league_id, season):
     url = f"https://{RAPIDAPI_HOST}/v3/teams/statistics"; querystring = {"league": str(league_id), "season": season, "team": str(team_id)}
@@ -42,8 +53,7 @@ def get_team_statistics(team_id, league_id, season):
     try:
         response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
         data = response.json().get('response'); time.sleep(0.8)
-        if not data or data.get('fixtures', {}).get('played', {}).get('total', 0) < 3:
-            return None
+        if not data or data.get('fixtures', {}).get('played', {}).get('total', 0) < 3: return None
         return data
     except requests.exceptions.RequestException: return None
 
@@ -80,9 +90,8 @@ def get_odds_for_fixture(fixture_id):
         except requests.exceptions.RequestException: pass
     return all_odds_for_fixture
 
-def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id):
+def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id, api_prediction):
     score, reason = 0, []
-    
     pos_h, pos_v = None, None
     if standings_data:
         for team_data in standings_data:
@@ -109,16 +118,19 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats,
     elif tip_type == "Over 2.5" and 1.5 <= odds <= 2.3:
         score += 40
         if goals_for_h + goals_for_v > 2.8: score += 30; reason.append(f"Gólerős csapatok.")
-    elif tip_type == "1X" and 1.30 <= odds <= 1.65:
-        score += 50
-        if pos_h and pos_v and pos_h < pos_v: score += 15; reason.append("Hazai esélyesebb.")
-
+    
+    if api_prediction:
+        api_winner_id = api_prediction.get('id')
+        if (tip_type == "Home" and api_winner_id == home_team_id) or \
+           (tip_type == "Away" and api_winner_id == away_team_id):
+            score += 25; reason.append("API jóslat megerősítve.")
+    
     if h2h_stats and h2h_stats['count'] > 2:
         if tip_type in ["Home", "1X"] and h2h_stats['wins1'] > h2h_stats['wins2']: score += 15; reason.append("Jobb H2H.")
         if tip_type in ["Away", "X2"] and h2h_stats['wins2'] > h2h_stats['wins1']: score += 15; reason.append("Jobb H2H.")
 
     final_score = min(score, 100)
-    if final_score >= 65: return final_score, " ".join(list(dict.fromkeys(reason))) or "Odds és forma alapján."
+    if final_score >= 70: return final_score, " ".join(list(dict.fromkeys(reason))) or "Odds és forma alapján."
     return 0, ""
 
 def calculate_confidence_fallback(tip_type, odds):
@@ -150,14 +162,11 @@ def get_fixtures_from_api():
     return all_fixtures
 
 def analyze_and_generate_tips(fixtures):
-    final_tips = []
-    standings_cache = {}
-    
+    final_tips, standings_cache = [], {}
     for fixture_data in fixtures:
         fixture, teams, league = fixture_data.get('fixture', {}), fixture_data.get('teams', {}), fixture_data.get('league', {})
         fixture_id, league_id, season = fixture.get('id'), league.get('id'), league.get('season')
         if not all([fixture_id, league_id, season]): continue
-        
         home_team_id, away_team_id = teams.get('home', {}).get('id'), teams.get('away', {}).get('id')
         print(f"Elemzés: {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')}")
 
@@ -168,17 +177,17 @@ def analyze_and_generate_tips(fixtures):
         
         stats_h = get_team_statistics(home_team_id, league_id, season)
         stats_v = get_team_statistics(away_team_id, league_id, season)
-        
         use_stats_logic = stats_h and stats_v and standings
+        
         if use_stats_logic: print(" -> Elegendő statisztika, fejlett elemzés indul...")
         else: print(" -> Nincs elég statisztika, tartalék (odds-alapú) logika aktív.")
         
         h2h_stats = get_h2h_results(home_team_id, away_team_id)
+        api_prediction = get_api_prediction(fixture_id)
         odds_data = get_odds_for_fixture(fixture_id)
         if not odds_data: print(" -> Odds adatok hiányoznak."); continue
 
         tip_template = {"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['date'], "liga_nev": league['name'], "liga_orszag": league['country'], "league_id": league_id}
-        
         for bet in odds_data:
             for value in bet.get('values', []):
                 if float(value.get('odd')) < 1.30: continue
@@ -188,7 +197,7 @@ def analyze_and_generate_tips(fixtures):
                     tipp_nev, odds = tip_name_map[lookup_key], float(value.get('odd'))
                     score, reason = 0, ""
                     if use_stats_logic:
-                        score, reason = calculate_confidence_with_stats(tipp_nev, odds, stats_h, stats_v, h2h_stats, standings, home_team_id, away_team_id)
+                        score, reason = calculate_confidence_with_stats(tipp_nev, odds, stats_h, stats_v, h2h_stats, standings, home_team_id, away_team_id, api_prediction)
                     else:
                         score, reason = calculate_confidence_fallback(tipp_nev, odds)
                     if score > 0:
@@ -200,17 +209,8 @@ def save_tips_to_supabase(tips):
     if not tips: return []
     supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").execute()
     tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]
-    try:
-        return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
-    except Exception as e:
-        print(f"Hiba a tippek mentése során: {e}"); return []
-
-def create_single_daily_special(tips, date_str, count):
-    tipp_neve = f"Napi Tuti #{count} - {date_str}"
-    eredo_odds = math.prod(t['odds'] for t in tips)
-    tipp_id_k = [t['id'] for t in tips]
-    supabase.table("napi_tuti").insert({"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k}).execute()
-    print(f"'{tipp_neve}' sikeresen létrehozva.")
+    try: return supabase.table("meccsek").insert(tips_to_insert, returning="representation").execute().data
+    except Exception as e: print(f"Hiba a tippek mentése során: {e}"); return []
 
 def create_daily_specials(tips_for_day, date_str):
     if len(tips_for_day) < 2: return
@@ -232,12 +232,16 @@ def create_daily_specials(tips_for_day, date_str):
             potential_combo = candidates[:2]
             if math.prod(c['odds'] for c in potential_combo) >= 2.0: combo = potential_combo
         if combo:
-            create_single_daily_special(combo, date_str, szelveny_count)
+            tipp_neve = f"Napi Tuti #{szelveny_count} - {date_str}"
+            eredo_odds = math.prod(t['odds'] for t in combo)
+            tipp_id_k = [t['id'] for t in combo]
+            supabase.table("napi_tuti").insert({"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k}).execute()
+            print(f"'{tipp_neve}' sikeresen létrehozva.")
             candidates = [c for c in candidates if c not in combo]; szelveny_count += 1
         else: break
 
 def main():
-    print(f"Tipp Generátor (V15.0) indítása - {datetime.now(BUDAPEST_TZ)}...")
+    print(f"Tipp Generátor (V16.0) indítása - {datetime.now(BUDAPEST_TZ)}...")
     tips_found_flag = False
     fixtures = get_fixtures_from_api()
     if fixtures:
