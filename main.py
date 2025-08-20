@@ -1,4 +1,4 @@
-# main.py (V2.4 - URL Javítással)
+# main.py (V2.5 - Részletes Stripe Hibalogolással)
 
 import os
 import asyncio
@@ -63,12 +63,13 @@ async def create_checkout_session(request: Request):
                 'quantity': 1,
             }],
             mode='payment',
-            # --- JAVÍTÁS ITT: A felesleges perjel eltávolítva ---
             success_url='https://m5tibi.github.io/foci-telegram-bot/?payment=success',
             cancel_url='https://m5tibi.github.io/foci-telegram-bot/?payment=cancel',
         )
         return {"id": session.id}
     except Exception as e:
+        # --- JAVÍTÁS ITT: Részletes hiba logolása a Render konzoljára ---
+        print(f"!!! STRIPE HIBA A MUNKAMENET LÉTREHOZÁSAKOR: {e}")
         return {"error": str(e)}, 400
 
 @api.get("/")
