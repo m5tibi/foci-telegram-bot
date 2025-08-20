@@ -62,8 +62,6 @@ def subscriber_only(func):
 
 # --- Konstansok & Segédfüggvények ---
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
-HUNGARIAN_DAYS = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
-
 def get_tip_details(tip_text):
     tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
     return tip_map.get(tip_text, tip_text)
@@ -92,28 +90,13 @@ async def start(update: telegram.Update, context: CallbackContext):
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
             return ConversationHandler.END
         else:
-            await update.message.reply_text("Szia! A hozzáféréshez kérlek, add meg az egyszer használatos meghívó kódodat:")
-            return AWAITING_CODE
-    except Exception as e:
-        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt."); return ConversationHandler.END
-
-async def redeem_code(update: telegram.Update, context: CallbackContext):
-    user = update.effective_user
-    code_text = update.message.text.strip().upper()
-    try:
-        code_res = await supabase.table("invitation_codes").select("id, is_used, duration_days").eq("code", code_text).single().execute()
-        if code_res.data and not code_res.data['is_used']:
-            code_id, duration = code_res.data['id'], code_res.data.get('duration_days', 30)
-            expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
-            await supabase.table("invitation_codes").update({"is_used": True, "used_by_chat_id": user.id, "used_at": "now()"}).eq("id", code_id).execute()
-            await supabase.table("felhasznalok").update({"subscription_status": "active", "used_invitation_code_id": code_id, "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", user.id).execute()
-            await update.message.reply_text(f"✅ Sikeres aktiválás! Hozzáférésed {duration} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
+            payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
+            keyboard = [[InlineKeyboardButton("💳 Előfizetés (9999 Ft / hó)", url=payment_url)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
             return ConversationHandler.END
-        else:
-            await update.message.reply_text("❌ Érvénytelen vagy már felhasznált kód. Próbáld újra, vagy a /cancel paranccsal lépj ki.")
-            return AWAITING_CODE
     except Exception as e:
-        print(f"Hiba a kódbeváltáskor: {e}"); await update.message.reply_text("Hiba történt a kód ellenőrzésekor."); return ConversationHandler.END
+        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben."); return ConversationHandler.END
 
 async def cancel_conversation(update: telegram.Update, context: CallbackContext):
     for key in ['awaiting_broadcast', 'awaiting_code_count']:
@@ -148,10 +131,13 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
         response = await supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
         if not response.data: await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."); return
+        
         all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
         if not all_tip_ids: await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
+        
         meccsek_response = await supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
         if not meccsek_response.data: await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
+            
         meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
         future_szelvenyek_messages = []
         for szelveny in response.data:
@@ -256,7 +242,6 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("🏛️ Teljes Stat.", callback_data="admin_show_all_stats"), InlineKeyboardButton("✉️ Kódok Listázása", callback_data="admin_list_codes")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start"), InlineKeyboardButton("🔑 Kód Generálás", callback_data="admin_generate_codes_start")],
-        [InlineKeyboardButton("🔍 Sérültek", callback_data="admin_check_tickets")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -360,52 +345,7 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
             await asyncio.sleep(0.1)
     except Exception as e:
         await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
-
-def get_injuries_for_fixture(fixture_id):
-    url = f"https://api-football-v1.p.rapidapi.com/v3/injuries"; querystring = {"fixture": str(fixture_id)}
-    headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
-    try:
-        response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
-        return response.json().get('response', [])
-    except requests.exceptions.RequestException as e:
-        print(f"Hiba a sérültek lekérésekor ({fixture_id}): {e}"); return []
-
-@admin_only
-async def admin_check_tickets(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query
-    await query.message.edit_text("🔍 Ellenőrzés indítása a holnapi szelvényekre...")
-    now_utc = datetime.now(pytz.utc)
-    tomorrow_start_utc = (datetime.now(HUNGARY_TZ)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-    response = await supabase.table("napi_tuti").select("*").gte("created_at", str(tomorrow_start_utc)).order('created_at', desc=False).execute()
-    if not response.data:
-        await query.message.edit_text("Nincsenek holnapi 'Napi Tuti' szelvények."); return
-    all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
-    meccsek_response = await supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-    meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
-    report_parts = ["*--- 🔍 Meccs Előtti Ellenőrző Jelentés ---*"]
-    any_future_ticket_found = False
-    for szelveny in response.data:
-        tipp_id_k = szelveny.get('tipp_id_k', [])
-        if not tipp_id_k: continue
-        szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
-        if not szelveny_meccsei or not all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
-            continue
-        any_future_ticket_found = True
-        report_parts.append(f"\n🔥 *{szelveny['tipp_neve']}*")
-        for meccs in szelveny_meccsei:
-            fixture_id = meccs['fixture_id']; home_team_name = meccs['csapat_H']; away_team_name = meccs['csapat_V']
-            report_parts.append(f"\n⚽️ *{home_team_name} vs {away_team_name}*")
-            injuries_data = get_injuries_for_fixture(fixture_id)
-            home_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == home_team_name]
-            away_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == away_team_name]
-            if home_injuries: report_parts.append(f"  - Hazai hiányzók: {', '.join(home_injuries)}")
-            else: report_parts.append("  - Hazai csapatnál nincs jelentett hiányzó.")
-            if away_injuries: report_parts.append(f"  - Vendég hiányzók: {', '.join(away_injuries)}")
-            else: report_parts.append("  - Vendég csapatnál nincs jelentett hiányzó.")
-    if not any_future_ticket_found:
-        await query.message.edit_text("Nincsenek jövőbeli szelvények, amiket ellenőrizni lehetne."); return
-    await query.message.edit_text("\n".join(report_parts), parse_mode='Markdown')
-
+        
 # --- Handlerek ---
 def add_handlers(application: Application):
     registration_conv = ConversationHandler(
@@ -434,5 +374,3 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
-
