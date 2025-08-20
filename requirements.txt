@@ -1,9 +1,11 @@
 fastapi
 uvicorn[standard]
 python-telegram-bot
-supabase[async]
+supabase-py
 requests
 python-dotenv
 pytz
 python-dateutil
 stripe
+httpx
+websockets
