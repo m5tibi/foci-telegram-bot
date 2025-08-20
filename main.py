@@ -1,4 +1,4 @@
-# main.py (V2.3 - Stripe Checkouttal)
+# main.py (V2.4 - URL Javítással)
 
 import os
 import asyncio
@@ -19,10 +19,9 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 api = FastAPI()
 application = Application.builder().token(TOKEN).build()
 
-# CORS engedélyezése, hogy a GitHub Pages oldal tudjon kommunikálni a szerverrel
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Kezdetben engedélyezünk mindent a teszteléshez
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,13 +47,9 @@ async def process_telegram_update(request: Request):
     await application.process_update(update)
     return {"status": "ok"}
 
-# --- ÚJ FIZETÉSI VÉGPONT ---
 @api.post("/create-checkout-session")
 async def create_checkout_session(request: Request):
     try:
-        # A jövőben itt átvehetnénk a felhasználó ID-ját a kérésből
-        # client_reference_id = ...
-
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[{
@@ -63,14 +58,14 @@ async def create_checkout_session(request: Request):
                     'product_data': {
                         'name': 'Mondom a Tutit! Havi Hozzáférés',
                     },
-                    'unit_amount': 500,  # 5.00 EUR centben
+                    'unit_amount': 500,
                 },
                 'quantity': 1,
             }],
-            mode='payment', # Egyszeri fizetés. Később lehet 'subscription' is.
-            # FONTOS: Cseréld le a linket a saját GitHub Pages URL-edre!
-            success_url='https://m5tibi.github.io/foci-telegram-bot//?payment=success',
-            cancel_url='https://m5tibi.github.io/foci-telegram-bot//?payment=cancel',
+            mode='payment',
+            # --- JAVÍTÁS ITT: A felesleges perjel eltávolítva ---
+            success_url='https://m5tibi.github.io/foci-telegram-bot/?payment=success',
+            cancel_url='https://m5tibi.github.io/foci-telegram-bot/?payment=cancel',
         )
         return {"id": session.id}
     except Exception as e:
@@ -79,4 +74,3 @@ async def create_checkout_session(request: Request):
 @api.get("/")
 def index():
     return {"message": "Bot is running..."}
-
