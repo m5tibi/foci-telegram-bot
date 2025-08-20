@@ -12,7 +12,7 @@ import secrets
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_async import create_client as create_async_client, AsyncClient
+from supabase_py_async import create_client as create_async_client, AsyncClient
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -434,3 +434,4 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
