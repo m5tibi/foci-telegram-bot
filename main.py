@@ -1,4 +1,4 @@
-# main.py (V2.5 - Részletes Stripe Hibalogolással)
+# main.py (V2.6 - Fix Stripe Price ID-val)
 
 import os
 import asyncio
@@ -14,6 +14,8 @@ from bot import add_handlers
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+# FONTOS: Ide illeszd be a Stripe-tól kimásolt Ár Azonosítót!
+STRIPE_PRICE_ID = "price_1RyGdcGwJ52Lmi82FOxAu3Ga" 
 
 # --- Alkalmazás beállítása ---
 api = FastAPI()
@@ -52,14 +54,9 @@ async def create_checkout_session(request: Request):
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
+            # --- JAVÍTÁS ITT: A fix Price ID-t használjuk a price_data helyett ---
             line_items=[{
-                'price_data': {
-                    'currency': 'eur',
-                    'product_data': {
-                        'name': 'Mondom a Tutit! Havi Hozzáférés',
-                    },
-                    'unit_amount': 500,
-                },
+                'price': STRIPE_PRICE_ID,
                 'quantity': 1,
             }],
             mode='payment',
@@ -68,7 +65,6 @@ async def create_checkout_session(request: Request):
         )
         return {"id": session.id}
     except Exception as e:
-        # --- JAVÍTÁS ITT: Részletes hiba logolása a Render konzoljára ---
         print(f"!!! STRIPE HIBA A MUNKAMENET LÉTREHOZÁSAKOR: {e}")
         return {"error": str(e)}, 400
 
