@@ -1,15 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mondom a Tutit! - Előfizetés</title>
+    <title>Mondom a Tutit - Előfizetés</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
     <script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="main-container">
         <h1>Mondom a Tutit! ⚽️</h1>
         <h2>Prémium Előfizetés</h2>
-        <p>Szerezz hozzáférést a "Napi Tuti" szelvényekhez!</p>
+        <p>Szerezz hozzáférést a napi tippekhez és a Napi Tuti szelvényekhez!</p>
         
         <div class="package">
             <h3>Havi Hozzáférés</h3>
@@ -21,37 +23,49 @@
         <div id="error-message"></div>
     </div>
 
+    <div class="container" id="success-container" style="display: none;">
+        <h1>✅ Sikeres Fizetés!</h1>
+        <p>Köszönjük az előfizetést! A Telegram botban már aktív a hozzáférésed.</p>
+        <p>A /start paranccsal bármikor előhozhatod a menüt.</p>
+    </div>
+
     <script type="text/javascript">
       // FONTOS: Cseréld le a 'pk_test_...' részt a saját Stripe publikálható kulcsodra!
       var stripe = Stripe('pk_test_51RxsXRGwJ52Lmi82tbAPlmPQBIGfB2FZKrRl37lrawkkLiJO00J3AGeYagNtBYFjy0fxrACUiZnypHx6xnayDmKa00MU2L1GHr');
       var checkoutButton = document.getElementById('checkout-button');
       var errorElement = document.getElementById('error-message');
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      const paymentStatus = urlParams.get('payment');
+      const chatId = urlParams.get('chat_id');
+
+      if (paymentStatus === 'success') {
+          document.getElementById('main-container').style.display = 'none';
+          document.getElementById('success-container').style.display = 'block';
+      }
 
       checkoutButton.addEventListener('click', function() {
+        if (!chatId) {
+            errorElement.textContent = "Hiba: Felhasználói azonosító hiányzik. Kérlek, a botból indítsd újra a folyamatot!";
+            return;
+        }
+
         checkoutButton.disabled = true;
         checkoutButton.textContent = "Átirányítás a fizetéshez...";
-
-        // FONTOS: Cseréld le az URL-t a saját Render alkalmazásod URL-jére!
+        
         var renderApiUrl = 'https://foci-telegram-bot.onrender.com/create-checkout-session';
 
         fetch(renderApiUrl, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId })
         })
-        .then(function(response) {
-            return response.json();
-        })
-        .then(function(session) {
+        .then(response => response.json())
+        .then(session => {
             if (session.id) {
                 return stripe.redirectToCheckout({ sessionId: session.id });
             } else {
-                throw new Error('Hiba a fizetési munkamenet létrehozásakor.');
-            }
-        })
-        .then(function(result) {
-            if (result.error) {
-                errorElement.textContent = result.error.message;
-                checkoutButton.disabled = false;
-                checkoutButton.textContent = "Előfizetek";
+                throw new Error(session.error || 'Hiba a fizetési munkamenet létrehozásakor.');
             }
         })
         .catch(function(error) {
