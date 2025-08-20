@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mondom a Tutit - Előfizetés</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Mondom a Tutit! ⚽️</h1>
+        <h2>Prémium Előfizetés</h2>
+        <p>Szerezz hozzáférést a napi tippekhez és a Napi Tuti szelvényekhez!</p>
+        
+        <div class="package">
+            <h3>Havi Hozzáférés</h3>
+            <p class="price">5 € / hónap</p>
+            <p>Teljeskörű hozzáférés a bothoz 30 napig.</p>
+            <button id="checkout-button">Előfizetek</button>
+        </div>
+        
+        <div id="error-message"></div>
+    </div>
+
+    <script type="text/javascript">
+      // FONTOS: Cseréld le a 'pk_test_...' részt a saját Stripe publikálható kulcsodra!
+      var stripe = Stripe('pk_test_51RxsXRGwJ52Lmi82tbAPlmPQBIGfB2FZKrRl37lrawkkLiJO00J3AGeYagNtBYFjy0fxrACUiZnypHx6xnayDmKa00MU2L1GHr');
+      var checkoutButton = document.getElementById('checkout-button');
+
+      checkoutButton.addEventListener('click', function() {
+        // Itt a jövőben létrehozunk egy Checkout Session-t a szerver oldalon.
+        // Egyelőre ez a gomb még nem csinál semmit, csak a felületet építjük.
+        // A következő lépésben fogjuk bekötni a botba, hogy a fizetés működjön.
+        alert("Ez a funkció a következő fejlesztési lépésben lesz bekötve!");
+      });
+    </script>
+</body>
+</html>
