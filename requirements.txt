@@ -7,4 +7,3 @@ python-dotenv
 pytz
 python-dateutil
 stripe
-httpx
