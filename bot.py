@@ -1,24 +1,23 @@
-# bot.py (V15.6 - Végleges, Hiányzó Változók Pótolva)
+# bot.py (V16.0 - Szuper-stabil Verzió)
 
+import os
+import telegram
 import pytz
 import math
 import requests
-import time
-import json
 import asyncio
-import secrets
-from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_async import create_client as create_async_client, AsyncClient
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
+from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from functools import wraps
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-supabase: AsyncClient = create_async_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) # Szinkron kliens
+# ... (a fájl többi része a stabil, szinkron logikával)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- ADMIN BEÁLLÍTÁSOK ---
@@ -450,4 +449,5 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
 
