@@ -25,12 +25,41 @@
       // FONTOS: Cseréld le a 'pk_test_...' részt a saját Stripe publikálható kulcsodra!
       var stripe = Stripe('pk_test_51RxsXRGwJ52Lmi82tbAPlmPQBIGfB2FZKrRl37lrawkkLiJO00J3AGeYagNtBYFjy0fxrACUiZnypHx6xnayDmKa00MU2L1GHr');
       var checkoutButton = document.getElementById('checkout-button');
+      var errorElement = document.getElementById('error-message');
 
       checkoutButton.addEventListener('click', function() {
-        // Itt a jövőben létrehozunk egy Checkout Session-t a szerver oldalon.
-        // Egyelőre ez a gomb még nem csinál semmit, csak a felületet építjük.
-        // A következő lépésben fogjuk bekötni a botba, hogy a fizetés működjön.
-        alert("Ez a funkció a következő fejlesztési lépésben lesz bekötve!");
+        checkoutButton.disabled = true;
+        checkoutButton.textContent = "Átirányítás a fizetéshez...";
+
+        // FONTOS: Cseréld le az URL-t a saját Render alkalmazásod URL-jére!
+        var renderApiUrl = 'https://foci-telegram-bot.onrender.com/create-checkout-session';
+
+        fetch(renderApiUrl, {
+            method: 'POST',
+        })
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(session) {
+            if (session.id) {
+                return stripe.redirectToCheckout({ sessionId: session.id });
+            } else {
+                throw new Error('Hiba a fizetési munkamenet létrehozásakor.');
+            }
+        })
+        .then(function(result) {
+            if (result.error) {
+                errorElement.textContent = result.error.message;
+                checkoutButton.disabled = false;
+                checkoutButton.textContent = "Előfizetek";
+            }
+        })
+        .catch(function(error) {
+            console.error('Hiba:', error);
+            errorElement.textContent = 'Hiba történt a fizetési oldal betöltésekor. Kérlek, próbáld újra később.';
+            checkoutButton.disabled = false;
+            checkoutButton.textContent = "Előfizetek";
+        });
       });
     </script>
 </body>
