@@ -1,4 +1,4 @@
-# bot.py (V15.4 - Végleges Aszinkron Javítással)
+# bot.py (V15.5 - Végleges Aszinkron Javítással)
 
 import os
 import telegram
@@ -12,7 +12,7 @@ import secrets
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_async import create_client as create_async_client, AsyncClient
+from supabase_py_async import create_client as create_async_client, AsyncClient
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -30,14 +30,6 @@ ADMIN_CHAT_ID = 1326707238
 AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
 
 # --- Dekorátorok ---
-@admin_only
-def admin_only_sync(func):
-    @wraps(func)
-    def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
-        if update.effective_user.id != ADMIN_CHAT_ID: return
-        return func(update, context, *args, **kwargs)
-    return wrapped
-
 def admin_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
@@ -92,6 +84,7 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
+@subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
@@ -118,13 +111,10 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
         response = await supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
         if not response.data: await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."); return
-        
         all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
         if not all_tip_ids: await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
-        
         meccsek_response = await supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
         if not meccsek_response.data: await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
-            
         meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
         future_szelvenyek_messages = []
         for szelveny in response.data:
@@ -171,7 +161,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         final_message = "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
         await message_to_edit.edit_text(final_message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt az eredmények lekérése közben.")
-
+    
 @subscriber_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = None
@@ -262,9 +252,15 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         await supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
     except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
     try:
-        url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
-        headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
-        response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
+        # requests is synchronous, run it in a separate thread
+        def sync_request():
+            url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
+            headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+            return requests.get(url, headers=headers, timeout=10)
+        
+        response = await asyncio.to_thread(sync_request)
+        response.raise_for_status()
+        
         if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és kulcs rendben"
         else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz!"
     except Exception as e: status_text += f"❌ *RapidAPI*: Hiba!\n`{e}`"
@@ -278,9 +274,12 @@ async def admin_broadcast_start(update: telegram.Update, context: CallbackContex
     return AWAITING_BROADCAST
 
 async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
-    if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return ConversationHandler.END
+    if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return
     del context.user_data['awaiting_broadcast']
     message_to_send = update.message.text
+    if message_to_send.lower() == "/cancel":
+        await update.message.reply_text("Körüzenet küldése megszakítva.")
+        return ConversationHandler.END
     await update.message.reply_text(f"Körüzenet küldése...")
     try:
         response = await supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
@@ -341,10 +340,9 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
             await asyncio.sleep(0.1)
     except Exception as e:
         await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
-        
+
 # --- Handlerek ---
 def add_handlers(application: Application):
-    # Beszélgetés kezelők
     registration_conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={ AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)] },
