@@ -69,8 +69,8 @@ async def create_checkout_session(request: Request):
             }],
             mode='payment', # Egyszeri fizetés. Később lehet 'subscription' is.
             # FONTOS: Cseréld le a linket a saját GitHub Pages URL-edre!
-            success_url='https://m5tibi.github.io/foci-telegram-bot/?payment=success',
-            cancel_url='https://m5tibi.github.io/foci-telegram-bot/?payment=cancel',
+            success_url='https://m5tibi.github.io/foci-telegram-bot//?payment=success',
+            cancel_url='https://m5tibi.github.io/foci-telegram-bot//?payment=cancel',
         )
         return {"id": session.id}
     except Exception as e:
@@ -79,3 +79,4 @@ async def create_checkout_session(request: Request):
 @api.get("/")
 def index():
     return {"message": "Bot is running..."}
+
