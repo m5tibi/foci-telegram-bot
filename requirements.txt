@@ -1,9 +1,12 @@
 fastapi
 uvicorn[standard]
 python-telegram-bot
-supabase[async]
+supabase
 requests
 python-dotenv
 pytz
 python-dateutil
 stripe
+# Az aszinkron Supabase működéshez szükséges csomagok
+httpx 
+websockets
