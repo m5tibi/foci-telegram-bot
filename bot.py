@@ -1,3 +1,5 @@
+# bot.py (V15.4 - Végleges Aszinkron Javítással)
+
 import os
 import telegram
 import pytz
@@ -10,7 +12,7 @@ import secrets
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_py_async import create_client as create_async_client, AsyncClient
+from supabase_async import create_client as create_async_client, AsyncClient
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -18,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-supabase: AsyncClient
+supabase: AsyncClient = create_async_client(SUPABASE_URL, SUPABASE_KEY)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- ADMIN BEÁLLÍTÁSOK ---
@@ -28,6 +30,14 @@ ADMIN_CHAT_ID = 1326707238
 AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
 
 # --- Dekorátorok ---
+@admin_only
+def admin_only_sync(func):
+    @wraps(func)
+    def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
+        if update.effective_user.id != ADMIN_CHAT_ID: return
+        return func(update, context, *args, **kwargs)
+    return wrapped
+
 def admin_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
@@ -65,7 +75,6 @@ def get_tip_details(tip_text):
     return tip_map.get(tip_text, tip_text)
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
-
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
@@ -162,7 +171,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         final_message = "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
         await message_to_edit.edit_text(final_message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt az eredmények lekérése közben.")
-    
+
 @subscriber_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = None
@@ -213,6 +222,15 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
 
+# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
+async def activate_subscription_and_notify(chat_id: int, app: Application):
+    try:
+        duration = 30; expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
+        await supabase.table("felhasznalok").update({"is_active": True, "subscription_status": "active", "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", chat_id).execute()
+        await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
+    except Exception as e:
+        print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
+
 # --- ADMIN FUNKCIÓK ---
 @admin_only
 async def admin_menu(update: telegram.Update, context: CallbackContext):
@@ -225,8 +243,105 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
-# ... (Az összes többi admin funkció, mint `admin_show_users`, `admin_check_status`, `admin_list_codes`, `admin_broadcast...` és `admin_generate_codes...` változatlan)
+@admin_only
+async def admin_show_users(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    try:
+        response = await supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
+        await query.answer(f"Aktív felhasználók: {response.count}", show_alert=True)
+    except Exception as e:
+        await query.answer(f"Hiba: {e}", show_alert=True)
 
+@admin_only
+async def admin_check_status(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer("Ellenőrzés indítása...", cache_time=5)
+    await query.message.edit_text("❤️ Rendszer ellenőrzése...")
+    status_text = "❤️ *Rendszer Státusz Jelentés* ❤️\n\n"
+    try:
+        await supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
+    except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
+    try:
+        url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
+        headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+        response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
+        if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és kulcs rendben"
+        else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz!"
+    except Exception as e: status_text += f"❌ *RapidAPI*: Hiba!\n`{e}`"
+    await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
+
+@admin_only
+async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    context.user_data['awaiting_broadcast'] = True
+    await query.message.edit_text("Add meg a körüzenetet. (/cancel a megszakításhoz)")
+    return AWAITING_BROADCAST
+
+async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
+    if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return ConversationHandler.END
+    del context.user_data['awaiting_broadcast']
+    message_to_send = update.message.text
+    await update.message.reply_text(f"Körüzenet küldése...")
+    try:
+        response = await supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
+        if not response.data: await update.message.reply_text("Nincsenek aktív felhasználók."); return ConversationHandler.END
+        chat_ids = [user['chat_id'] for user in response.data]
+        sent_count, failed_count = 0, 0
+        for chat_id in chat_ids:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=message_to_send)
+                sent_count += 1
+            except Exception:
+                failed_count += 1
+            await asyncio.sleep(0.1)
+        await update.message.reply_text(f"✅ Körüzenet kiküldve!\nSikeres: {sent_count} | Sikertelen: {failed_count}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hiba a küldés közben: {e}")
+    return ConversationHandler.END
+
+@admin_only
+async def admin_generate_codes_start(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    context.user_data['awaiting_code_count'] = True
+    await query.message.edit_text("Hány kódot generáljak és hány napig legyenek érvényesek?\nFormátum: `darabszám napok` (pl. `5 30`)\n(/cancel a megszakításhoz)", parse_mode='Markdown')
+    return AWAITING_CODE_COUNT
+
+async def admin_generate_codes_received_count(update: telegram.Update, context: CallbackContext):
+    if not context.user_data.get('awaiting_code_count'): return ConversationHandler.END
+    del context.user_data['awaiting_code_count']
+    try:
+        parts = update.message.text.split()
+        count = int(parts[0])
+        duration = int(parts[1]) if len(parts) > 1 else 30
+        if not 1 <= count <= 50: raise ValueError("Invalid count")
+        await update.message.reply_text(f"{count} db, {duration} napos kód generálása...")
+        new_codes, codes_to_insert = [], []
+        for _ in range(count):
+            code = secrets.token_hex(4).upper(); new_codes.append(code)
+            codes_to_insert.append({'code': code, 'notes': f'{duration} napos kód', 'duration_days': duration})
+        await supabase.table("invitation_codes").insert(codes_to_insert).execute()
+        await update.message.reply_text(f"✅ {count} db új, {duration} napos kód:\n\n`" + "\n".join(new_codes) + "`", parse_mode='Markdown')
+    except (ValueError, IndexError):
+        await update.message.reply_text("❌ Érvénytelen formátum. Művelet megszakítva.")
+    return ConversationHandler.END
+
+@admin_only
+async def admin_list_codes(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.message.edit_text("✉️ Kódok keresése...")
+    try:
+        response = await supabase.table("invitation_codes").select("code").eq("is_used", False).execute()
+        if not response.data:
+            await query.message.edit_text("✅ Jelenleg nincsenek felhasználatlan meghívó kódok.")
+            return
+        codes = [item['code'] for item in response.data]
+        await query.message.edit_text(f"✅ Találtam {len(codes)} db felhasználatlan kódot:")
+        for code in codes:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"`{code}`", parse_mode='Markdown')
+            await asyncio.sleep(0.1)
+    except Exception as e:
+        await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
+        
 # --- Handlerek ---
 def add_handlers(application: Application):
     # Beszélgetés kezelők
@@ -256,4 +371,3 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
