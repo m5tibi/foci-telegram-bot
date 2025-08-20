@@ -1,0 +1,54 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+}
+.container {
+    background: white;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    text-align: center;
+    max-width: 400px;
+}
+h1 {
+    color: #1a1a1a;
+    margin-bottom: 10px;
+}
+h2 {
+    color: #555;
+    font-weight: 500;
+    margin-bottom: 20px;
+}
+.package {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+}
+.price {
+    font-size: 2em;
+    font-weight: bold;
+    color: #007bff;
+    margin: 10px 0;
+}
+#checkout-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 8px;
+    font-size: 1.1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    width: 100%;
+}
+#checkout-button:hover {
+    background-color: #0056b3;
+}
