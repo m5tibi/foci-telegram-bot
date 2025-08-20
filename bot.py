@@ -1,4 +1,4 @@
-# bot.py (V18.0 - Végleges, Garantáltan Teljes Verzió)
+# bot.py (V18.1 - Végleges, Garantáltan Teljes Verzió)
 
 import os
 import telegram
@@ -25,7 +25,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 ADMIN_CHAT_ID = 1326707238
 
 # --- Konverziós Állapotok ---
-AWAITING_CODE, AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(3)
+AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -80,44 +80,13 @@ async def start(update: telegram.Update, context: CallbackContext):
             keyboard = [[InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"), InlineKeyboardButton("📊 Eredmények", callback_data="show_results")], [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat_current_month_0")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
-            return ConversationHandler.END
         else:
-            await update.message.reply_text("Szia! Ez egy privát, meghívásos tippadó bot.\nA hozzáféréshez kérlek, add meg az egyszer használatos meghívó kódodat:")
-            return AWAITING_CODE
+            payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
+            keyboard = [[InlineKeyboardButton("💳 Előfizetés (9999 Ft / hó)", url=payment_url)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
-        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben."); return ConversationHandler.END
-
-async def redeem_code(update: telegram.Update, context: CallbackContext):
-    user = update.effective_user
-    code_text = update.message.text.strip().upper()
-    try:
-        def sync_task_redeem():
-            code_res = supabase.table("invitation_codes").select("id, is_used, duration_days").eq("code", code_text).single().execute()
-            if code_res.data and not code_res.data['is_used']:
-                code_id = code_res.data['id']
-                duration = code_res.data.get('duration_days', 30)
-                expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
-                supabase.table("invitation_codes").update({"is_used": True, "used_by_chat_id": user.id, "used_at": "now()"}).eq("id", code_id).execute()
-                supabase.table("felhasznalok").update({"subscription_status": "active", "used_invitation_code_id": code_id, "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", user.id).execute()
-                return {"success": True, "duration": duration}
-            return {"success": False}
-
-        result = await asyncio.to_thread(sync_task_redeem)
-
-        if result["success"]:
-            await update.message.reply_text(f"✅ Sikeres aktiválás! Hozzáférésed {result['duration']} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
-            return ConversationHandler.END
-        else:
-            await update.message.reply_text("❌ Érvénytelen vagy már felhasznált kód. Próbáld újra, vagy a /cancel paranccsal lépj ki.")
-            return AWAITING_CODE
-    except Exception as e:
-        print(f"Hiba a kódbeváltáskor: {e}"); await update.message.reply_text("Hiba történt a kód ellenőrzésekor."); return ConversationHandler.END
-
-async def cancel_conversation(update: telegram.Update, context: CallbackContext):
-    for key in ['awaiting_broadcast', 'awaiting_code_count']:
-        if key in context.user_data: del context.user_data[key]
-    await update.message.reply_text("Művelet megszakítva.")
-    return ConversationHandler.END
+        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
@@ -133,6 +102,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_list_codes": await admin_list_codes(update, context)
+    elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": await query.message.delete()
 
 @subscriber_only
@@ -382,7 +352,8 @@ async def admin_generate_codes_received_count(update: telegram.Update, context: 
 @admin_only
 async def admin_list_codes(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    await query.message.edit_text("✉️ Kódok keresése...")
+    message_to_send_from = update.message if update.message else query.message
+    await message_to_send_from.reply_text("✉️ Kódok keresése...")
     try:
         def sync_task_list_codes():
             return supabase.table("invitation_codes").select("code").eq("is_used", False).execute()
@@ -390,18 +361,19 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
         response = await asyncio.to_thread(sync_task_list_codes)
         
         if not response.data:
-            await query.message.edit_text("✅ Jelenleg nincsenek felhasználatlan meghívó kódok.")
+            await message_to_send_from.reply_text("✅ Jelenleg nincsenek felhasználatlan meghívó kódok.")
             return
         codes = [item['code'] for item in response.data]
-        await query.message.edit_text(f"✅ Találtam {len(codes)} db felhasználatlan kódot:")
+        await message_to_send_from.reply_text(f"✅ Találtam {len(codes)} db felhasználatlan kódot:")
         for code in codes:
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"`{code}`", parse_mode='Markdown')
             await asyncio.sleep(0.1)
     except Exception as e:
-        await query.message.edit_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
+        await message_to_send_from.reply_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
 
 # --- Handlerek ---
 def add_handlers(application: Application):
+    # Beszélgetés kezelők
     registration_conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={ AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)] },
@@ -424,6 +396,9 @@ def add_handlers(application: Application):
     
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("list_codes", admin_list_codes))
+    application.add_handler(CommandHandler("napi_tuti", napi_tuti))
+    application.add_handler(CommandHandler("eredmenyek", eredmenyek))
+    application.add_handler(CommandHandler("stat", stat))
     application.add_handler(CallbackQueryHandler(button_handler))
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
