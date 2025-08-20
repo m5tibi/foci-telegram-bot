@@ -1,7 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-telegram-bot
-supabase
+supabase[async]
 requests
 python-dotenv
 pytz
