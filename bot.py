@@ -1,4 +1,4 @@
-# bot.py (V15.5 - Végleges Aszinkron Javítással)
+# bot.py (V15.6 - Végleges Stabilitási Javítás)
 
 import os
 import telegram
@@ -12,7 +12,7 @@ import secrets
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_py_async import create_client as create_async_client, AsyncClient
+from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -20,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-supabase: AsyncClient = create_async_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- ADMIN BEÁLLÍTÁSOK ---
@@ -37,10 +37,10 @@ def admin_only(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-async def is_user_subscribed(user_id: int) -> bool:
+def is_user_subscribed(user_id: int) -> bool:
     if user_id == ADMIN_CHAT_ID: return True
     try:
-        res = await supabase.table("felhasznalok").select("subscription_status, subscription_expires_at").eq("chat_id", user_id).maybe_single().execute()
+        res = supabase.table("felhasznalok").select("subscription_status, subscription_expires_at").eq("chat_id", user_id).maybe_single().execute()
         if res.data and res.data.get("subscription_status") == "active":
             expires_at_str = res.data.get("subscription_expires_at")
             if expires_at_str:
@@ -54,7 +54,7 @@ async def is_user_subscribed(user_id: int) -> bool:
 def subscriber_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
-        if await is_user_subscribed(update.effective_user.id):
+        if is_user_subscribed(update.effective_user.id):
             return await func(update, context, *args, **kwargs)
         else:
             await context.bot.send_message(chat_id=update.effective_user.id, text="Ez a funkció csak érvényes előfizetéssel érhető el. A /start paranccsal tudsz előfizetni.")
@@ -62,17 +62,20 @@ def subscriber_only(func):
 
 # --- Konstansok & Segédfüggvények ---
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+HUNGARIAN_DAYS = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
+
 def get_tip_details(tip_text):
     tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
     return tip_map.get(tip_text, tip_text)
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
+
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     try:
-        await supabase.table("felhasznalok").upsert({"chat_id": user.id}, on_conflict="chat_id", ignore_duplicates=True).execute()
+        supabase.table("felhasznalok").upsert({"chat_id": user.id}, on_conflict="chat_id", ignore_duplicates=True).execute()
         
-        if await is_user_subscribed(user.id):
+        if is_user_subscribed(user.id):
             keyboard = [[InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"), InlineKeyboardButton("📊 Eredmények", callback_data="show_results")], [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat_current_month_0")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
@@ -84,7 +87,6 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
-@subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
@@ -109,12 +111,15 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     now_utc = datetime.now(pytz.utc)
     try:
         yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-        response = await supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
+        response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
         if not response.data: await reply_obj.reply_text("🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."); return
+        
         all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
         if not all_tip_ids: await reply_obj.reply_text("🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."); return
-        meccsek_response = await supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+        
+        meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
         if not meccsek_response.data: await reply_obj.reply_text("🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."); return
+            
         meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
         future_szelvenyek_messages = []
         for szelveny in response.data:
@@ -142,11 +147,11 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
     message_to_edit = await reply_obj.reply_text("🔎 Elmúlt napok eredményeinek keresése...")
     try:
         three_days_ago_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-        response_tuti = await supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).order('created_at', desc=True).execute()
+        response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).order('created_at', desc=True).execute()
         if not response_tuti.data: await message_to_edit.edit_text("🔎 Nem találhatóak kiértékelhető szelvények az elmúlt 3 napból."); return
         all_tip_ids = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
         if not all_tip_ids: await message_to_edit.edit_text("🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."); return
-        meccsek_res = await supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
+        meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
         eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
         result_messages = []
         for szelveny in response_tuti.data:
@@ -171,17 +176,17 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         now = datetime.now(HUNGARY_TZ); start_date_utc, header = None, ""
         if period == "all":
             start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc); header = "*Összesített (All-Time)*"
-            response_tuti = await supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute()
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute()
         else:
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
             end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1); start_date_utc = target_month_start.astimezone(pytz.utc)
             header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
-            response_tuti = await supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
+            response_tuti = supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute()
         stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"; evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         if response_tuti.data:
             all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if all_tip_ids_stat:
-                meccsek_res_stat = await supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
+                meccsek_res_stat = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
                 eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
                 for szelveny in response_tuti.data:
                     tipp_id_k = szelveny.get('tipp_id_k', []);
@@ -216,7 +221,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 async def activate_subscription_and_notify(chat_id: int, app: Application):
     try:
         duration = 30; expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
-        await supabase.table("felhasznalok").update({"is_active": True, "subscription_status": "active", "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", chat_id).execute()
+        supabase.table("felhasznalok").update({"is_active": True, "subscription_status": "active", "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", chat_id).execute()
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
@@ -237,7 +242,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     try:
-        response = await supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
+        response = supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
         await query.answer(f"Aktív felhasználók: {response.count}", show_alert=True)
     except Exception as e:
         await query.answer(f"Hiba: {e}", show_alert=True)
@@ -249,18 +254,15 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     await query.message.edit_text("❤️ Rendszer ellenőrzése...")
     status_text = "❤️ *Rendszer Státusz Jelentés* ❤️\n\n"
     try:
-        await supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
+        supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
     except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
     try:
-        # requests is synchronous, run it in a separate thread
         def sync_request():
             url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"
             headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             return requests.get(url, headers=headers, timeout=10)
-        
         response = await asyncio.to_thread(sync_request)
         response.raise_for_status()
-        
         if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és kulcs rendben"
         else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz!"
     except Exception as e: status_text += f"❌ *RapidAPI*: Hiba!\n`{e}`"
@@ -278,11 +280,10 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     del context.user_data['awaiting_broadcast']
     message_to_send = update.message.text
     if message_to_send.lower() == "/cancel":
-        await update.message.reply_text("Körüzenet küldése megszakítva.")
-        return ConversationHandler.END
+        await update.message.reply_text("Körüzenet küldése megszakítva."); return ConversationHandler.END
     await update.message.reply_text(f"Körüzenet küldése...")
     try:
-        response = await supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
+        response = supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
         if not response.data: await update.message.reply_text("Nincsenek aktív felhasználók."); return ConversationHandler.END
         chat_ids = [user['chat_id'] for user in response.data]
         sent_count, failed_count = 0, 0
@@ -306,7 +307,7 @@ async def admin_generate_codes_start(update: telegram.Update, context: CallbackC
     return AWAITING_CODE_COUNT
 
 async def admin_generate_codes_received_count(update: telegram.Update, context: CallbackContext):
-    if not context.user_data.get('awaiting_code_count'): return ConversationHandler.END
+    if not context.user_data.get('awaiting_code_count'): return
     del context.user_data['awaiting_code_count']
     try:
         parts = update.message.text.split()
@@ -318,7 +319,7 @@ async def admin_generate_codes_received_count(update: telegram.Update, context: 
         for _ in range(count):
             code = secrets.token_hex(4).upper(); new_codes.append(code)
             codes_to_insert.append({'code': code, 'notes': f'{duration} napos kód', 'duration_days': duration})
-        await supabase.table("invitation_codes").insert(codes_to_insert).execute()
+        supabase.table("invitation_codes").insert(codes_to_insert).execute()
         await update.message.reply_text(f"✅ {count} db új, {duration} napos kód:\n\n`" + "\n".join(new_codes) + "`", parse_mode='Markdown')
     except (ValueError, IndexError):
         await update.message.reply_text("❌ Érvénytelen formátum. Művelet megszakítva.")
@@ -329,7 +330,7 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     await query.message.edit_text("✉️ Kódok keresése...")
     try:
-        response = await supabase.table("invitation_codes").select("code").eq("is_used", False).execute()
+        response = supabase.table("invitation_codes").select("code").eq("is_used", False).execute()
         if not response.data:
             await query.message.edit_text("✅ Jelenleg nincsenek felhasználatlan meghívó kódok.")
             return
@@ -343,6 +344,7 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
 
 # --- Handlerek ---
 def add_handlers(application: Application):
+    # Beszélgetés kezelők
     registration_conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={ AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)] },
