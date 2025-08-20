@@ -1,4 +1,4 @@
-# bot.py (V17.3 - Végleges, Garantáltan Teljes Verzió)
+# bot.py (V17.4 - Végleges, Garantáltan Teljes Verzió)
 
 import os
 import telegram
@@ -25,7 +25,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 ADMIN_CHAT_ID = 1326707238
 
 # --- Konverziós Állapotok ---
-AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
+AWAITING_CODE, AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(3)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -101,8 +101,8 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_check_status": await admin_check_status(update, context)
-    # A ConversationHandler-es parancsokat a saját handlerük kezeli, itt nem kell
     elif command == "admin_close": await query.message.delete()
+    # A ConversationHandler-es parancsokat a saját handlerük kezeli, itt nem kell
 
 @subscriber_only
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -166,7 +166,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         final_message = await asyncio.to_thread(sync_task)
         await message_to_edit.edit_text(final_message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt.")
-
+    
 @subscriber_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = None
@@ -251,7 +251,9 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     try:
-        response = await asyncio.to_thread(lambda: supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute())
+        def sync_task_users():
+            return supabase.table("felhasznalok").select('id', count='exact').eq('is_active', True).execute()
+        response = await asyncio.to_thread(sync_task_users)
         await query.answer(f"Aktív felhasználók: {response.count}", show_alert=True)
     except Exception as e:
         await query.answer(f"Hiba: {e}", show_alert=True)
