@@ -1,7 +1,5 @@
 # bot.py (V15.6 - Végleges, Hiányzó Változók Pótolva)
 
-import os
-import telegram
 import pytz
 import math
 import requests
@@ -12,7 +10,7 @@ import secrets
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from supabase_py_async import create_client as create_async_client, AsyncClient
+from supabase_async import create_client as create_async_client, AsyncClient
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -27,7 +25,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 ADMIN_CHAT_ID = 1326707238
 
 # --- Konverziós Állapotok ---
-AWAITING_CODE, AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(3)
+AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -452,3 +450,4 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
