@@ -1,4 +1,4 @@
-# bot.py (Teljes, Javított Verzió)
+# bot.py (Teljes, Javított Verzió + Admin Teszt Paranccsal)
 import os
 import telegram
 import pytz
@@ -83,7 +83,7 @@ async def start(update: telegram.Update, context: CallbackContext):
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
-            keyboard = [[InlineKeyboardButton("💳 Előfizetés (9999 Ft / hó)", url=payment_url)]]
+            keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
@@ -92,7 +92,6 @@ async def start(update: telegram.Update, context: CallbackContext):
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    # A központi query.answer() törölve, hogy a specifikus funkciók tudjanak válaszolni.
     command = query.data
     
     if command == "show_tuti": await napi_tuti(update, context)
@@ -106,8 +105,8 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_list_codes": await admin_list_codes(update, context)
     elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": 
-        await query.answer() # Először válaszolunk, hogy a gomb ne "töltsön"
-        await query.message.delete() # És csak utána töröljük az üzenetet
+        await query.answer()
+        await query.message.delete()
 
 @subscriber_only
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -151,21 +150,15 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
     message_to_edit = await reply_obj.reply_text("🔎 Elmúlt napok eredményeinek keresése...")
     try:
         def sync_task():
-            # JAVÍTOTT DÁTUM LOGIKA: Pontos kezdő és végdátumot adunk meg UTC-ben
             now_hu = datetime.now(HUNGARY_TZ)
             end_of_today_utc = now_hu.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc)
             three_days_ago_utc = (now_hu - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-
             response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).lte("created_at", str(end_of_today_utc)).order('created_at', desc=True).execute()
-            
             if not response_tuti.data: return "🔎 Nem találhatóak kiértékelhető szelvények az elmúlt 3 napból."
-            
             all_tip_ids = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."
-            
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
-            
             result_messages = []
             for szelveny in response_tuti.data:
                 tipp_id_k = szelveny.get('tipp_id_k', []);
@@ -175,7 +168,6 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
                     is_winner = all(r == 'Nyert' for r in results)
                     status_icon = "✅" if is_winner else "❌"
                     result_messages.append(f"*{szelveny['tipp_neve']}* {status_icon}")
-            
             if not result_messages: return "🔎 Nincsenek teljesen lezárult szelvények az elmúlt 3 napból."
             return "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
         
@@ -192,7 +184,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     try:
         if query: 
             message_to_edit = query.message
-            await query.answer() # Válaszolunk a gombnyomásra, hogy ne 'töltsön'
+            await query.answer()
             await query.edit_message_text("📈 Statisztika készítése...")
         else: 
             message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
@@ -200,18 +192,14 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         def sync_task_stat():
             now = datetime.now(HUNGARY_TZ)
             header = ""
-            
             if period == "all":
                 start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
                 header = "*Összesített (All-Time)*"
                 return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
             else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-                
-                # JAVÍTOTT DÁTUM LOGIKA: Mindkét dátumot UTC-re konvertáljuk
                 start_date_utc = target_month_start.astimezone(pytz.utc)
                 end_date_utc = ((target_month_start + relativedelta(months=1)) - timedelta(seconds=1)).astimezone(pytz.utc)
-                
                 header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
                 return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute(), header
         
@@ -243,7 +231,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: **{lost_tuti_count}* db\n"
+            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
@@ -270,15 +258,33 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 async def activate_subscription_and_notify(chat_id: int, app: Application):
     try:
         def _activate_sync():
-            duration = 30; expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
+            duration_days = 30 # Alapértelmezett, ha nem tudjuk lekérdezni
+            # Itt lehetne egy logika, ami a Stripe-tól lekérdezi a vásárolt csomagot,
+            # de az egyszerűség kedvéért most maradjunk a fix 30/7 napnál.
+            # Ezt a részt a jövőben lehet bővíteni.
+            expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
             supabase.table("felhasznalok").update({"is_active": True, "subscription_status": "active", "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", chat_id).execute()
-            return duration
+            return duration_days
         duration = await asyncio.to_thread(_activate_sync)
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
 # --- ADMIN FUNKCIÓK ---
+
+@admin_only
+async def get_payment_link(update: telegram.Update, context: CallbackContext):
+    """Generál egy fizetési linket az admin számára a teszteléshez."""
+    user_id = update.effective_user.id
+    payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user_id}"
+    keyboard = [[InlineKeyboardButton("💳 Teszt Előfizetés Indítása", url=payment_url)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "🔑 Admin parancs:\n\nItt a személyes fizetési linked a teszteléshez. "
+        "Ez ugyanaz a link, amit egy új, nem előfizetett felhasználó látna a /start parancsra.",
+        reply_markup=reply_markup
+    )
+
 @admin_only
 async def admin_menu(update: telegram.Update, context: CallbackContext):
     keyboard = [
@@ -470,7 +476,6 @@ async def admin_check_tickets(update: telegram.Update, context: CallbackContext)
 
 # --- Handlerek ---
 def add_handlers(application: Application):
-    # A körüzenet és kódgenerálás beszélgetéskezelői
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')],
         states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]},
@@ -482,16 +487,14 @@ def add_handlers(application: Application):
         fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
 
-    # Egyszerű parancskezelők a fő funkciókhoz
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("list_codes", admin_list_codes))
+    application.add_handler(CommandHandler("get_payment_link", get_payment_link))
 
-    # A beszélgetéskezelők hozzáadása a rendszerhez
     application.add_handler(broadcast_conv)
     application.add_handler(codegen_conv)
     
-    # A legvégére a gombkezelő, ami minden olyan gombnyomást elkap, amit a fentiek nem kezeltek le
     application.add_handler(CallbackQueryHandler(button_handler))
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
