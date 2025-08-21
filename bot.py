@@ -89,11 +89,16 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
+# CSERÉLD LE ERRE A TELJES FUNKCIÓT A bot.py FÁJLBAN
+
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    # EZT A SORT TÖRÖLTÜK KI: await query.answer()
+    # Így minden al-funkció maga tud válaszolni a gombnyomásra.
+    
     command = query.data
+    
     if command == "show_tuti": await napi_tuti(update, context)
     elif command == "show_results": await eredmenyek(update, context)
     elif command.startswith("show_stat_"):
@@ -104,7 +109,9 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_list_codes": await admin_list_codes(update, context)
     elif command == "admin_check_tickets": await admin_check_tickets(update, context)
-    elif command == "admin_close": await query.message.delete()
+    elif command == "admin_close": 
+        await query.answer() # Először válaszolunk, hogy a gomb ne "töltsön"
+        await query.message.delete() # És csak utána töröljük az üzenetet
 
 @subscriber_only
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
@@ -462,3 +469,4 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
