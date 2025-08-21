@@ -286,7 +286,7 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     status_text = await asyncio.to_thread(sync_task_check)
     await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
-**# *** JAVÍTÁS 1. LÉPÉS: A HIÁNYZÓ FUNKCIÓ HOZZÁADÁSA ***
+# A korábban hiányzó 'cancel' funkció, ami a beszélgetések megszakításáért felel.
 async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
     """Cancels and ends the conversation."""
     for key in ['awaiting_broadcast', 'awaiting_code_count']:
@@ -294,7 +294,7 @@ async def cancel_conversation(update: telegram.Update, context: CallbackContext)
             del context.user_data[key]
             
     await update.message.reply_text('Művelet megszakítva.')
-    return ConversationHandler.END**
+    return ConversationHandler.END
 
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
@@ -434,7 +434,7 @@ async def admin_check_tickets(update: telegram.Update, context: CallbackContext)
     await query.message.edit_text(report, parse_mode='Markdown')
 
 # --- Handlerek ---
-**# *** JAVÍTÁS 2. LÉPÉS: A HANDLER REGISZTRÁCIÓ CSERÉJE ***
+# A teljes handler regisztrációs logika javítva lett, hogy elkerüljük a hibákat.
 def add_handlers(application: Application):
     # A körüzenet és kódgenerálás beszélgetéskezelői
     broadcast_conv = ConversationHandler(
@@ -448,17 +448,17 @@ def add_handlers(application: Application):
         fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
 
-    # A hibás ConversationHandler helyett egyszerű parancskezelők
+    # Egyszerű parancskezelők a fő funkciókhoz
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("list_codes", admin_list_codes))
 
-    # A beszélgetéskezelők hozzáadása
+    # A beszélgetéskezelők hozzáadása a rendszerhez
     application.add_handler(broadcast_conv)
     application.add_handler(codegen_conv)
     
-    # A legvégére a gombkezelő, ami minden mást elkap
+    # A legvégére a gombkezelő, ami minden olyan gombnyomást elkap, amit a fentiek nem kezeltek le
     application.add_handler(CallbackQueryHandler(button_handler))
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
-    return application**
+    return application
