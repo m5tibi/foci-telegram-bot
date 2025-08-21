@@ -1,4 +1,4 @@
-# main.py (Frissítve a heti előfizetéssel)
+# main.py (Véglegesen Javítva - Lejárati Idő Kezeléssel)
 import os
 import asyncio
 from fastapi import FastAPI, Request, Header
@@ -14,7 +14,6 @@ RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
-# ÚJ: Külön változók a különböző előfizetési áraknak
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 
@@ -48,7 +47,7 @@ async def process_telegram_update(request: Request):
 async def create_checkout_session(request: Request):
     data = await request.json()
     chat_id = data.get('chat_id')
-    plan = data.get('plan')  # Beolvassuk a választott csomagot (pl. 'weekly' vagy 'monthly')
+    plan = data.get('plan')
 
     if not chat_id:
         return {"error": "Hiányzó felhasználói azonosító."}, 400
@@ -68,7 +67,6 @@ async def create_checkout_session(request: Request):
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[{'price': price_id_to_use, 'quantity': 1}],
-            # Mivel ezek előfizetések, a 'mode' legyen 'subscription'
             mode='subscription',
             success_url=f'https://m5tibi.github.io/foci-telegram-bot/?payment=success',
             cancel_url=f'https://m5tibi.github.io/foci-telegram-bot/',
@@ -86,14 +84,30 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         event = stripe.Webhook.construct_event(
             payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET
         )
-        # checkout.session.completed helyett az előfizetéshez kapcsolódó eseményt figyeljük
-        if event['type'] == 'customer.subscription.created' or event['type'] == 'checkout.session.completed':
+        
+        # Csak a checkout befejezése eseményt figyeljük az aktiváláshoz
+        if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            # Az adat struktúrája kicsit más lehet a webhook típusától függően
             chat_id = session.get('client_reference_id')
+            
             if chat_id:
-                print(f"Sikeres előfizetés, chat_id: {chat_id}. Felhasználó aktiválása...")
-                await activate_subscription_and_notify(int(chat_id), application)
+                # Bővített rész: Kiolvassuk a vásárolt termék ár-azonosítóját
+                line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
+                price_id = line_items['data'][0]['price']['id']
+                
+                duration_days = 0
+                if price_id == STRIPE_PRICE_ID_WEEKLY:
+                    duration_days = 7
+                elif price_id == STRIPE_PRICE_ID_MONTHLY:
+                    duration_days = 30 # Lehet 31 vagy más logika alapján is
+                
+                if duration_days > 0:
+                    print(f"Sikeres előfizetés, chat_id: {chat_id}, időtartam: {duration_days} nap. Felhasználó aktiválása...")
+                    # Átadjuk az időtartamot az aktiváló funkciónak
+                    await activate_subscription_and_notify(int(chat_id), application, duration_days)
+                else:
+                    print(f"!!! HIBA: Ismeretlen price_id ({price_id}) a webhookban.")
+
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
