@@ -1,80 +1,121 @@
 <!DOCTYPE html>
-<html>
+<html lang="hu">
 <head>
-    <title>Mondom a Tutit - Előfizetés</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css">
+    <title>Foci Tippadó Bot - Előfizetés</title>
     <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+        .container {
+            text-align: center;
+            background-color: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            margin-bottom: 25px;
+        }
+        .price-button {
+            display: block;
+            width: 100%;
+            max-width: 320px;
+            padding: 15px;
+            margin: 15px auto;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background-color: #0088cc;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .price-button:hover {
+            background-color: #006699;
+        }
+        .price-button .plan-duration {
+            font-size: 18px;
+        }
+        .price-button .plan-price {
+            font-weight: normal;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
-    <div class="container" id="main-container">
-        <h1>Mondom a Tutit! ⚽️</h1>
-        <h2>Prémium Előfizetés</h2>
-        <p>Szerezz hozzáférést a napi tippekhez és a Napi Tuti szelvényekhez!</p>
-        
-        <div class="package">
-            <h3>Havi Hozzáférés</h3>
-            <p class="price">9999 Ft / hónap</p>
-            <p>Teljeskörű hozzáférés a bothoz 30 napig.</p>
-            <button id="checkout-button">Előfizetek</button>
-        </div>
-        
-        <div id="error-message"></div>
+
+    <div class="container">
+        <h2>Válassz előfizetési csomagot:</h2>
+
+        <button class="price-button" id="weekly-button">
+            <span class="plan-duration">Heti Előfizetés</span><br>
+            <span class="plan-price">3,490 Ft</span>
+        </button>
+
+        <button class="price-button" id="monthly-button">
+            <span class="plan-duration">Havi Előfizetés</span><br>
+            <span class="plan-price">9,990 Ft</span>
+        </button>
     </div>
 
-    <div class="container" id="success-container" style="display: none;">
-        <h1>✅ Sikeres Fizetés!</h1>
-        <p>Köszönjük az előfizetést! A Telegram botban már aktív a hozzáférésed.</p>
-        <p>A /start paranccsal bármikor előhozhatod a menüt.</p>
-    </div>
+    <script>
+        // === FONTOS: EZT A 2 ÉRTÉKET CSERÉLD KI A SAJÁTODRA! ===
+        const STRIPE_PUBLISHABLE_KEY = "pk_live_... vagy pk_test_..."; // CSERÉLD KI A SAJÁT STRIPE PUBLISHABLE KULCSODRA!
+        const RENDER_APP_URL = "https://foci-telegram-bot.onrender.com"; // CSERÉLD KI A SAJÁT RENDER ALKALMAZÁSOD URL-JÉRE!
+        // =========================================================
 
-    <script type="text/javascript">
-      // FONTOS: Cseréld le a 'pk_test_...' részt a saját Stripe publikálható kulcsodra!
-      var stripe = Stripe('pk_test_51RxsXRGwJ52Lmi82tbAPlmPQBIGfB2FZKrRl37lrawkkLiJO00J3AGeYagNtBYFjy0fxrACUiZnypHx6xnayDmKa00MU2L1GHr');
-      var checkoutButton = document.getElementById('checkout-button');
-      var errorElement = document.getElementById('error-message');
-      
-      const urlParams = new URLSearchParams(window.location.search);
-      const paymentStatus = urlParams.get('payment');
-      const chatId = urlParams.get('chat_id');
+        const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
 
-      if (paymentStatus === 'success') {
-          document.getElementById('main-container').style.display = 'none';
-          document.getElementById('success-container').style.display = 'block';
-      }
-
-      checkoutButton.addEventListener('click', function() {
-        if (!chatId) {
-            errorElement.textContent = "Hiba: Felhasználói azonosító hiányzik. Kérlek, a botból indítsd újra a folyamatot!";
-            return;
+        function getChatIdFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('chat_id');
         }
 
-        checkoutButton.disabled = true;
-        checkoutButton.textContent = "Átirányítás a fizetéshez...";
-        
-        var renderApiUrl = 'https://foci-telegram-bot.onrender.com/create-checkout-session';
-
-        fetch(renderApiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId })
-        })
-        .then(response => response.json())
-        .then(session => {
-            if (session.id) {
-                return stripe.redirectToCheckout({ sessionId: session.id });
-            } else {
-                throw new Error(session.error || 'Hiba a fizetési munkamenet létrehozásakor.');
+        function createCheckoutSession(plan) {
+            const chatId = getChatIdFromUrl();
+            if (!chatId) {
+                alert("Hiba: A felhasználói azonosító hiányzik az URL-ből. Kérlek, indítsd a folyamatot újra a Telegram botból.");
+                return;
             }
-        })
-        .catch(function(error) {
-            console.error('Hiba:', error);
-            errorElement.textContent = 'Hiba történt a fizetési oldal betöltésekor. Kérlek, próbáld újra később.';
-            checkoutButton.disabled = false;
-            checkoutButton.textContent = "Előfizetek";
+
+            fetch(`${RENDER_APP_URL}/create-checkout-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, plan: plan })
+            })
+            .then(response => response.json())
+            .then(session => {
+                if (session.id) {
+                    return stripe.redirectToCheckout({ sessionId: session.id });
+                } else {
+                    console.error("Hiba a session létrehozásakor:", session);
+                    alert("Hiba történt a fizetés előkészítése közben. Kérlek, próbáld újra később.");
+                }
+            })
+            .catch(error => {
+                console.error('Kommunikációs hiba a szerverrel:', error);
+                alert("Hiba történt a szerverrel való kommunikáció során.");
+            });
+        }
+
+        document.getElementById('weekly-button').addEventListener('click', () => {
+            createCheckoutSession('weekly');
         });
-      });
+
+        document.getElementById('monthly-button').addEventListener('click', () => {
+            createCheckoutSession('monthly');
+        });
     </script>
 </body>
 </html>
