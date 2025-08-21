@@ -1,4 +1,4 @@
-# bot.py (Végleges, Szuper-stabil Verzió - JAVÍTOTT)
+# bot.py (Teljes, Javított Verzió)
 import os
 import telegram
 import pytz
@@ -89,14 +89,10 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
-# CSERÉLD LE ERRE A TELJES FUNKCIÓT A bot.py FÁJLBAN
-
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    # EZT A SORT TÖRÖLTÜK KI: await query.answer()
-    # Így minden al-funkció maga tud válaszolni a gombnyomásra.
-    
+    # A központi query.answer() törölve, hogy a specifikus funkciók tudjanak válaszolni.
     command = query.data
     
     if command == "show_tuti": await napi_tuti(update, context)
@@ -155,13 +151,21 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
     message_to_edit = await reply_obj.reply_text("🔎 Elmúlt napok eredményeinek keresése...")
     try:
         def sync_task():
-            three_days_ago_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).order('created_at', desc=True).execute()
+            # JAVÍTOTT DÁTUM LOGIKA: Pontos kezdő és végdátumot adunk meg UTC-ben
+            now_hu = datetime.now(HUNGARY_TZ)
+            end_of_today_utc = now_hu.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc)
+            three_days_ago_utc = (now_hu - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+
+            response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).lte("created_at", str(end_of_today_utc)).order('created_at', desc=True).execute()
+            
             if not response_tuti.data: return "🔎 Nem találhatóak kiértékelhető szelvények az elmúlt 3 napból."
+            
             all_tip_ids = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."
+            
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
+            
             result_messages = []
             for szelveny in response_tuti.data:
                 tipp_id_k = szelveny.get('tipp_id_k', []);
@@ -171,32 +175,49 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
                     is_winner = all(r == 'Nyert' for r in results)
                     status_icon = "✅" if is_winner else "❌"
                     result_messages.append(f"*{szelveny['tipp_neve']}* {status_icon}")
+            
             if not result_messages: return "🔎 Nincsenek teljesen lezárult szelvények az elmúlt 3 napból."
             return "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
+        
         final_message = await asyncio.to_thread(sync_task)
         await message_to_edit.edit_text(final_message, parse_mode='Markdown')
-    except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt.")
+    except Exception as e: 
+        print(f"Hiba az eredmények lekérésekor: {e}")
+        await message_to_edit.edit_text("Hiba történt.")
     
 @subscriber_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
-    query = update.callback_query; message_to_edit = None
+    query = update.callback_query
+    message_to_edit = None
     try:
-        if query: message_to_edit = query.message; await query.edit_message_text("📈 Statisztika készítése...")
-        else: message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
+        if query: 
+            message_to_edit = query.message
+            await query.answer() # Válaszolunk a gombnyomásra, hogy ne 'töltsön'
+            await query.edit_message_text("📈 Statisztika készítése...")
+        else: 
+            message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
         
         def sync_task_stat():
-            now = datetime.now(HUNGARY_TZ); start_date_utc, header = None, ""
+            now = datetime.now(HUNGARY_TZ)
+            header = ""
+            
             if period == "all":
-                start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc); header = "*Összesített (All-Time)*"
+                start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
+                header = "*Összesített (All-Time)*"
                 return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
             else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-                end_date_utc = (target_month_start + relativedelta(months=1)) - timedelta(seconds=1); start_date_utc = target_month_start.astimezone(pytz.utc)
+                
+                # JAVÍTOTT DÁTUM LOGIKA: Mindkét dátumot UTC-re konvertáljuk
+                start_date_utc = target_month_start.astimezone(pytz.utc)
+                end_date_utc = ((target_month_start + relativedelta(months=1)) - timedelta(seconds=1)).astimezone(pytz.utc)
+                
                 header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
                 return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute(), header
         
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
-        stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"; evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+        stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"
+        evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         
         if response_tuti.data:
             all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
@@ -206,36 +227,44 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 meccsek_res_stat = await asyncio.to_thread(sync_stat_meccsek)
                 eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
                 for szelveny in response_tuti.data:
-                    tipp_id_k = szelveny.get('tipp_id_k', []);
+                    tipp_id_k = szelveny.get('tipp_id_k', [])
                     if not tipp_id_k: continue
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                     if all(r is not None and r != 'Tipp leadva' for r in results):
                         evaluated_tuti_count += 1
-                        if all(r == 'Nyert' for r in results): won_tuti_count += 1; total_return_tuti += float(szelveny['eredo_odds'])
+                        if all(r == 'Nyert' for r in results): 
+                            won_tuti_count += 1
+                            total_return_tuti += float(szelveny['eredo_odds'])
         
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
             tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
-            total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti
+            total_staked_tuti = evaluated_tuti_count * 1.0
+            net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: **{lost_tuti_count}* db\n"
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
-        else: stat_message += f"Ebben az időszakban nincsenek kiértékelt Napi Tuti szelvények."
+        else: 
+            stat_message += "Ebben az időszakban nincsenek kiértékelt Napi Tuti szelvények."
         
-        keyboard = [[
-            InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"show_stat_month_{month_offset + 1}"),
-            InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"show_stat_month_{max(0, month_offset - 1)}")
-        ], [ InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0") ]]
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"show_stat_month_{month_offset + 1}"),
+                InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"show_stat_month_{max(0, month_offset - 1)}")
+            ], 
+            [ InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0") ]
+        ]
         if period != "current_month" or month_offset > 0:
             keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
-        print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
+        print(f"Hiba a statisztika készítésekor: {e}")
+        await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
 
 # --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application):
@@ -293,7 +322,6 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     status_text = await asyncio.to_thread(sync_task_check)
     await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
-# A korábban hiányzó 'cancel' funkció, ami a beszélgetések megszakításáért felel.
 async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
     """Cancels and ends the conversation."""
     for key in ['awaiting_broadcast', 'awaiting_code_count']:
@@ -441,7 +469,6 @@ async def admin_check_tickets(update: telegram.Update, context: CallbackContext)
     await query.message.edit_text(report, parse_mode='Markdown')
 
 # --- Handlerek ---
-# A teljes handler regisztrációs logika javítva lett, hogy elkerüljük a hibákat.
 def add_handlers(application: Application):
     # A körüzenet és kódgenerálás beszélgetéskezelői
     broadcast_conv = ConversationHandler(
@@ -469,4 +496,3 @@ def add_handlers(application: Application):
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
