@@ -1,4 +1,4 @@
-# main.py (Véglegesen Javítva - Lejárati Idő Kezeléssel)
+# main.py (Végleges, Ügyfélportállal)
 import os
 import asyncio
 from fastapi import FastAPI, Request, Header
@@ -85,13 +85,12 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET
         )
         
-        # Csak a checkout befejezése eseményt figyeljük az aktiváláshoz
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             chat_id = session.get('client_reference_id')
+            stripe_customer_id = session.get('customer')
             
-            if chat_id:
-                # Bővített rész: Kiolvassuk a vásárolt termék ár-azonosítóját
+            if chat_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 price_id = line_items['data'][0]['price']['id']
                 
@@ -99,12 +98,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 if price_id == STRIPE_PRICE_ID_WEEKLY:
                     duration_days = 7
                 elif price_id == STRIPE_PRICE_ID_MONTHLY:
-                    duration_days = 30 # Lehet 31 vagy más logika alapján is
+                    duration_days = 30
                 
                 if duration_days > 0:
-                    print(f"Sikeres előfizetés, chat_id: {chat_id}, időtartam: {duration_days} nap. Felhasználó aktiválása...")
-                    # Átadjuk az időtartamot az aktiváló funkciónak
-                    await activate_subscription_and_notify(int(chat_id), application, duration_days)
+                    print(f"Sikeres előfizetés: chat_id={chat_id}, customer_id={stripe_customer_id}, időtartam={duration_days} nap.")
+                    await activate_subscription_and_notify(int(chat_id), application, duration_days, stripe_customer_id)
                 else:
                     print(f"!!! HIBA: Ismeretlen price_id ({price_id}) a webhookban.")
 
