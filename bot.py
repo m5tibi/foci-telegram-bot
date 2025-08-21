@@ -1,5 +1,4 @@
-# bot.py (V18.4 - Végleges, Garantáltan Teljes Verzió)
-
+# bot.py (Végleges, Szuper-stabil Verzió - JAVÍTOTT)
 import os
 import telegram
 import pytz
@@ -25,7 +24,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 ADMIN_CHAT_ID = 1326707238
 
 # --- Konverziós Állapotok ---
-AWAITING_CODE, AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(3)
+AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(2)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -57,9 +56,11 @@ def subscriber_only(func):
             return await func(update, context, *args, **kwargs)
         else:
             await context.bot.send_message(chat_id=update.effective_user.id, text="Ez a funkció csak érvényes előfizetéssel érhető el.")
+    return wrapped
 
 # --- Konstansok & Segédfüggvények ---
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+
 def get_tip_details(tip_text):
     tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
     return tip_map.get(tip_text, tip_text)
@@ -80,44 +81,13 @@ async def start(update: telegram.Update, context: CallbackContext):
             keyboard = [[InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"), InlineKeyboardButton("📊 Eredmények", callback_data="show_results")], [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat_current_month_0")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
-            return ConversationHandler.END
         else:
-            await update.message.reply_text("Szia! Ez egy privát, meghívásos tippadó bot.\nA hozzáféréshez kérlek, add meg az egyszer használatos meghívó kódodat:")
-            return AWAITING_CODE
+            payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
+            keyboard = [[InlineKeyboardButton("💳 Előfizetés (9999 Ft / hó)", url=payment_url)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
-        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben."); return ConversationHandler.END
-
-async def redeem_code(update: telegram.Update, context: CallbackContext):
-    user = update.effective_user
-    code_text = update.message.text.strip().upper()
-    try:
-        def sync_task_redeem():
-            code_res = supabase.table("invitation_codes").select("id, is_used, duration_days").eq("code", code_text).single().execute()
-            if code_res.data and not code_res.data['is_used']:
-                code_id = code_res.data['id']
-                duration = code_res.data.get('duration_days', 30)
-                expires_at = datetime.now(pytz.utc) + timedelta(days=duration)
-                supabase.table("invitation_codes").update({"is_used": True, "used_by_chat_id": user.id, "used_at": "now()"}).eq("id", code_id).execute()
-                supabase.table("felhasznalok").update({"subscription_status": "active", "used_invitation_code_id": code_id, "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", user.id).execute()
-                return {"success": True, "duration": duration}
-            return {"success": False}
-
-        result = await asyncio.to_thread(sync_task_redeem)
-
-        if result["success"]:
-            await update.message.reply_text(f"✅ Sikeres aktiválás! Hozzáférésed {result['duration']} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
-            return ConversationHandler.END
-        else:
-            await update.message.reply_text("❌ Érvénytelen vagy már felhasznált kód. Próbáld újra, vagy a /cancel paranccsal lépj ki.")
-            return AWAITING_CODE
-    except Exception as e:
-        print(f"Hiba a kódbeváltáskor: {e}"); await update.message.reply_text("Hiba történt a kód ellenőrzésekor."); return ConversationHandler.END
-
-async def cancel_conversation(update: telegram.Update, context: CallbackContext):
-    for key in ['awaiting_broadcast', 'awaiting_code_count']:
-        if key in context.user_data: del context.user_data[key]
-    await update.message.reply_text("Művelet megszakítva.")
-    return ConversationHandler.END
+        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
@@ -316,6 +286,16 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     status_text = await asyncio.to_thread(sync_task_check)
     await query.message.edit_text(status_text, parse_mode='Markdown', reply_markup=query.message.reply_markup)
 
+**# *** JAVÍTÁS 1. LÉPÉS: A HIÁNYZÓ FUNKCIÓ HOZZÁADÁSA ***
+async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
+    """Cancels and ends the conversation."""
+    for key in ['awaiting_broadcast', 'awaiting_code_count']:
+        if key in context.user_data:
+            del context.user_data[key]
+            
+    await update.message.reply_text('Művelet megszakítva.')
+    return ConversationHandler.END**
+
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -402,31 +382,83 @@ async def admin_list_codes(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         await message_to_send_from.reply_text(f"❌ Hiba a kódok lekérésekor:\n`{e}`", parse_mode='Markdown')
 
+def get_injuries_for_fixture(fixture_id):
+    url = f"https://api-football-v1.p.rapidapi.com/v3/injuries"; querystring = {"fixture": str(fixture_id)}
+    headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+    try:
+        response = requests.get(url, headers=headers, params=querystring, timeout=15); response.raise_for_status()
+        return response.json().get('response', [])
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a sérültek lekérésekor ({fixture_id}): {e}"); return []
+
+@admin_only
+async def admin_check_tickets(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.message.edit_text("🔍 Ellenőrzés indítása a holnapi szelvényekre...")
+    
+    def sync_task_check_tickets():
+        now_utc = datetime.now(pytz.utc)
+        tomorrow_start_utc = (datetime.now(HUNGARY_TZ)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+        response = supabase.table("napi_tuti").select("*").gte("created_at", str(tomorrow_start_utc)).order('created_at', desc=False).execute()
+        if not response.data:
+            return "Nincsenek holnapi 'Napi Tuti' szelvények, amiket ellenőrizni lehetne."
+        all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+        meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+        meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
+        report_parts = ["*--- 🔍 Meccs Előtti Ellenőrző Jelentés ---*"]
+        any_future_ticket_found = False
+        for szelveny in response.data:
+            tipp_id_k = szelveny.get('tipp_id_k', [])
+            if not tipp_id_k: continue
+            szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
+            if not szelveny_meccsei or not all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
+                continue
+            any_future_ticket_found = True
+            report_parts.append(f"\n🔥 *{szelveny['tipp_neve']}*")
+            for meccs in szelveny_meccsei:
+                fixture_id = meccs['fixture_id']; home_team_name = meccs['csapat_H']; away_team_name = meccs['csapat_V']
+                report_parts.append(f"\n⚽️ *{home_team_name} vs {away_team_name}*")
+                injuries_data = get_injuries_for_fixture(fixture_id)
+                home_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == home_team_name]
+                away_injuries = [p['player']['name'] for p in injuries_data if p['team']['name'] == away_team_name]
+                if home_injuries: report_parts.append(f"  - Hazai hiányzók: {', '.join(home_injuries)}")
+                else: report_parts.append("  - Hazai csapatnál nincs jelentett hiányzó.")
+                if away_injuries: report_parts.append(f"  - Vendég hiányzók: {', '.join(away_injuries)}")
+                else: report_parts.append("  - Vendég csapatnál nincs jelentett hiányzó.")
+        
+        if not any_future_ticket_found:
+            return "Nincsenek jövőbeli szelvények, amiket ellenőrizni lehetne."
+        return "\n".join(report_parts)
+
+    report = await asyncio.to_thread(sync_task_check_tickets)
+    await query.message.edit_text(report, parse_mode='Markdown')
+
 # --- Handlerek ---
+**# *** JAVÍTÁS 2. LÉPÉS: A HANDLER REGISZTRÁCIÓ CSERÉJE ***
 def add_handlers(application: Application):
-    registration_conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={ AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)] },
-        fallbacks=[CommandHandler("cancel", cancel_conversation)]
-    )
+    # A körüzenet és kódgenerálás beszélgetéskezelői
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')],
-        states={ AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)] },
+        states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]},
         fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
     codegen_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_generate_codes_start, pattern='^admin_generate_codes_start$')],
-        states={ AWAITING_CODE_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_generate_codes_received_count)] },
+        states={AWAITING_CODE_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_generate_codes_received_count)]},
         fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
-    
-    application.add_handler(registration_conv)
+
+    # A hibás ConversationHandler helyett egyszerű parancskezelők
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin_menu))
+    application.add_handler(CommandHandler("list_codes", admin_list_codes))
+
+    # A beszélgetéskezelők hozzáadása
     application.add_handler(broadcast_conv)
     application.add_handler(codegen_conv)
     
-    application.add_handler(CommandHandler("admin", admin_menu))
-    application.add_handler(CommandHandler("list_codes", admin_list_codes))
+    # A legvégére a gombkezelő, ami minden mást elkap
     application.add_handler(CallbackQueryHandler(button_handler))
     
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
-    return application
+    return application**
