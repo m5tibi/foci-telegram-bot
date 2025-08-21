@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (Végleges, minden státuszt kezelő verzió)
+# eredmeny_ellenorzo.py (JAVÍTOTT VERZIÓ)
 
 import os
 import requests
@@ -16,7 +16,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def get_fixtures_to_check():
     """Lekéri azokat a meccseket, amik már elkezdődtek, de még nincsenek kiértékelve."""
     now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
-    return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(now_utc)).execute().data
+    # Biztonsági ráhagyás: csak azokat a meccseket nézzük, amik már legalább 90 perce elkezdődtek
+    ninety_mins_ago_utc = now_utc - timedelta(minutes=90)
+    return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(ninety_mins_ago_utc)).execute().data
 
 def get_fixture_result(fixture_id):
     """Lekéri egy meccs végeredményét az API-ból."""
@@ -24,7 +26,7 @@ def get_fixture_result(fixture_id):
     querystring = {"id": str(fixture_id)}
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     try:
-        response = requests.get(url, headers=headers, params=querystring)
+        response = requests.get(url, headers=headers, params=querystring, timeout=15)
         response.raise_for_status()
         data = response.json().get('response', [])
         return data[0] if data else None
@@ -33,8 +35,7 @@ def get_fixture_result(fixture_id):
         return None
 
 def evaluate_tip(tip_text, fixture_data):
-    """Kiértékeli a tippet és visszaadja az eredményt és a végeredményt (a rendes játékidő alapján)."""
-    # Fontos: A kiértékeléshez mindig a rendes játékidő (90 perc) eredményét vesszük alapul
+    """Kiértékeli a tippet a rendes játékidő alapján."""
     goals_home = fixture_data.get('score', {}).get('fulltime', {}).get('home')
     goals_away = fixture_data.get('score', {}).get('fulltime', {}).get('away')
     
@@ -43,16 +44,23 @@ def evaluate_tip(tip_text, fixture_data):
 
     score_str = f"{goals_home}-{goals_away}"
     
-    if tip_text == "Home" and goals_home > goals_away: return "Nyert", score_str
-    if tip_text == "Away" and goals_away > goals_home: return "Nyert", score_str
-    if tip_text == "Draw" and goals_home == goals_away: return "Nyert", score_str
-    if tip_text == "Gólok száma 2.5 felett" and (goals_home + goals_away) > 2.5: return "Nyert", score_str
-    if tip_text == "Mindkét csapat szerez gólt" and goals_home > 0 and goals_away > 0: return "Nyert", score_str
+    # A kiértékelés a helyes, adatbázisban tárolt kódokkal
+    is_winner = False
+    if tip_text == "Home" and goals_home > goals_away: is_winner = True
+    elif tip_text == "Away" and goals_away > goals_home: is_winner = True
+    elif tip_text == "Draw" and goals_home == goals_away: is_winner = True
+    elif tip_text == "Over 2.5" and (goals_home + goals_away) > 2.5: is_winner = True
+    elif tip_text == "Over 1.5" and (goals_home + goals_away) > 1.5: is_winner = True
+    elif tip_text == "BTTS" and goals_home > 0 and goals_away > 0: is_winner = True
+    elif tip_text == "1X" and (goals_home > goals_away or goals_home == goals_away): is_winner = True
+    elif tip_text == "X2" and (goals_away > goals_home or goals_home == goals_away): is_winner = True
+    elif tip_text == "Home Over 1.5" and goals_home > 1.5: is_winner = True
+    elif tip_text == "Away Over 1.5" and goals_away > 1.5: is_winner = True
 
-    return "Veszített", score_str
+    return "Nyert" if is_winner else "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása (Okosabb Verzió)...")
+    print("Eredmény-ellenőrző indítása (Javított Verzió)...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
@@ -60,7 +68,6 @@ def main():
 
     print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
     
-    # --- JAVÍTÁS ITT: Ezeket a státuszokat mind befejezettnek tekintjük ---
     FINISHED_STATUSES = ["FT", "AET", "PEN"]
 
     for fixture in fixtures_to_check:
@@ -76,7 +83,8 @@ def main():
                 "veg_eredmeny": score_str
             }).eq("id", db_id).execute()
         else:
-            print(f"A(z) {fixture_id} meccs még nem fejeződött be, vagy hiba történt a lekérésnél.")
+            status = result_data.get('fixture', {}).get('status', {}).get('short') if result_data else "N/A"
+            print(f"A(z) {fixture_id} meccs még nem fejeződött be (Státusz: {status}), vagy hiba történt a lekérésnél.")
 
     print("Eredmény-ellenőrzés befejezve.")
 
