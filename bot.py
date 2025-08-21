@@ -1,4 +1,4 @@
-# bot.py (V18.3 - Végleges, Garantáltan Teljes Verzió)
+# bot.py (V18.3 - Végleges Handler Javítással)
 
 import os
 import telegram
@@ -24,8 +24,8 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 # --- ADMIN BEÁLLÍTÁSOK ---
 ADMIN_CHAT_ID = 1326707238
 
-# --- Konverziós Állapotok ---
-AWAITING_CODE, AWAITING_BROADCAST, AWAITING_CODE_COUNT = range(3)
+# --- Konverziós Állapotok (csak a regisztrációhoz) ---
+AWAITING_CODE = range(1)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -101,9 +101,7 @@ async def redeem_code(update: telegram.Update, context: CallbackContext):
                 supabase.table("felhasznalok").update({"subscription_status": "active", "used_invitation_code_id": code_id, "subscription_expires_at": expires_at.isoformat()}).eq("chat_id", user.id).execute()
                 return {"success": True, "duration": duration}
             return {"success": False}
-
         result = await asyncio.to_thread(sync_task_redeem)
-
         if result["success"]:
             await update.message.reply_text(f"✅ Sikeres aktiválás! Hozzáférésed {result['duration']} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
             return ConversationHandler.END
@@ -132,6 +130,8 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_check_status": await admin_check_status(update, context)
+    elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
+    elif command == "admin_generate_codes_start": await admin_generate_codes_start(update, context)
     elif command == "admin_list_codes": await admin_list_codes(update, context)
     elif command == "admin_close": await query.message.delete()
 
@@ -166,7 +166,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
                     future_szelvenyek_messages.append("\n\n".join(message_parts))
             if not future_szelvenyek_messages: return "🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények."
             return ("\n\n" + "-"*20 + "\n\n").join(future_szelvenyek_messages)
-        
         final_message = await asyncio.to_thread(sync_task)
         await reply_obj.reply_text(final_message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba a napi tuti lekérésekor: {e}"); await reply_obj.reply_text(f"Hiba történt.")
@@ -198,7 +197,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         final_message = await asyncio.to_thread(sync_task)
         await message_to_edit.edit_text(final_message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await message_to_edit.edit_text("Hiba történt.")
-    
+
 @subscriber_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = None
