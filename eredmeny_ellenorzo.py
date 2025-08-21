@@ -1,9 +1,9 @@
-# eredmeny_ellenorzo.py (JAVÍTOTT VERZIÓ)
+# eredmeny_ellenorzo.py (JAVÍTOTT VERZIÓ 2)
 
 import os
 import requests
 from supabase import create_client, Client
-from datetime import datetime
+from datetime import datetime, timedelta # <- ITT A JAVÍTÁS
 import pytz
 
 # --- Konfiguráció ---
@@ -60,7 +60,7 @@ def evaluate_tip(tip_text, fixture_data):
     return "Nyert" if is_winner else "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása (Javított Verzió)...")
+    print("Eredmény-ellenőrző indítása (Javított Verzió 2)...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
