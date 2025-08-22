@@ -281,10 +281,21 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     tipp_id_k = szelveny.get('tipp_id_k', []);
                     if not tipp_id_k: continue
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
-                    if all(r is not None and r != 'Tipp leadva' for r in results):
-                        evaluated_tuti_count += 1
-                        if all(r == 'Nyert' for r in results): 
-                            won_tuti_count += 1; total_return_tuti += float(szelveny['eredo_odds'])
+                    
+                    # Ha van még kiértékelendő meccs a szelvényen, kihagyjuk
+                    if any(r is None or r == 'Tipp leadva' for r in results):
+                        continue
+                    
+                    # ÚJ LOGIKA: Kiszűrjük az érvénytelen meccseket
+                    valid_results = [r for r in results if r != 'Érvénytelen']
+                    if not valid_results: # Ha minden meccs érvénytelen volt a szelvényen
+                        continue
+
+                    evaluated_tuti_count += 1
+                    if all(r == 'Nyert' for r in valid_results): 
+                        won_tuti_count += 1
+                        total_return_tuti += float(szelveny['eredo_odds'])
+        
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
             tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
@@ -302,7 +313,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         reply_markup = InlineKeyboardMarkup(keyboard); await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
-
 # --- ADMIN FUNKCIÓK ---
 
 @admin_only
@@ -390,3 +400,4 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
