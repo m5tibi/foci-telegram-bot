@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Átstrukturált Menükkel)
+# bot.py (Végleges Verzió - SyntaxError Javítással)
 
 import os
 import telegram
@@ -77,7 +77,6 @@ async def start(update: telegram.Update, context: CallbackContext):
         is_active = await asyncio.to_thread(sync_task_start)
         
         if is_active:
-            # === JAVÍTÁS ITT: Letisztult felhasználói menü ===
             keyboard = [
                 [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")],
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
@@ -149,8 +148,10 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
     
+    # Felhasználói gombok
     if command == "show_tuti": await napi_tuti(update, context)
     elif command == "manage_subscription": await manage_subscription(update, context)
+    
     # Admin gombok
     elif command == "admin_show_results": await eredmenyek(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
@@ -260,9 +261,8 @@ async def stat(update: telegram.Update, context: CallbackContext, period="all"):
             message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
         
         def sync_task_stat():
-            now = datetime.now(HUNGARY_TZ); header = ""
-            start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
             header = "*Összesített (All-Time) Statisztika*"
+            start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
             return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
         
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
@@ -291,9 +291,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="all"):
             total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *
-
-{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
@@ -315,7 +313,6 @@ async def get_payment_link(update: telegram.Update, context: CallbackContext):
 
 @admin_only
 async def admin_menu(update: telegram.Update, context: CallbackContext):
-    # === JAVÍTÁS ITT: Bővített admin menü ===
     keyboard = [
         [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Teljes Statisztika", callback_data="admin_show_all_stats")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
