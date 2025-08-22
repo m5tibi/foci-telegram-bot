@@ -184,7 +184,7 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         def sync_task():
             now_utc = datetime.now(pytz.utc)
             # A mai naptól kezdve keressük a szelvényeket, nem tegnaptól
-            today_start_utc = datetime.now(BUDAPEST_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            today_start_utc = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             
             # Lekérjük a confidence_percent-et is, és a név alapján rangsorolunk
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(today_start_utc)).order('tipp_neve', desc=False).execute()
@@ -424,5 +424,6 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
 
 
