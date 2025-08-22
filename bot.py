@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - 2025-08-22)
+# bot.py (Végleges Verzió - Átstrukturált Menükkel)
 
 import os
 import telegram
@@ -77,9 +77,9 @@ async def start(update: telegram.Update, context: CallbackContext):
         is_active = await asyncio.to_thread(sync_task_start)
         
         if is_active:
+            # === JAVÍTÁS ITT: Letisztult felhasználói menü ===
             keyboard = [
-                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"), InlineKeyboardButton("📊 Eredmények", callback_data="show_results")],
-                [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat_current_month_0")],
+                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")],
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -150,13 +150,11 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     command = query.data
     
     if command == "show_tuti": await napi_tuti(update, context)
-    elif command == "show_results": await eredmenyek(update, context)
-    elif command.startswith("show_stat_"):
-        parts = command.split("_"); period = "_".join(parts[2:-1]); offset = int(parts[-1])
-        await stat(update, context, period=period, month_offset=offset)
     elif command == "manage_subscription": await manage_subscription(update, context)
-    elif command == "admin_show_users": await admin_show_users(update, context)
+    # Admin gombok
+    elif command == "admin_show_results": await eredmenyek(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
+    elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": 
@@ -218,7 +216,7 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
 
-@subscriber_only
+@admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     message_to_edit = await reply_obj.reply_text("🔎 Elmúlt napok eredményeinek keresése...")
@@ -251,8 +249,8 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         print(f"Hiba az eredmények lekérésekor: {e}")
         await message_to_edit.edit_text("Hiba történt.")
     
-@subscriber_only
-async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
+@admin_only
+async def stat(update: telegram.Update, context: CallbackContext, period="all"):
     query = update.callback_query; message_to_edit = None
     try:
         if query: 
@@ -263,19 +261,12 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         
         def sync_task_stat():
             now = datetime.now(HUNGARY_TZ); header = ""
-            if period == "all":
-                start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
-                header = "*Összesített (All-Time)*"
-                return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
-            else:
-                target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-                start_date_utc = target_month_start.astimezone(pytz.utc)
-                end_date_utc = ((target_month_start + relativedelta(months=1)) - timedelta(seconds=1)).astimezone(pytz.utc)
-                header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
-                return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute(), header
+            start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
+            header = "*Összesített (All-Time) Statisztika*"
+            return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
         
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
-        stat_message = f"🔥 *Napi Tuti Statisztika*\n{header}\n\n"; evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+        stat_message = f"🔥 *{header}*\n\n"; evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         if response_tuti.data:
             all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if all_tip_ids_stat:
@@ -286,12 +277,9 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     tipp_id_k = szelveny.get('tipp_id_k', []);
                     if not tipp_id_k: continue
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
-                    
                     if any(r is None or r == 'Tipp leadva' for r in results): continue
-                    
                     valid_results = [r for r in results if r != 'Érvénytelen']
                     if not valid_results: continue
-
                     evaluated_tuti_count += 1
                     if all(r == 'Nyert' for r in valid_results): 
                         won_tuti_count += 1
@@ -303,15 +291,15 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
             stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
-            stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
+            stat_message += f"✅ Nyert: *
+
+{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
             stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
-        else: stat_message += "Ebben az időszakban nincsenek kiértékelt Napi Tuti szelvények."
-        keyboard = [[InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"show_stat_month_{month_offset + 1}"), InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"show_stat_month_{max(0, month_offset - 1)}")], [ InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="show_stat_all_0") ]]
-        if period != "current_month" or month_offset > 0:
-            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="show_stat_current_month_0"))
-        reply_markup = InlineKeyboardMarkup(keyboard); await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
+        else: stat_message += "Nincsenek még kiértékelt Napi Tuti szelvények."
+        
+        await message_to_edit.edit_text(stat_message, parse_mode='Markdown')
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
 
@@ -327,9 +315,11 @@ async def get_payment_link(update: telegram.Update, context: CallbackContext):
 
 @admin_only
 async def admin_menu(update: telegram.Update, context: CallbackContext):
+    # === JAVÍTÁS ITT: Bővített admin menü ===
     keyboard = [
+        [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Teljes Statisztika", callback_data="admin_show_all_stats")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
-        [InlineKeyboardButton("🏛️ Teljes Stat.", callback_data="admin_show_all_stats"), InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
+        [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
