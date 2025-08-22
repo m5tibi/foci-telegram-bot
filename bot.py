@@ -5,6 +5,7 @@ import telegram
 import pytz
 import asyncio
 import stripe
+import requests
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
@@ -390,3 +391,4 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
