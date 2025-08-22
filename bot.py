@@ -183,35 +183,59 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     try:
         def sync_task():
             now_utc = datetime.now(pytz.utc)
-            yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            response = supabase.table("napi_tuti").select("*").gte("created_at", str(yesterday_start_utc)).order('created_at', desc=False).execute()
-            if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."
+            # A mai naptól kezdve keressük a szelvényeket, nem tegnaptól
+            today_start_utc = datetime.now(BUDAPEST_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            
+            # Lekérjük a confidence_percent-et is, és a név alapján rangsorolunk
+            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(today_start_utc)).order('tipp_neve', desc=False).execute()
+            
+            if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények a mai napra."
+            
             all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."
+            
             meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
             if not meccsek_response.data: return "🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."
+            
             meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
+            
             future_szelvenyek_messages = []
             for szelveny in response.data:
                 tipp_id_k = szelveny.get('tipp_id_k', []);
                 if not tipp_id_k: continue
+                
                 szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
                 if len(szelveny_meccsei) != len(tipp_id_k): continue
+
+                # Csak azokat a szelvényeket mutatjuk, amiknek minden meccse a jövőben van
                 if all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
-                    header = f"🔥 *{szelveny['tipp_neve']}* 🔥"; message_parts = [header]
+                    
+                    # ÚJ: Fejléc a megbízhatósággal
+                    confidence = szelveny.get('confidence_percent', '?')
+                    header = f"🔥 *{szelveny['tipp_neve']}* (Megbízhatóság: {confidence}%) 🔥"
+                    message_parts = [header]
+                    
                     for tip in szelveny_meccsei:
-                        local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                        line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"; line2 = f"🏆 {tip['liga_nev']}"
-                        line3 = f"⏰ Kezdés: {local_time.strftime('%H:%M')}"; line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
+                        local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(BUDAPEST_TZ)
+                        line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"
+                        line2 = f"🏆 {tip['liga_nev']}"
+                        # ÚJ: Dátumformátum hónap, nap, óra, perccel
+                        line3 = f"⏰ Kezdés: {local_time.strftime('%b %d. %H:%M')}"
+                        line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
                         message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
+                        
                     message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
                     future_szelvenyek_messages.append("\n\n".join(message_parts))
+            
             if not future_szelvenyek_messages: return "🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények."
+            
             return ("\n\n" + "-"*20 + "\n\n").join(future_szelvenyek_messages)
         
         final_message = await asyncio.to_thread(sync_task)
         await reply_obj.reply_text(final_message, parse_mode='Markdown')
-    except Exception as e: print(f"Hiba a napi tuti lekérésekor: {e}"); await reply_obj.reply_text(f"Hiba történt.")
+    except Exception as e: 
+        print(f"Hiba a napi tuti lekérésekor: {e}")
+        await reply_obj.reply_text(f"Hiba történt.")
 
 @subscriber_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
@@ -400,4 +424,5 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
 
