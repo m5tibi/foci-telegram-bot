@@ -1,4 +1,4 @@
-# tipp_generator.py (V20 - Exkluzív Tippek, Reálisabb Százalékok, Jobb Variációk)
+# tipp_generator.py (V21 - NameError Javítással)
 
 import os
 import requests
@@ -27,11 +27,22 @@ def get_api_data(endpoint, params):
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
-        time.sleep(0.8) # API rate limit tiszteletben tartása
+        time.sleep(0.8)
         return response.json().get('response', [])
     except requests.exceptions.RequestException as e:
         print(f"  - Hiba az API hívás során ({endpoint}): {e}")
         return []
+
+def get_fixtures_from_api(date_str):
+    all_fixtures = []
+    print(f"--- Meccsek keresése a következő napra: {date_str} ---")
+    for league_id, league_name in LEAGUES.items():
+        print(f"  -> Liga lekérése: {league_name}")
+        params = {"date": date_str, "league": str(league_id), "season": str(datetime.now(BUDAPEST_TZ).year)}
+        found_fixtures = get_api_data("fixtures", params)
+        if found_fixtures:
+            all_fixtures.extend(found_fixtures)
+    return all_fixtures
 
 # --- ELEMZŐ FÜGGVÉNYEK ---
 def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id, api_prediction):
@@ -46,7 +57,6 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats,
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
 
-    # Szigorított és csökkentett pontozás a reálisabb eredményekért
     if tip_type == "Home" and 1.40 <= odds <= 2.2:
         score += 25
         if wins_h > wins_v + 1: score += 15; reason.append("Jobb forma.")
@@ -69,7 +79,7 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats,
         if tip_type in ["Home", "1X"] and h2h_stats['wins1'] > h2h_stats['wins2']: score += 10; reason.append("Jobb H2H.")
         if tip_type in ["Away", "X2"] and h2h_stats['wins2'] > h2h_stats['wins1']: score += 10; reason.append("Jobb H2H.")
 
-    final_score = min(score, 95) # A tippek max pontszáma 95, hogy a 100% ne legyen elérhető
+    final_score = min(score, 95)
     if final_score >= 70: return final_score, " ".join(list(dict.fromkeys(reason))) or "Statisztikai elemzés alapján."
     return 0, ""
 
@@ -169,53 +179,51 @@ def create_ranked_daily_specials(date_str):
         candidates = sorted(list(best_tip_per_fixture.values()), key=lambda x: x.get('confidence_score', 0), reverse=True)
         
         szelveny_count = 1
-        MAX_SZELVENY = 4 # Maximum ennyi szelvényt hozunk létre
+        MAX_SZELVENY = 4
 
         while len(candidates) >= 2 and szelveny_count <= MAX_SZELVENY:
             best_combo_found = None
 
-            # 3-as kötésű kombinációk keresése
+            possible_combos = []
             if len(candidates) >= 3:
                 for combo_tuple in itertools.combinations(candidates, 3):
                     combo = list(combo_tuple)
                     eredo_odds = math.prod(c['odds'] for c in combo)
                     if 2.0 <= eredo_odds <= 5.0:
                         avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
-                        if best_combo_found is None or avg_confidence > best_combo_found['confidence']:
-                            best_combo_found = {'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence}
-
-            # 2-es kötésű kombinációk keresése (ha nem találtunk jobb 3-ast)
+                        possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
+            
             if len(candidates) >= 2:
                 for combo_tuple in itertools.combinations(candidates, 2):
                     combo = list(combo_tuple)
                     eredo_odds = math.prod(c['odds'] for c in combo)
                     if 2.0 <= eredo_odds <= 4.0:
                         avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
-                        if best_combo_found is None or avg_confidence > best_combo_found['confidence']:
-                            best_combo_found = {'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence}
+                        possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
+
+            if possible_combos:
+                best_combo_found = sorted(possible_combos, key=lambda x: x['confidence'], reverse=True)[0]
 
             if best_combo_found:
                 tipp_neve = f"Napi Tuti #{szelveny_count} - {date_str}"
                 combo = best_combo_found['combo']
                 tipp_id_k = [t['id'] for t in combo]
-                # Reálisabb százalék: max 98%
                 confidence_percent = min(int(best_combo_found['confidence']), 98)
                 eredo_odds = best_combo_found['odds']
 
                 supabase.table("napi_tuti").insert({"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k, "confidence_percent": confidence_percent}).execute()
                 print(f"'{tipp_neve}' létrehozva (Megbízhatóság: {confidence_percent}%, Odds: {eredo_odds:.2f}).")
                 
-                # A felhasznált tippek eltávolítása a további keresésből
                 candidates = [c for c in candidates if c not in combo]
                 szelveny_count += 1
             else:
                 print("Nem található több, a kritériumoknak megfelelő szelvénykombináció.")
-                break # Nincs több érvényes kombináció
+                break
             
     except Exception as e: print(f"!!! HIBA a Napi Tuti szelvények készítése során: {e}")
 
 def main():
-    start_time = datetime.now(BUDAPEST_TZ); print(f"Tipp Generátor (V20) indítása - {start_time}...")
+    start_time = datetime.now(BUDAPEST_TZ); print(f"Tipp Generátor (V21) indítása - {start_time}...")
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     fixtures = get_fixtures_from_api(tomorrow_str); tips_found = False
     if fixtures:
