@@ -1,9 +1,8 @@
-# eredmeny_ellenorzo.py (JAVÍTOTT VERZIÓ 2)
-
+# eredmeny_ellenorzo.py (Végleges, Minden Státuszt Kezelő Verzió)
 import os
 import requests
 from supabase import create_client, Client
-from datetime import datetime, timedelta # <- ITT A JAVÍTÁS
+from datetime import datetime, timedelta
 import pytz
 
 # --- Konfiguráció ---
@@ -14,14 +13,11 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_fixtures_to_check():
-    """Lekéri azokat a meccseket, amik már elkezdődtek, de még nincsenek kiértékelve."""
     now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
-    # Biztonsági ráhagyás: csak azokat a meccseket nézzük, amik már legalább 90 perce elkezdődtek
     ninety_mins_ago_utc = now_utc - timedelta(minutes=90)
     return supabase.table("meccsek").select("fixture_id, tipp, id").eq("eredmeny", "Tipp leadva").lt("kezdes", str(ninety_mins_ago_utc)).execute().data
 
 def get_fixture_result(fixture_id):
-    """Lekéri egy meccs végeredményét az API-ból."""
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
     querystring = {"id": str(fixture_id)}
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
@@ -35,7 +31,6 @@ def get_fixture_result(fixture_id):
         return None
 
 def evaluate_tip(tip_text, fixture_data):
-    """Kiértékeli a tippet a rendes játékidő alapján."""
     goals_home = fixture_data.get('score', {}).get('fulltime', {}).get('home')
     goals_away = fixture_data.get('score', {}).get('fulltime', {}).get('away')
     
@@ -44,7 +39,6 @@ def evaluate_tip(tip_text, fixture_data):
 
     score_str = f"{goals_home}-{goals_away}"
     
-    # A kiértékelés a helyes, adatbázisban tárolt kódokkal
     is_winner = False
     if tip_text == "Home" and goals_home > goals_away: is_winner = True
     elif tip_text == "Away" and goals_away > goals_home: is_winner = True
@@ -60,7 +54,7 @@ def evaluate_tip(tip_text, fixture_data):
     return "Nyert" if is_winner else "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása (Javított Verzió 2)...")
+    print("Eredmény-ellenőrző indítása (Minden Státuszt Kezelő Verzió)...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
@@ -68,23 +62,31 @@ def main():
 
     print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
     
-    FINISHED_STATUSES = ["FT", "AET", "PEN"]
+    # KIBŐVÍTETT STÁTUSZLISTA
+    FINISHED_STATUSES = ["FT", "AET", "PEN"] 
+    VOID_STATUSES = ["PST", "CANC", "ABD", "AWD", "WO"] # Postponed, Cancelled, Abandoned, Awarded, Walkover
 
     for fixture in fixtures_to_check:
         fixture_id, tip_text, db_id = fixture.get('fixture_id'), fixture.get('tipp'), fixture.get('id')
         result_data = get_fixture_result(fixture_id)
         
-        if result_data and result_data.get('fixture', {}).get('status', {}).get('short') in FINISHED_STATUSES:
-            final_result, score_str = evaluate_tip(tip_text, result_data)
-            print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}, Végeredmény: {score_str}")
+        if result_data:
+            status = result_data.get('fixture', {}).get('status', {}).get('short')
             
-            supabase.table("meccsek").update({
-                "eredmeny": final_result,
-                "veg_eredmeny": score_str
-            }).eq("id", db_id).execute()
+            if status in FINISHED_STATUSES:
+                final_result, score_str = evaluate_tip(tip_text, result_data)
+                print(f"Meccs: {fixture_id}, Tipp: {tip_text}, Eredmény: {final_result}, Végeredmény: {score_str}")
+                supabase.table("meccsek").update({"eredmeny": final_result, "veg_eredmeny": score_str}).eq("id", db_id).execute()
+
+            elif status in VOID_STATUSES:
+                print(f"Meccs: {fixture_id} érvénytelenítve. Státusz: {status}")
+                # Az "Érvénytelen" státusz jelzi a statisztikának, hogy ezt a meccset hagyja figyelmen kívül
+                supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", db_id).execute()
+            
+            else:
+                print(f"A(z) {fixture_id} meccs még nem fejeződött be (Státusz: {status}).")
         else:
-            status = result_data.get('fixture', {}).get('status', {}).get('short') if result_data else "N/A"
-            print(f"A(z) {fixture_id} meccs még nem fejeződött be (Státusz: {status}), vagy hiba történt a lekérésnél.")
+            print(f"Hiba a(z) {fixture_id} meccs adatainak lekérésénél.")
 
     print("Eredmény-ellenőrzés befejezve.")
 
