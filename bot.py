@@ -1,4 +1,5 @@
-# bot.py (Végleges, Ügyfélportállal, Kódok Nélkül)
+# bot.py (Végleges Verzió - 2025-08-22)
+
 import os
 import telegram
 import pytz
@@ -79,7 +80,7 @@ async def start(update: telegram.Update, context: CallbackContext):
             keyboard = [
                 [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"), InlineKeyboardButton("📊 Eredmények", callback_data="show_results")],
                 [InlineKeyboardButton("💰 Statisztika", callback_data="show_stat_current_month_0")],
-                [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")] # ÚJ GOMB
+                [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
@@ -91,7 +92,7 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
-# --- KÜLSŐRŐL HÍVHATÓ, JAVÍTOTT FUNKCIÓ ---
+# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
@@ -100,7 +101,7 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
                 "is_active": True, 
                 "subscription_status": "active", 
                 "subscription_expires_at": expires_at.isoformat(),
-                "stripe_customer_id": stripe_customer_id # ÚJ: Elmentjük az azonosítót
+                "stripe_customer_id": stripe_customer_id
             }).eq("chat_id", chat_id).execute()
         
         await asyncio.to_thread(_activate_sync)
@@ -108,22 +109,15 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
-# --- GOMBKEZELŐ ÉS ALFUNKCIÓK ---
+# --- FELHASZNÁLÓI FUNKCIÓK ---
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
-    """Létrehoz egy linket a Stripe Customer Portalhoz."""
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
 
     def get_stripe_customer_id():
-        if user_id == ADMIN_CHAT_ID:
-            # Admin esetén keressünk egy teszt felhasználót, vagy adjunk hibaüzenetet
-            # A legegyszerűbb, ha az adminnak is van egy teszt előfizetése
-            res = supabase.table("felhasznalok").select("stripe_customer_id").eq("chat_id", user_id).maybe_single().execute()
-            return res.data.get("stripe_customer_id") if res.data else None
-        
         res = supabase.table("felhasznalok").select("stripe_customer_id").eq("chat_id", user_id).maybe_single().execute()
         return res.data.get("stripe_customer_id") if res.data else None
 
@@ -134,13 +128,8 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
         return
 
     try:
-        # A visszatérési URL az, ahova a felhasználó a portál bezárása után kerül
         return_url = f"https://t.me/{context.bot.username}"
-        
-        session = stripe.billing_portal.Session.create(
-            customer=stripe_customer_id,
-            return_url=return_url
-        )
+        session = stripe.billing_portal.Session.create(customer=stripe_customer_id, return_url=return_url)
         
         keyboard = [[InlineKeyboardButton("🚀 Ugrás az Ügyfélportálra", url=session.url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -151,11 +140,9 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
             "✅ Megtekintheted a korábbi számláidat.",
             reply_markup=reply_markup
         )
-
     except Exception as e:
         print(f"Hiba a Customer Portal link generálásakor: {e}")
         await query.message.reply_text("Hiba történt az ügyfélportál elérése közben. Kérlek, próbáld újra később.")
-
 
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
@@ -167,7 +154,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command.startswith("show_stat_"):
         parts = command.split("_"); period = "_".join(parts[2:-1]); offset = int(parts[-1])
         await stat(update, context, period=period, month_offset=offset)
-    elif command == "manage_subscription": await manage_subscription(update, context) # ÚJ
+    elif command == "manage_subscription": await manage_subscription(update, context)
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_check_status": await admin_check_status(update, context)
@@ -176,17 +163,14 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
         await query.answer()
         await query.message.delete()
 
-# ... (Itt jön a többi funkció: napi_tuti, eredmenyek, stat) ...
 @subscriber_only
 async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     try:
         def sync_task():
             now_utc = datetime.now(pytz.utc)
-            # A mai naptól kezdve keressük a szelvényeket, nem tegnaptól
             today_start_utc = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             
-            # Lekérjük a confidence_percent-et is, és a név alapján rangsorolunk
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(today_start_utc)).order('tipp_neve', desc=False).execute()
             
             if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények a mai napra."
@@ -207,19 +191,16 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
                 szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
                 if len(szelveny_meccsei) != len(tipp_id_k): continue
 
-                # Csak azokat a szelvényeket mutatjuk, amiknek minden meccse a jövőben van
                 if all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
                     
-                    # ÚJ: Fejléc a megbízhatósággal
                     confidence = szelveny.get('confidence_percent', '?')
                     header = f"🔥 *{szelveny['tipp_neve']}* (Megbízhatóság: {confidence}%) 🔥"
                     message_parts = [header]
                     
                     for tip in szelveny_meccsei:
-                        local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(BUDAPEST_TZ)
+                        local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
                         line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"
                         line2 = f"🏆 {tip['liga_nev']}"
-                        # ÚJ: Dátumformátum hónap, nap, óra, perccel
                         line3 = f"⏰ Kezdés: {local_time.strftime('%b %d. %H:%M')}"
                         line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
                         message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
@@ -306,14 +287,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     if not tipp_id_k: continue
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                     
-                    # Ha van még kiértékelendő meccs a szelvényen, kihagyjuk
-                    if any(r is None or r == 'Tipp leadva' for r in results):
-                        continue
+                    if any(r is None or r == 'Tipp leadva' for r in results): continue
                     
-                    # ÚJ LOGIKA: Kiszűrjük az érvénytelen meccseket
                     valid_results = [r for r in results if r != 'Érvénytelen']
-                    if not valid_results: # Ha minden meccs érvénytelen volt a szelvényen
-                        continue
+                    if not valid_results: continue
 
                     evaluated_tuti_count += 1
                     if all(r == 'Nyert' for r in valid_results): 
@@ -337,6 +314,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         reply_markup = InlineKeyboardMarkup(keyboard); await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
+
 # --- ADMIN FUNKCIÓK ---
 
 @admin_only
@@ -411,6 +389,7 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     except Exception as e: await update.message.reply_text(f"❌ Hiba a küldés közben: {e}")
     return ConversationHandler.END
 
+# --- HANDLER REGISZTRÁCIÓ ---
 def add_handlers(application: Application):
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')],
@@ -424,6 +403,3 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
-
-
