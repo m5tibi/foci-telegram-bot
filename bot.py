@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - SyntaxError Javítással)
+# bot.py (Végleges Verzió - Helyes Dátum Lekérdezéssel)
 
 import os
 import telegram
@@ -149,16 +149,12 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
     
-    # Felhasználói gombok
     if command == "show_tuti": await napi_tuti(update, context)
     elif command == "manage_subscription": await manage_subscription(update, context)
-    
-    # Admin gombok
     elif command == "admin_show_results": await eredmenyek(update, context)
     elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
-    elif command == "admin_check_tickets": await admin_check_tickets(update, context)
     elif command == "admin_close": 
         await query.answer()
         await query.message.delete()
@@ -169,11 +165,12 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     try:
         def sync_task():
             now_utc = datetime.now(pytz.utc)
-            today_start_utc = datetime.now(HUNGARY_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            # === JAVÍTÁS ITT: A keresést tegnap 00:00-tól indítjuk, hogy a ma reggeli lekérdezés is megtalálja a tegnap este generált szelvényeket ===
+            yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             
-            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(today_start_utc)).order('tipp_neve', desc=False).execute()
+            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
             
-            if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények a mai napra."
+            if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."
             
             all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."
@@ -239,8 +236,13 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
                 if not tipp_id_k: continue
                 results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                 if all(r is not None and r != 'Tipp leadva' for r in results):
-                    is_winner = all(r == 'Nyert' for r in results)
-                    status_icon = "✅" if is_winner else "❌"
+                    valid_results = [r for r in results if r != 'Érvénytelen']
+                    if not valid_results:
+                        status_icon = "⚪️" 
+                    elif all(r == 'Nyert' for r in valid_results):
+                        status_icon = "✅"
+                    else:
+                        status_icon = "❌"
                     result_messages.append(f"*{szelveny['tipp_neve']}* {status_icon}")
             if not result_messages: return "🔎 Nincsenek teljesen lezárult szelvények az elmúlt 3 napból."
             return "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
@@ -391,4 +393,3 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
