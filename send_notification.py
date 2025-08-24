@@ -1,4 +1,4 @@
-# send_notification.py (V1.4 - Végleges Javítás)
+# send_notification.py (V1.5 - Letisztult Értesítés)
 
 import os
 import asyncio
@@ -21,7 +21,6 @@ async def send_notifications():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
     try:
-        # Lekérjük az összes aktív felhasználót
         response = supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
         
         if not response.data:
@@ -36,10 +35,11 @@ async def send_notifications():
         return
 
     message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények! Kattints a gombra a megtekintéshez."
+    
+    # === JAVÍTÁS ITT: Csak egy gombot hagyunk, egyértelműbb szöveggel ===
     keyboard = [
         [
-            InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti"),
-            InlineKeyboardButton("📊 Eredmények", callback_data="show_results")
+            InlineKeyboardButton("🔥 Napi Tutik Megtekintése", callback_data="show_tuti")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
