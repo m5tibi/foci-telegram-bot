@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Helyes Dátum Lekérdezéssel)
+# bot.py (Végleges Verzió - Proaktív Eredmény-Értékeléssel)
 
 import os
 import telegram
@@ -165,7 +165,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     try:
         def sync_task():
             now_utc = datetime.now(pytz.utc)
-            # === JAVÍTÁS ITT: A keresést tegnap 00:00-tól indítjuk, hogy a ma reggeli lekérdezés is megtalálja a tegnap este generált szelvényeket ===
             yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
@@ -230,21 +229,40 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             if not all_tip_ids: return "🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
+            
             result_messages = []
+            evaluated_slips = set() # Hogy egy szelvényt csak egyszer mutassunk
+            
             for szelveny in response_tuti.data:
+                szelveny_neve = szelveny['tipp_neve']
+                if szelveny_neve in evaluated_slips: continue
+                
                 tipp_id_k = szelveny.get('tipp_id_k', []);
                 if not tipp_id_k: continue
+                
                 results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
+                
+                # === JAVÍTOTT, PROAKTÍV KIÉRTÉKELŐ LOGIKA ===
+                
+                # 1. Azonnali Vesztes Ellenőrzés
+                if 'Veszített' in results:
+                    status_icon = "❌"
+                    result_messages.append(f"*{szelveny_neve}* {status_icon}")
+                    evaluated_slips.add(szelveny_neve)
+                    continue
+
+                # 2. Ha még nincs vesztes, akkor a "teljesen lezárult" ellenőrzés
                 if all(r is not None and r != 'Tipp leadva' for r in results):
                     valid_results = [r for r in results if r != 'Érvénytelen']
                     if not valid_results:
-                        status_icon = "⚪️" 
-                    elif all(r == 'Nyert' for r in valid_results):
-                        status_icon = "✅"
-                    else:
-                        status_icon = "❌"
-                    result_messages.append(f"*{szelveny['tipp_neve']}* {status_icon}")
-            if not result_messages: return "🔎 Nincsenek teljesen lezárult szelvények az elmúlt 3 napból."
+                        status_icon = "⚪️" # Érvénytelenített
+                    else: # Mivel már tudjuk, hogy nincs 'Veszített', ha ide eljut, csak nyertes lehet
+                        status_icon = "✅" # Nyertes
+                    
+                    result_messages.append(f"*{szelveny_neve}* {status_icon}")
+                    evaluated_slips.add(szelveny_neve)
+
+            if not result_messages: return "🔎 Nincsenek kiértékelhető szelvények az elmúlt 3 napból."
             return "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
         
         final_message = await asyncio.to_thread(sync_task)
