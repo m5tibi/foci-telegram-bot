@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Proaktív Statisztikával)
+# bot.py (Végleges Verzió - Single Statisztikával)
 
 import os
 import telegram
@@ -92,7 +92,7 @@ async def start(update: telegram.Update, context: CallbackContext):
     except Exception as e:
         print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
 
-# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
+# --- KÜLSŐRŐL HÍVHATÓ FUNKCIó ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
@@ -151,8 +151,10 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     
     if command == "show_tuti": await napi_tuti(update, context)
     elif command == "manage_subscription": await manage_subscription(update, context)
+    elif command.startswith("admin_show_stat_"):
+        parts = command.split("_"); period = "_".join(parts[3:-1]); offset = int(parts[-1])
+        await stat(update, context, period=period, month_offset=offset)
     elif command == "admin_show_results": await eredmenyek(update, context)
-    elif command == "admin_show_all_stats": await stat(update, context, period="all")
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_close": 
@@ -214,6 +216,8 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
 
+# --- ADMIN FUNKCIÓK ---
+
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
@@ -230,33 +234,21 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
             
-            result_messages = []
-            evaluated_slips = set()
-            
+            result_messages, evaluated_slips = [], set()
             for szelveny in response_tuti.data:
                 szelveny_neve = szelveny['tipp_neve']
                 if szelveny_neve in evaluated_slips: continue
-                
                 tipp_id_k = szelveny.get('tipp_id_k', []);
                 if not tipp_id_k: continue
-                
                 results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                 
                 if 'Veszített' in results:
-                    status_icon = "❌"
-                    result_messages.append(f"*{szelveny_neve}* {status_icon}")
-                    evaluated_slips.add(szelveny_neve)
-                    continue
+                    status_icon = "❌"; result_messages.append(f"*{szelveny_neve}* {status_icon}"); evaluated_slips.add(szelveny_neve); continue
 
                 if all(r is not None and r != 'Tipp leadva' for r in results):
                     valid_results = [r for r in results if r != 'Érvénytelen']
-                    if not valid_results:
-                        status_icon = "⚪️"
-                    else:
-                        status_icon = "✅"
-                    
-                    result_messages.append(f"*{szelveny_neve}* {status_icon}")
-                    evaluated_slips.add(szelveny_neve)
+                    status_icon = "⚪️" if not valid_results else "✅"
+                    result_messages.append(f"*{szelveny_neve}* {status_icon}"); evaluated_slips.add(szelveny_neve)
 
             if not result_messages: return "🔎 Nincsenek kiértékelhető szelvények az elmúlt 3 napból."
             return "*--- Elmúlt Napok Eredményei ---*\n\n" + "\n".join(result_messages)
@@ -268,7 +260,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         await message_to_edit.edit_text("Hiba történt.")
     
 @admin_only
-async def stat(update: telegram.Update, context: CallbackContext, period="all"):
+async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = None
     try:
         if query: 
@@ -278,60 +270,101 @@ async def stat(update: telegram.Update, context: CallbackContext, period="all"):
             message_to_edit = await update.message.reply_text("📈 Statisztika készítése...")
         
         def sync_task_stat():
-            header = "*Összesített (All-Time) Statisztika*"
-            start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
-            return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
-        
+            now = datetime.now(HUNGARY_TZ); start_date_utc, header = None, ""
+            if period == "all":
+                start_date_utc = datetime(2020, 1, 1).astimezone(pytz.utc)
+                header = "*Összesített (All-Time) Statisztika*"
+                return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).execute(), header
+            else:
+                target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
+                end_date_utc = ((target_month_start + relativedelta(months=1)) - timedelta(seconds=1)).astimezone(pytz.utc)
+                start_date_utc = target_month_start.astimezone(pytz.utc)
+                header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
+                return supabase.table("napi_tuti").select("tipp_id_k, eredo_odds", count='exact').gte("created_at", str(start_date_utc)).lte("created_at", str(end_date_utc)).execute(), header
+
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
-        stat_message = f"🔥 *{header}*\n\n"; evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+        
+        # --- ÚJ: Változók a Single statisztikához ---
+        evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
+        evaluated_singles_count, won_singles_count, total_return_singles = 0, 0, 0.0
+        
         if response_tuti.data:
             all_tip_ids_stat = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if all_tip_ids_stat:
-                def sync_stat_meccsek(): return supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
+                def sync_stat_meccsek(): return supabase.table("meccsek").select("id, eredmeny, odds").in_("id", all_tip_ids_stat).execute()
                 meccsek_res_stat = await asyncio.to_thread(sync_stat_meccsek)
-                eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
+                eredmeny_map = {meccs['id']: meccs for meccs in meccsek_res_stat.data}
                 
                 for szelveny in response_tuti.data:
                     tipp_id_k = szelveny.get('tipp_id_k', []);
                     if not tipp_id_k: continue
-                    results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
+                    results_objects = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
+                    if any(r is None for r in results_objects): continue # Ha egy meccs hiányzik, ne értékeljük
                     
-                    # === JAVÍTOTT, PROAKTÍV KIÉRTÉKELŐ LOGIKA A STATISZTIKÁHOZ ===
+                    results = [r['eredmeny'] for r in results_objects]
+
+                    # === ÚJ, KETTŐS KIÉRTÉKELŐ LOGIKA ===
+                    is_evaluated_combo = False
                     
-                    # 1. Azonnali Vesztes Ellenőrzés
                     if 'Veszített' in results:
                         evaluated_tuti_count += 1
-                        continue # A szelvény vesztes, kiértékeltük, ugrás a következőre.
-                    
-                    # 2. Ha nincs vesztes, ellenőrizzük, hogy teljesen lezárult nyertes-e
-                    if all(r is not None and r != 'Tipp leadva' for r in results):
+                        is_evaluated_combo = True
+                    elif all(r is not None and r != 'Tipp leadva' for r in results):
+                        is_evaluated_combo = True
                         valid_results = [r for r in results if r != 'Érvénytelen']
-                        if not valid_results:
-                            continue # Tisztán érvénytelenített szelvényeket kihagyjuk a statisztikából
-
+                        if not valid_results: continue
                         evaluated_tuti_count += 1
-                        # Mivel már tudjuk, hogy nincs 'Veszített', ha ide eljut, csak nyertes lehet
-                        if all(r == 'Nyert' for r in valid_results):
+                        if all(r == 'Nyert' for r in valid_results): 
                             won_tuti_count += 1
                             total_return_tuti += float(szelveny['eredo_odds'])
-        
+                    
+                    # Ha a szelvény kiértékelt (akár nyert, akár vesztett), számoljuk a single statisztikát is
+                    if is_evaluated_combo:
+                        for meccs in results_objects:
+                            if meccs['eredmeny'] in ['Nyert', 'Veszített']:
+                                evaluated_singles_count += 1
+                                if meccs['eredmeny'] == 'Nyert':
+                                    won_singles_count += 1
+                                    total_return_singles += float(meccs['odds'])
+
+        # --- Statisztika üzenet összeállítása ---
+        stat_message = f"🔥 *{header}*\n\n"
+        stat_message += "*--- Napi Tuti Statisztika (Kötésben) ---*\n"
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
             tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
             total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti
             roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
-            stat_message += f"Összes kiértékelt szelvény: *{evaluated_tuti_count}* db\n"
+            stat_message += f"Összes szelvény: *{evaluated_tuti_count}* db\n"
             stat_message += f"✅ Nyert: *{won_tuti_count}* db | ❌ Veszített: *{lost_tuti_count}* db\n"
             stat_message += f"📈 Találati arány: *{tuti_win_rate:.2f}%*\n"
             stat_message += f"💰 Nettó Profit: *{net_profit_tuti:+.2f}* egység {'✅' if net_profit_tuti >= 0 else '❌'}\n"
-            stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*"
-        else: stat_message += "Nincsenek még kiértékelt Napi Tuti szelvények."
+            stat_message += f"📈 *ROI: {roi_tuti:+.2f}%*\n\n"
+        else: 
+            stat_message += "Nincsenek még kiértékelt Napi Tuti szelvények.\n\n"
+            
+        stat_message += "*--- Single Tippek Statisztikája ---*\n"
+        if evaluated_singles_count > 0:
+            lost_singles_count = evaluated_singles_count - won_singles_count
+            single_win_rate = (won_singles_count / evaluated_singles_count * 100) if evaluated_singles_count > 0 else 0
+            total_staked_singles = evaluated_singles_count * 1.0; net_profit_singles = total_return_singles - total_staked_singles
+            roi_singles = (net_profit_singles / total_staked_singles * 100) if total_staked_singles > 0 else 0
+            stat_message += f"Összes tipp: *{evaluated_singles_count}* db\n"
+            stat_message += f"✅ Nyert: *{won_singles_count}* db | ❌ Veszített: *{lost_singles_count}* db\n"
+            stat_message += f"📈 Találati arány: *{single_win_rate:.2f}%*\n"
+            stat_message += f"💰 Nettó Profit: *{net_profit_singles:+.2f}* egység {'✅' if net_profit_singles >= 0 else '❌'}\n"
+            stat_message += f"📈 *ROI: {roi_singles:+.2f}%*"
+        else:
+            stat_message += "Nincsenek még kiértékelt single tippek."
         
-        await message_to_edit.edit_text(stat_message, parse_mode='Markdown')
+        keyboard = [[InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"admin_show_stat_month_{month_offset + 1}"), InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")], [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]]
+        if period != "current_month" or month_offset > 0:
+            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba a statisztika készítése közben: {e}")
-
-# --- ADMIN FUNKCIÓK ---
 
 @admin_only
 async def get_payment_link(update: telegram.Update, context: CallbackContext):
@@ -344,7 +377,7 @@ async def get_payment_link(update: telegram.Update, context: CallbackContext):
 @admin_only
 async def admin_menu(update: telegram.Update, context: CallbackContext):
     keyboard = [
-        [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Teljes Statisztika", callback_data="admin_show_all_stats")],
+        [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Statisztikák", callback_data="admin_show_stat_current_month_0")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
