@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Proaktív Eredmény-Értékeléssel)
+# bot.py (Végleges Verzió - Proaktív Statisztikával)
 
 import os
 import telegram
@@ -231,7 +231,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
             
             result_messages = []
-            evaluated_slips = set() # Hogy egy szelvényt csak egyszer mutassunk
+            evaluated_slips = set()
             
             for szelveny in response_tuti.data:
                 szelveny_neve = szelveny['tipp_neve']
@@ -242,22 +242,18 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
                 
                 results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                 
-                # === JAVÍTOTT, PROAKTÍV KIÉRTÉKELŐ LOGIKA ===
-                
-                # 1. Azonnali Vesztes Ellenőrzés
                 if 'Veszített' in results:
                     status_icon = "❌"
                     result_messages.append(f"*{szelveny_neve}* {status_icon}")
                     evaluated_slips.add(szelveny_neve)
                     continue
 
-                # 2. Ha még nincs vesztes, akkor a "teljesen lezárult" ellenőrzés
                 if all(r is not None and r != 'Tipp leadva' for r in results):
                     valid_results = [r for r in results if r != 'Érvénytelen']
                     if not valid_results:
-                        status_icon = "⚪️" # Érvénytelenített
-                    else: # Mivel már tudjuk, hogy nincs 'Veszített', ha ide eljut, csak nyertes lehet
-                        status_icon = "✅" # Nyertes
+                        status_icon = "⚪️"
+                    else:
+                        status_icon = "✅"
                     
                     result_messages.append(f"*{szelveny_neve}* {status_icon}")
                     evaluated_slips.add(szelveny_neve)
@@ -294,17 +290,30 @@ async def stat(update: telegram.Update, context: CallbackContext, period="all"):
                 def sync_stat_meccsek(): return supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
                 meccsek_res_stat = await asyncio.to_thread(sync_stat_meccsek)
                 eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res_stat.data}
+                
                 for szelveny in response_tuti.data:
                     tipp_id_k = szelveny.get('tipp_id_k', []);
                     if not tipp_id_k: continue
                     results = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
-                    if any(r is None or r == 'Tipp leadva' for r in results): continue
-                    valid_results = [r for r in results if r != 'Érvénytelen']
-                    if not valid_results: continue
-                    evaluated_tuti_count += 1
-                    if all(r == 'Nyert' for r in valid_results): 
-                        won_tuti_count += 1
-                        total_return_tuti += float(szelveny['eredo_odds'])
+                    
+                    # === JAVÍTOTT, PROAKTÍV KIÉRTÉKELŐ LOGIKA A STATISZTIKÁHOZ ===
+                    
+                    # 1. Azonnali Vesztes Ellenőrzés
+                    if 'Veszített' in results:
+                        evaluated_tuti_count += 1
+                        continue # A szelvény vesztes, kiértékeltük, ugrás a következőre.
+                    
+                    # 2. Ha nincs vesztes, ellenőrizzük, hogy teljesen lezárult nyertes-e
+                    if all(r is not None and r != 'Tipp leadva' for r in results):
+                        valid_results = [r for r in results if r != 'Érvénytelen']
+                        if not valid_results:
+                            continue # Tisztán érvénytelenített szelvényeket kihagyjuk a statisztikából
+
+                        evaluated_tuti_count += 1
+                        # Mivel már tudjuk, hogy nincs 'Veszített', ha ide eljut, csak nyertes lehet
+                        if all(r == 'Nyert' for r in valid_results):
+                            won_tuti_count += 1
+                            total_return_tuti += float(szelveny['eredo_odds'])
         
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count
