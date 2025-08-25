@@ -1,13 +1,11 @@
 services:
   - type: web
-    name: foci-telegram-bot-V2
+    name: foci-telegram-bot
     env: python
-    plan: hobby
-    pythonVersion: "3.11.9"
+    plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:api --host 0.0.0.0 --port $PORT"
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - fromGroup: telegram-bot-secrets
-    caches:
-      - name: pip-cache
-        path: /opt/render/.cache/pip
