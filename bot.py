@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Gyorsított Indítással)
+# bot.py (Végleges Verzió - Race Condition Javítással)
 
 import os
 import telegram
@@ -68,20 +68,15 @@ def get_tip_details(tip_text):
 # --- FELHASZNÁLÓI FUNKCIÓK ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
-    # === JAVÍTÁS ITT: Azonnali visszajelzés a felhasználónak ===
     message = await update.message.reply_text("Csatlakozás a rendszerhez, egy pillanat...")
     
     try:
         def sync_task_start():
-            # === JAVÍTÁS ITT: Hatékonyabb adatbázis-művelet ===
-            # Az "upsert" megpróbál beilleszteni, de ha a chat_id már létezik, nem csinál semmit.
-            # Ezzel egyetlen paranccsal megoldjuk a felhasználó ellenőrzését és létrehozását.
-            supabase.table("felhasznalok").upsert(
-                {"chat_id": user.id, "is_active": True, "subscription_status": "inactive"},
-                on_conflict="chat_id" 
-            ).execute()
+            # === JAVÍTÁS ITT: Biztonságos "Létezik-e vagy hozzuk létre" logika ===
+            res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
+            if not res.data:
+                supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
             
-            # Az előfizetés ellenőrzése továbbra is szükséges
             return is_user_subscribed(user.id)
         
         is_active = await asyncio.to_thread(sync_task_start)
@@ -92,19 +87,15 @@ async def start(update: telegram.Update, context: CallbackContext):
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # A "loading" üzenetet szerkesztjük a végleges menüre
             await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # A "loading" üzenetet szerkesztjük a végleges menüre
             await message.edit_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
         print(f"Hiba a start parancsban: {e}")
         await message.edit_text("Hiba történt a bot elérése közben. Próbáld újra később.")
-
-# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 
 # --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
@@ -122,6 +113,8 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration_days} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
+
+# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
 @subscriber_only
