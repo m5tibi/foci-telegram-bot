@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Upsert Javítással)
+# bot.py (Végleges Verzió - Konzisztens Adatbázis Kezeléssel)
 
 import os
 import telegram
@@ -17,7 +17,6 @@ from dateutil.relativedelta import relativedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- ADMIN BEÁLLÍTÁSOK ---
@@ -25,6 +24,10 @@ ADMIN_CHAT_ID = 1326707238 # Cseréld ki a saját Telegram User ID-dra
 
 # --- Konverziós Állapotok ---
 AWAITING_BROADCAST = 0
+
+# --- Biztonságos Adatbázis-Kapcsolat Függvény ---
+def get_db_client():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Dekorátorok ---
 def admin_only(func):
@@ -37,8 +40,9 @@ def admin_only(func):
 def is_user_subscribed(user_id: int) -> bool:
     if user_id == ADMIN_CHAT_ID: return True
     try:
+        supabase = get_db_client()
         res = supabase.table("felhasznalok").select("subscription_status, subscription_expires_at").eq("chat_id", user_id).maybe_single().execute()
-        if res.data and res.data.get("subscription_status") == "active":
+        if res and res.data and res.data.get("subscription_status") == "active":
             expires_at_str = res.data.get("subscription_expires_at")
             if expires_at_str:
                 expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
@@ -62,18 +66,18 @@ def subscriber_only(func):
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
-    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2" }
     return tip_map.get(tip_text, tip_text)
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     chat_id = update.effective_chat.id
-    
     message = await context.bot.send_message(chat_id=chat_id, text="Csatlakozás a rendszerhez, egy pillanat...")
     
     try:
         def sync_task_start():
+            supabase = get_db_client()
             res = supabase.table("felhasznalok").select("id", count='exact').eq("chat_id", user.id).execute()
             if res.count == 0:
                 supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
@@ -97,18 +101,14 @@ async def start(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a start parancsban: {e}")
         await message.edit_text("Hiba történt a bot elérése közben. Próbáld újra később.")
 
-# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
+            supabase = get_db_client()
             expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
-            # === JAVÍTÁS ITT: "upsert" használata, ami létrehoz vagy frissít ===
             supabase.table("felhasznalok").upsert({
-                "chat_id": chat_id, # Az azonosításhoz szükséges
-                "is_active": True, 
-                "subscription_status": "active", 
-                "subscription_expires_at": expires_at.isoformat(),
-                "stripe_customer_id": stripe_customer_id
+                "chat_id": chat_id, "is_active": True, "subscription_status": "active", 
+                "subscription_expires_at": expires_at.isoformat(), "stripe_customer_id": stripe_customer_id
             }, on_conflict="chat_id").execute()
         
         await asyncio.to_thread(_activate_sync)
@@ -116,7 +116,6 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
-# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -124,8 +123,9 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
     message_object = query.message if query else update.message
     user_id = update.effective_user.id
     def get_stripe_customer_id():
+        supabase = get_db_client()
         res = supabase.table("felhasznalok").select("stripe_customer_id").eq("chat_id", user_id).maybe_single().execute()
-        return res.data.get("stripe_customer_id") if res.data else None
+        return res.data.get("stripe_customer_id") if res and res.data else None
     stripe_customer_id = await asyncio.to_thread(get_stripe_customer_id)
     if not stripe_customer_id:
         await message_object.reply_text("Hiba: Nem található a Stripe vevőazonosítód.")
@@ -144,7 +144,6 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
-    
     if command == "show_tuti": await napi_tuti(update, context)
     elif command == "manage_subscription": await manage_subscription(update, context)
     elif command.startswith("admin_show_stat_"):
@@ -162,6 +161,7 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     try:
         def sync_task():
+            supabase = get_db_client()
             now_utc = datetime.now(pytz.utc)
             yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
@@ -196,6 +196,8 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     except Exception as e: 
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
+
+# --- ADMIN FUNKCIÓK ---
 
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
@@ -278,10 +280,8 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     if not tipp_id_k: continue
                     results_objects = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
                     if any(r is None for r in results_objects): continue
-                    
                     results = [r['eredmeny'] for r in results_objects]
                     is_evaluated_combo = False
-                    
                     if 'Veszített' in results:
                         evaluated_tuti_count += 1; is_evaluated_combo = True
                     elif all(r is not None and r != 'Tipp leadva' for r in results):
