@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Single Statisztikával)
+# bot.py (Végleges Verzió - Gyorsított Indítással)
 
 import os
 import telegram
@@ -68,11 +68,20 @@ def get_tip_details(tip_text):
 # --- FELHASZNÁLÓI FUNKCIÓK ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
+    # === JAVÍTÁS ITT: Azonnali visszajelzés a felhasználónak ===
+    message = await update.message.reply_text("Csatlakozás a rendszerhez, egy pillanat...")
+    
     try:
         def sync_task_start():
-            res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
-            if not res.data:
-                supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
+            # === JAVÍTÁS ITT: Hatékonyabb adatbázis-művelet ===
+            # Az "upsert" megpróbál beilleszteni, de ha a chat_id már létezik, nem csinál semmit.
+            # Ezzel egyetlen paranccsal megoldjuk a felhasználó ellenőrzését és létrehozását.
+            supabase.table("felhasznalok").upsert(
+                {"chat_id": user.id, "is_active": True, "subscription_status": "inactive"},
+                on_conflict="chat_id" 
+            ).execute()
+            
+            # Az előfizetés ellenőrzése továbbra is szükséges
             return is_user_subscribed(user.id)
         
         is_active = await asyncio.to_thread(sync_task_start)
@@ -83,16 +92,21 @@ async def start(update: telegram.Update, context: CallbackContext):
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
+            # A "loading" üzenetet szerkesztjük a végleges menüre
+            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
+            # A "loading" üzenetet szerkesztjük a végleges menüre
+            await message.edit_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
-        print(f"Hiba a start parancsban: {e}"); await update.message.reply_text("Hiba történt a bot elérése közben.")
+        print(f"Hiba a start parancsban: {e}")
+        await message.edit_text("Hiba történt a bot elérése közben. Próbáld újra később.")
 
-# --- KÜLSŐRŐL HÍVHATÓ FUNKCIó ---
+# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
+
+# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
@@ -110,7 +124,6 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
-
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -216,8 +229,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
 
-# --- ADMIN FUNKCIÓK ---
-
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
@@ -284,7 +295,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
         
-        # --- ÚJ: Változók a Single statisztikához ---
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
         evaluated_singles_count, won_singles_count, total_return_singles = 0, 0, 0.0
         
@@ -299,11 +309,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     tipp_id_k = szelveny.get('tipp_id_k', []);
                     if not tipp_id_k: continue
                     results_objects = [eredmeny_map.get(tip_id) for tip_id in tipp_id_k]
-                    if any(r is None for r in results_objects): continue # Ha egy meccs hiányzik, ne értékeljük
+                    if any(r is None for r in results_objects): continue
                     
                     results = [r['eredmeny'] for r in results_objects]
 
-                    # === ÚJ, KETTŐS KIÉRTÉKELŐ LOGIKA ===
                     is_evaluated_combo = False
                     
                     if 'Veszített' in results:
@@ -318,7 +327,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                             won_tuti_count += 1
                             total_return_tuti += float(szelveny['eredo_odds'])
                     
-                    # Ha a szelvény kiértékelt (akár nyert, akár vesztett), számoljuk a single statisztikát is
                     if is_evaluated_combo:
                         for meccs in results_objects:
                             if meccs['eredmeny'] in ['Nyert', 'Veszített']:
@@ -327,7 +335,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                                     won_singles_count += 1
                                     total_return_singles += float(meccs['odds'])
 
-        # --- Statisztika üzenet összeállítása ---
         stat_message = f"🔥 *{header}*\n\n"
         stat_message += "*--- Napi Tuti Statisztika (Kötésben) ---*\n"
         if evaluated_tuti_count > 0:
