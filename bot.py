@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Race Condition Javítással)
+# bot.py (Végleges Verzió - /elofizetes Paranccsal)
 
 import os
 import telegram
@@ -72,7 +72,6 @@ async def start(update: telegram.Update, context: CallbackContext):
     
     try:
         def sync_task_start():
-            # === JAVÍTÁS ITT: Biztonságos "Létezik-e vagy hozzuk létre" logika ===
             res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
             if not res.data:
                 supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
@@ -83,11 +82,10 @@ async def start(update: telegram.Update, context: CallbackContext):
         
         if is_active:
             keyboard = [
-                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")],
-                [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
+                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
+            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombot a tippek megtekintéséhez.\nAz előfizetésed kezeléséhez használd az /elofizetes parancsot.", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
@@ -114,13 +112,16 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
-# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
-
 # --- FELHASZNÁLÓI FUNKCIÓK ---
+
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    # Ha parancsból jön, nincs mit megválaszolni, ha gombból, akkor igen.
+    if query:
+        await query.answer()
+
+    message_object = query.message if query else update.message
     user_id = update.effective_user.id
 
     def get_stripe_customer_id():
@@ -130,7 +131,7 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
     stripe_customer_id = await asyncio.to_thread(get_stripe_customer_id)
 
     if not stripe_customer_id:
-        await query.message.reply_text("Hiba: Nem található a Stripe vevőazonosítód. Kérlek, vedd fel a kapcsolatot az ügyfélszolgálattal.")
+        await message_object.reply_text("Hiba: Nem található a Stripe vevőazonosítód. Kérlek, vedd fel a kapcsolatot az ügyfélszolgálattal.")
         return
 
     try:
@@ -139,7 +140,7 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
         
         keyboard = [[InlineKeyboardButton("🚀 Ugrás az Ügyfélportálra", url=session.url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text(
+        await message_object.reply_text(
             "Itt kezelheted az előfizetésedet:\n\n"
             "✅ Módosíthatod vagy törölheted a bankkártyádat.\n"
             "✅ Lemondhatod a megújuló előfizetésedet.\n"
@@ -148,7 +149,7 @@ async def manage_subscription(update: telegram.Update, context: CallbackContext)
         )
     except Exception as e:
         print(f"Hiba a Customer Portal link generálásakor: {e}")
-        await query.message.reply_text("Hiba történt az ügyfélportál elérése közben. Kérlek, próbáld újra később.")
+        await message_object.reply_text("Hiba történt az ügyfélportál elérése közben. Kérlek, próbáld újra később.")
 
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
@@ -156,7 +157,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     command = query.data
     
     if command == "show_tuti": await napi_tuti(update, context)
-    elif command == "manage_subscription": await manage_subscription(update, context)
     elif command.startswith("admin_show_stat_"):
         parts = command.split("_"); period = "_".join(parts[3:-1]); offset = int(parts[-1])
         await stat(update, context, period=period, month_offset=offset)
@@ -221,6 +221,8 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     except Exception as e: 
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
+
+# --- ADMIN FUNKCIÓK ---
 
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
@@ -305,7 +307,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     if any(r is None for r in results_objects): continue
                     
                     results = [r['eredmeny'] for r in results_objects]
-
                     is_evaluated_combo = False
                     
                     if 'Veszített' in results:
@@ -402,7 +403,7 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         try: supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
         except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
         try:
-            url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"; headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+            url = f"https://api-football-vנ1.p.rapidapi.com/v3/timezone"; headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
             if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és kulcs rendben"
             else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz!"
@@ -449,6 +450,10 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("get_payment_link", get_payment_link))
+    
+    # ÚJ: Külön parancs az előfizetés kezeléséhez
+    application.add_handler(CommandHandler("elofizetes", manage_subscription))
+
     application.add_handler(broadcast_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
