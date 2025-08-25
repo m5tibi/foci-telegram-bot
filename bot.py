@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Előfizetés Gomb Visszaállítva)
+# bot.py (Végleges Verzió - Robusztus Indítással)
 
 import os
 import telegram
@@ -68,7 +68,10 @@ def get_tip_details(tip_text):
 # --- FELHASZNÁLÓI FUNKCIÓK ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
-    message = await update.message.reply_text("Csatlakozás a rendszerhez, egy pillanat...")
+    chat_id = update.effective_chat.id
+    
+    # === JAVÍTÁS ITT: Robusztusabb üzenetküldés, ami linkről érkezve is működik ===
+    message = await context.bot.send_message(chat_id=chat_id, text="Csatlakozás a rendszerhez, egy pillanat...")
     
     try:
         def sync_task_start():
@@ -80,7 +83,6 @@ async def start(update: telegram.Update, context: CallbackContext):
         is_active = await asyncio.to_thread(sync_task_start)
         
         if is_active:
-            # === JAVÍTÁS ITT: A gomb visszaállítása a felhasználói menübe ===
             keyboard = [
                 [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")],
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
@@ -113,9 +115,8 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
-# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN, CSAK A HANDLER REGISZTRÁCIÓ MÓDOSUL KISMÉRTÉKBEN) ...
+# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 
-# --- FELHASZNÁLÓI FUNKCIÓK ---
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -223,8 +224,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
     except Exception as e: 
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
-
-# --- ADMIN FUNKCIÓK ---
 
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
@@ -452,7 +451,7 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("get_payment_link", get_payment_link))
-    application.add_handler(CommandHandler("elofizetes", manage_subscription)) # A külön parancs megmarad
+    application.add_handler(CommandHandler("elofizetes", manage_subscription))
     application.add_handler(broadcast_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
