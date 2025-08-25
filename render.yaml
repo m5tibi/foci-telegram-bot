@@ -8,4 +8,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
-      - fromGroup: telegram-bot-secrets
+      - fromGroup: foci-bot-secrets
+    # === EZT A RÉSZT ADD HOZZÁ ===
+    caches:
+      - name: pip-packages
+        path: ./.venv
