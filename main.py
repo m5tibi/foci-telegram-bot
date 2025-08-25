@@ -88,7 +88,7 @@ async def create_checkout_session(request: Request):
             payment_method_types=['card'],
             line_items=[{'price': price_id_to_use, 'quantity': 1}],
             mode='subscription',
-            # === EZ A FONTOS SOR, AMI HIÁNYZOTT NEKED ===
+            # === EZ A FONTOS SOR, AMI HIÁNYZIK NEKED ===
             expand=['line_items'],
             success_url=f'https://m5tibi.github.io/foci-telegram-bot/?payment=success',
             cancel_url=f'https://m5tibi.github.io/foci-telegram-bot/',
