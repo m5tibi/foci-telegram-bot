@@ -2,12 +2,10 @@ services:
   - type: web
     name: foci-telegram-bot
     env: python
-    plan: hobby
-    pythonVersion: "3.11.9"
+    plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python supabase_test.py" # <<< MÓDOSÍTÁS ITT
+    startCommand: "python supabase_test.py"
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - fromGroup: telegram-bot-secrets
-    caches:
-      - name: pip-cache
-        path: /opt/render/.cache/pip
