@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: foci-telegram-bot
+    name: foci-telegram-bot-V2
     env: python
     plan: hobby
     pythonVersion: "3.11.9"
