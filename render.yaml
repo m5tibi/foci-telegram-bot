@@ -9,3 +9,6 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - fromGroup: telegram-bot-secrets
+    caches:
+      - name: pip-cache
+        path: /opt/render/.cache/pip
