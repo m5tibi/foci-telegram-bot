@@ -2,13 +2,14 @@ services:
   - type: web
     name: foci-telegram-bot
     env: python
+    # === JAVÍTÁS ITT: A Python verzió megadása a dedikált kulccsal ===
+    pythonVersion: "3.11.9"
     plan: hobby
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:api --host 0.0.0.0 --port $PORT"
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-      - fromGroup: telegram-bot-secrets
+      # A PYTHON_VERSION kulcsot kivettük innen, mert feljebb definiáltuk.
+      - fromGroup: foci-bot-secrets
     caches:
       - name: pip-cache
         path: /opt/render/.cache/pip
