@@ -33,7 +33,7 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Számlázz.hu Funkció (Változatlan) ---
+# --- Számlázz.hu Funkció ---
 def create_szamlazz_hu_invoice(customer_details, price_details):
     if not SZAMLAZZ_HU_AGENT_KEY:
         print("!!! HIBA: A SZAMLAZZ_HU_AGENT_KEY nincs beállítva!")
@@ -88,8 +88,8 @@ async def create_checkout_session(request: Request):
             payment_method_types=['card'],
             line_items=[{'price': price_id_to_use, 'quantity': 1}],
             mode='subscription',
-            # === JAVÍTÁS ITT: A "line_items" adat kibővítése a webhook számára ===
-            expand=['line_items.data.price.product'],
+            # === EZ A FONTOS SOR, AMI HIÁNYZOTT NEKED ===
+            expand=['line_items'],
             success_url=f'https://m5tibi.github.io/foci-telegram-bot/?payment=success',
             cancel_url=f'https://m5tibi.github.io/foci-telegram-bot/',
             client_reference_id=str(chat_id)
@@ -110,7 +110,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             stripe_customer_id = session.get('customer')
             
             if chat_id and stripe_customer_id:
-                # === JAVÍTÁS ITT: Nincs több API hívás, az adatot közvetlenül a session objektumból olvassuk ki ===
                 line_items = session.get('line_items', {})
                 if not line_items or not line_items.get('data'):
                     print("!!! HIBA: A webhook nem tartalmazta a vásárolt termékeket (line_items).")
