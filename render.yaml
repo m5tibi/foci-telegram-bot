@@ -10,5 +10,5 @@ services:
         value: "3.11.9"
       - fromGroup: foci-bot-secrets
     caches:
-      - name: pip-packages
-        path: ./.venv
+      - name: pip-cache
+        path: /opt/render/.cache/pip
