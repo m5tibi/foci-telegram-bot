@@ -2,5 +2,9 @@ services:
   - type: web
     name: foci-telegram-bot
     env: python
+    pythonVersion: "3.11.9"
+    plan: hobby
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:api --host 0.0.0.0 --port $PORT"
+    envVars:
+      - fromGroup: foci-bot-secrets # Figyelem: Ellenőrizd, hogy ez a titkos csoportod PONTOS neve!
