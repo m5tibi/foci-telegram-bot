@@ -1,4 +1,4 @@
-# main.py (Végleges, Robusztus Webhook Kezeléssel)
+# main.py (Diagnosztikai Verzió - "Jelzőrakétával")
 import os
 import asyncio
 from fastapi import FastAPI, Request, Header
@@ -33,8 +33,9 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Számlázz.hu Funkció ---
+# --- Számlázz.hu Funkció (Változatlan) ---
 def create_szamlazz_hu_invoice(customer_details, price_details):
+    # ... (a funkció tartalma változatlan)
     if not SZAMLAZZ_HU_AGENT_KEY:
         print("!!! HIBA: A SZAMLAZZ_HU_AGENT_KEY nincs beállítva!")
         return
@@ -79,6 +80,10 @@ async def process_telegram_update(request: Request):
 
 @api.post("/create-checkout-session")
 async def create_checkout_session(request: Request):
+    # === DIAGNOSZTIKAI ÜZENET ("JELZŐRAKÉTA") ===
+    print(">>> CREATE-CHECKOUT-SESSION VÉGPONT MEGHÍVVA (VERZIÓ: EXPAND_FIX_V2) <<<")
+    # ============================================
+    
     data = await request.json(); chat_id = data.get('chat_id'); plan = data.get('plan')
     if not chat_id: return {"error": "Hiányzó felhasználói azonosító."}, 400
     price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
@@ -88,7 +93,6 @@ async def create_checkout_session(request: Request):
             payment_method_types=['card'],
             line_items=[{'price': price_id_to_use, 'quantity': 1}],
             mode='subscription',
-            # === EZ A FONTOS SOR, AMI HIÁNYZIK NEKED ===
             expand=['line_items'],
             success_url=f'https://m5tibi.github.io/foci-telegram-bot/?payment=success',
             cancel_url=f'https://m5tibi.github.io/foci-telegram-bot/',
@@ -100,43 +104,33 @@ async def create_checkout_session(request: Request):
 
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
+    # ... (a webhook feldolgozó rész változatlan)
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
-        
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             chat_id = session.get('client_reference_id')
             stripe_customer_id = session.get('customer')
-            
             if chat_id and stripe_customer_id:
                 line_items = session.get('line_items', {})
                 if not line_items or not line_items.get('data'):
                     print("!!! HIBA: A webhook nem tartalmazta a vásárolt termékeket (line_items).")
                     return {"status": "error"}
-                
                 price_id = line_items['data'][0].get('price', {}).get('id')
-                
                 duration_days = 0
                 price_details = {"description": "Ismeretlen szolgáltatás", "net_amount": 0}
-                
                 if price_id == STRIPE_PRICE_ID_WEEKLY:
                     duration_days = 7; price_details = {"description": "Mondom a Tutit! - Heti Előfizetés", "net_amount": 3490}
                 elif price_id == STRIPE_PRICE_ID_MONTHLY:
                     duration_days = 30; price_details = {"description": "Mondom a Tutit! - Havi Előfizetés", "net_amount": 9999}
-                
                 if duration_days > 0:
                     await activate_subscription_and_notify(int(chat_id), application, duration_days, stripe_customer_id)
                     customer_data = stripe.Customer.retrieve(stripe_customer_id, expand=["address"])
-                    customer_details = {
-                        "name": customer_data.get("name"), "email": customer_data.get("email"),
-                        "city": customer_data.get("address", {}).get("city"), "country": customer_data.get("address", {}).get("country"),
-                        "line1": customer_data.get("address", {}).get("line1"), "postal_code": customer_data.get("address", {}).get("postal_code"),
-                    }
+                    customer_details = {"name": customer_data.get("name"), "email": customer_data.get("email"), "city": customer_data.get("address", {}).get("city"), "country": customer_data.get("address", {}).get("country"), "line1": customer_data.get("address", {}).get("line1"), "postal_code": customer_data.get("address", {}).get("postal_code")}
                     create_szamlazz_hu_invoice(customer_details, price_details)
                 else:
                     print(f"!!! HIBA: Ismeretlen price_id ({price_id}) a webhookban. Ellenőrizd a Render környezeti változókat!")
-
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
