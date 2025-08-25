@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - /elofizetes Paranccsal)
+# bot.py (Végleges Verzió - Előfizetés Gomb Visszaállítva)
 
 import os
 import telegram
@@ -75,17 +75,18 @@ async def start(update: telegram.Update, context: CallbackContext):
             res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
             if not res.data:
                 supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
-            
             return is_user_subscribed(user.id)
         
         is_active = await asyncio.to_thread(sync_task_start)
         
         if is_active:
+            # === JAVÍTÁS ITT: A gomb visszaállítása a felhasználói menübe ===
             keyboard = [
-                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")]
+                [InlineKeyboardButton("🔥 Napi Tutik", callback_data="show_tuti")],
+                [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombot a tippek megtekintéséhez.\nAz előfizetésed kezeléséhez használd az /elofizetes parancsot.", reply_markup=reply_markup)
+            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
@@ -112,12 +113,12 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
 
-# --- FELHASZNÁLÓI FUNKCIÓK ---
+# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN, CSAK A HANDLER REGISZTRÁCIÓ MÓDOSUL KISMÉRTÉKBEN) ...
 
+# --- FELHASZNÁLÓI FUNKCIÓK ---
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    # Ha parancsból jön, nincs mit megválaszolni, ha gombból, akkor igen.
     if query:
         await query.answer()
 
@@ -157,6 +158,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     command = query.data
     
     if command == "show_tuti": await napi_tuti(update, context)
+    elif command == "manage_subscription": await manage_subscription(update, context)
     elif command.startswith("admin_show_stat_"):
         parts = command.split("_"); period = "_".join(parts[3:-1]); offset = int(parts[-1])
         await stat(update, context, period=period, month_offset=offset)
@@ -403,7 +405,7 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         try: supabase.table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase*: Kapcsolat rendben\n"
         except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
         try:
-            url = f"https://api-football-vנ1.p.rapidapi.com/v3/timezone"; headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
+            url = f"https://api-football-v1.p.rapidapi.com/v3/timezone"; headers = {"X-RapidAPI-Key": os.environ.get("RAPIDAPI_KEY"), "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             response = requests.get(url, headers=headers, timeout=10); response.raise_for_status()
             if response.json().get('response'): status_text += "✅ *RapidAPI*: Kapcsolat és kulcs rendben"
             else: status_text += "⚠️ *RapidAPI*: Kapcsolat rendben, de váratlan válasz!"
@@ -450,10 +452,7 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("get_payment_link", get_payment_link))
-    
-    # ÚJ: Külön parancs az előfizetés kezeléséhez
-    application.add_handler(CommandHandler("elofizetes", manage_subscription))
-
+    application.add_handler(CommandHandler("elofizetes", manage_subscription)) # A külön parancs megmarad
     application.add_handler(broadcast_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
