@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Robusztus Indítással)
+# bot.py (Végleges Verzió - Golyóálló Indítással)
 
 import os
 import telegram
@@ -38,7 +38,7 @@ def is_user_subscribed(user_id: int) -> bool:
     if user_id == ADMIN_CHAT_ID: return True
     try:
         res = supabase.table("felhasznalok").select("subscription_status, subscription_expires_at").eq("chat_id", user_id).maybe_single().execute()
-        if res.data and res.data.get("subscription_status") == "active":
+        if res and res.data and res.data.get("subscription_status") == "active":
             expires_at_str = res.data.get("subscription_expires_at")
             if expires_at_str:
                 expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
@@ -62,7 +62,7 @@ def subscriber_only(func):
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
-    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett" }
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2" }
     return tip_map.get(tip_text, tip_text)
 
 # --- FELHASZNÁLÓI FUNKCIÓK ---
@@ -70,14 +70,34 @@ async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     chat_id = update.effective_chat.id
     
-    # === JAVÍTÁS ITT: Robusztusabb üzenetküldés, ami linkről érkezve is működik ===
-    message = await context.bot.send_message(chat_id=chat_id, text="Csatlakozás a rendszerhez, egy pillanat...")
-    
+    # === JAVÍTÁS ITT: Robusztusabb indítási logika ===
     try:
         def sync_task_start():
-            res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
+            # 1. Ellenőrizzük, hogy a Supabase kliens létezik-e
+            if not supabase:
+                raise Exception("Supabase kliens nincs inicializálva.")
+            
+            # 2. Lekérdezzük a felhasználót, extra hibakezeléssel
+            try:
+                res = supabase.table("felhasznalok").select("id").eq("chat_id", user.id).maybe_single().execute()
+            except Exception as db_error:
+                print(f"Adatbázis hiba a felhasználó lekérdezésekor: {db_error}")
+                raise  # Dobjuk tovább a hibát, hogy a külső except elkapja
+
+            # 3. Ha nincs válasz (ami a 'NoneType' hibát okozta), azt is kezeljük
+            if res is None:
+                raise Exception("Adatbázis nem válaszolt a felhasználói lekérdezésre.")
+
+            # 4. Ha a felhasználó nem létezik, létrehozzuk
             if not res.data:
-                supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
+                print(f"Új felhasználó létrehozása: {user.id}")
+                supabase.table("felhasznalok").insert({
+                    "chat_id": user.id, 
+                    "is_active": True, 
+                    "subscription_status": "inactive"
+                }).execute()
+            
+            # 5. Végül ellenőrizzük az előfizetési státuszt
             return is_user_subscribed(user.id)
         
         is_active = await asyncio.to_thread(sync_task_start)
@@ -88,15 +108,19 @@ async def start(update: telegram.Update, context: CallbackContext):
                 [InlineKeyboardButton("⚙️ Előfizetés Kezelése", callback_data="manage_subscription")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
+            await context.bot.send_message(chat_id=chat_id, text=f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
+            await context.bot.send_message(chat_id=chat_id, text="Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
+            
     except Exception as e:
         print(f"Hiba a start parancsban: {e}")
-        await message.edit_text("Hiba történt a bot elérése közben. Próbáld újra később.")
+        await context.bot.send_message(chat_id=chat_id, text="Hiba történt a bot elérése közben. Kérlek, próbáld újra pár perc múlva.")
+
+
+# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 
 # --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓ ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
@@ -114,8 +138,6 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration_days} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
-
-# ... (A FÁJL TÖBBI RÉSZE VÁLTOZATLAN) ...
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
