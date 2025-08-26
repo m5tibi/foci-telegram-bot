@@ -9,6 +9,14 @@
 
     <hr style="margin: 30px 0;">
 
+    <h2>Előfizetés Kezelése</h2>
+    <p>Itt tudod kezelni a bankkártyaadataidat vagy lemondani a megújuló előfizetésedet a Stripe biztonságos felületén.</p>
+    <form action="/create-portal-session" method="POST">
+        <button type="submit" class="button">Ugrás az Ügyfélportálra</button>
+    </form>
+
+    <hr style="margin: 30px 0;">
+
     <h2>Telegram Összekötés</h2>
     {% if user.chat_id %}
         <div class="alert" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">
@@ -16,7 +24,7 @@
             Mostantól automatikus értesítéseket kapsz a friss tippekről.
         </div>
     {% else %}
-        <p>Szeretnél azonnali értesítést kapni a Telegramon, amint elkészülnek a friss tippek? Kösd össze a fiókodat!</p>
+        <p>Szeretnél azonnali értesítést kapni a Telegramon? Kösd össze a fiókodat!</p>
         <form action="/generate-telegram-link" method="POST">
             <button type="submit" class="button">Összekötés Indítása</button>
         </form>
