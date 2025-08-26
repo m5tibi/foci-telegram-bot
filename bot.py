@@ -1,4 +1,4 @@
-# bot.py (Végleges Hibrid Modell - Teljes Verzió)
+# bot.py (Hibrid Modell - Teljes, Végleges Verzió)
 
 import os
 import telegram
@@ -74,6 +74,7 @@ async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     chat_id = update.effective_chat.id
     
+    # Fiók-összekötés kezelése a /start parancsban lévő token alapján
     if context.args and len(context.args) > 0:
         token = context.args[0]
         def connect_account():
@@ -98,6 +99,7 @@ async def start(update: telegram.Update, context: CallbackContext):
             supabase = get_db_client()
             res = supabase.table("felhasznalok").select("id", count='exact').eq("chat_id", user.id).execute()
             if res.count == 0:
+                # Ha a felhasználó a botban indít, de nincs még webes fiókja, létrehozunk neki egy alapot.
                 supabase.table("felhasznalok").insert({"chat_id": user.id, "is_active": True, "subscription_status": "inactive"}).execute()
             return is_user_subscribed(user.id)
         
@@ -105,11 +107,11 @@ async def start(update: telegram.Update, context: CallbackContext):
         
         if is_active:
             keyboard = [
-                [InlineKeyboardButton("🔥 Napi Tutik (Bot)", callback_data="show_tuti_bot")],
-                [InlineKeyboardButton("⚙️ Előfizetés Kezelése (Web)", url="https://mondomatutit.hu/profile")]
+                [InlineKeyboardButton("🔥 Napi Tutik (Web)", url="https://mondomatutit.hu/vip")],
+                [InlineKeyboardButton("⚙️ Profil és Előfizetés (Web)", url="https://mondomatutit.hu/profile")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
+            await message.edit_text(f"Üdv újra, {user.first_name}!\n\nA tippeket és az előfizetésedet mostantól a weboldalon éred el:", reply_markup=reply_markup)
         else:
             keyboard = [[InlineKeyboardButton("💳 Regisztráció és Előfizetés a Weboldalon", url="https://mondomatutit.hu/register")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -137,16 +139,13 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
-    # This function can now be simpler or just redirect to the web profile
     await update.message.reply_text("Az előfizetésedet a weboldalon, a Profil menüpont alatt tudod kezelni:\nhttps://mondomatutit.hu/profile")
 
 @subscriber_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
-    
-    if command == "show_tuti_bot": await napi_tuti(update, context) # Changed callback_data
-    elif command.startswith("admin_show_stat_"):
+    if command.startswith("admin_show_stat_"):
         parts = command.split("_"); period = "_".join(parts[3:-1]); offset = int(parts[-1])
         await stat(update, context, period=period, month_offset=offset)
     elif command == "admin_show_results": await eredmenyek(update, context)
@@ -156,50 +155,8 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
         await query.answer()
         await query.message.delete()
 
-@subscriber_only
-async def napi_tuti(update: telegram.Update, context: CallbackContext):
-    reply_obj = update.callback_query.message if update.callback_query else update.message
-    try:
-        def sync_task():
-            supabase = get_db_client()
-            now_utc = datetime.now(pytz.utc)
-            yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
-            if not response.data: return "🔎 Jelenleg nincsenek elérhető 'Napi Tuti' szelvények."
-            all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
-            if not all_tip_ids: return "🔎 Szelvények igen, de tippek nem találhatóak hozzájuk."
-            meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-            if not meccsek_response.data: return "🔎 Hiba: Nem sikerült lekérni a szelvényekhez tartozó meccseket."
-            meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
-            future_szelvenyek_messages = []
-            for szelveny in response.data:
-                tipp_id_k = szelveny.get('tipp_id_k', []);
-                if not tipp_id_k: continue
-                szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
-                if len(szelveny_meccsei) != len(tipp_id_k): continue
-                if all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
-                    confidence = szelveny.get('confidence_percent', '?')
-                    header = f"🔥 *{szelveny['tipp_neve']}* (Megbízhatóság: {confidence}%) 🔥"
-                    message_parts = [header]
-                    for tip in szelveny_meccsei:
-                        local_time = datetime.fromisoformat(tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                        line1 = f"⚽️ *{tip.get('csapat_H')} vs {tip.get('csapat_V')}*"; line2 = f"🏆 {tip['liga_nev']}"
-                        line3 = f"⏰ Kezdés: {local_time.strftime('%b %d. %H:%M')}"; line4 = f"💡 Tipp: {get_tip_details(tip['tipp'])} `@{tip['odds']:.2f}`"
-                        message_parts.append(f"{line1}\n{line2}\n{line3}\n{line4}")
-                    message_parts.append(f"🎯 *Eredő odds:* `{szelveny.get('eredo_odds', 0):.2f}`")
-                    future_szelvenyek_messages.append("\n\n".join(message_parts))
-            if not future_szelvenyek_messages: return "🔎 A mai napra már nincsenek jövőbeli 'Napi Tuti' szelvények."
-            return ("\n\n" + "-"*20 + "\n\n").join(future_szelvenyek_messages)
-        
-        final_message = await asyncio.to_thread(sync_task)
-        await reply_obj.reply_text(final_message, parse_mode='Markdown')
-    except Exception as e: 
-        print(f"Hiba a napi tuti lekérésekor: {e}")
-        await reply_obj.reply_text(f"Hiba történt.")
-
 # --- ADMIN FUNKCIÓK ---
 
-# (A teljes, működő admin funkciók, ahogy a legutóbbi fájlban szerepeltek)
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
