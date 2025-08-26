@@ -3,12 +3,13 @@
 {% block title %}VIP Tippek - Mondom a Tutit!{% endblock %}
 
 {% block content %}
-    <h1>Mai VIP Tippek</h1>
+    <h1>VIP Zóna</h1>
 
-    {% if user.is_subscribed %}
-        <p>Szia {{ user.email }}! Itt vannak a mai napra érvényes szelvényeid.</p>
+    {% if is_subscribed %}
+        <h2>Szia {{ user.email }}!</h2>
+        <p>Itt vannak a mai napra érvényes szelvényeid.</p>
         
-        <div class="tippek-placeholder">
+        <div class="tippek-placeholder" style="border: 1px dashed #ccc; padding: 20px; margin-top: 20px;">
             <h3>Napi Tuti #1</h3>
             <p>Meccs: Csapat A vs Csapat B...</p>
             <p>Tipp: Hazai</p>
@@ -16,8 +17,29 @@
 
     {% else %}
         <div class="alert alert-danger">
-            Sajnos nincs aktív előfizetésed.
+            <strong>Sajnos nincs aktív előfizetésed.</strong>
         </div>
         <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
-        {% endif %}
+        
+        <div class="pricing-grid" style="margin-top: 30px;">
+            <div class="price-card">
+                <h3>HETI CSOMAG</h3>
+                <div class="price">3,490 Ft</div>
+                <p>Ideális, ha kipróbálnád a szolgáltatást.</p>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="weekly">
+                    <button type="submit" class="button">Előfizetek</button>
+                </form>
+            </div>
+            <div class="price-card">
+                <h3>HAVI CSOMAG</h3>
+                <div class="price">9,999 Ft</div>
+                <p>A legjobb ár-érték arány a tudatos sportfogadóknak.</p>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="monthly">
+                    <button type="submit" class="button">Előfizetek</button>
+                </form>
+            </div>
+        </div>
+    {% endif %}
 {% endblock %}
