@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Végleges Tipp-megjelenítéssel)
+# main.py (Hibrid Modell - Teljes Rendszer)
 
 import os
 import asyncio
@@ -6,8 +6,7 @@ import stripe
 import requests
 import telegram
 import xml.etree.ElementTree as ET
-import pytz # Szükséges az időzónákhoz
-from datetime import datetime, timedelta
+import secrets
 
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,7 +17,8 @@ from telegram.ext import Application
 from passlib.context import CryptContext
 from supabase import create_client, Client
 
-from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
+# Most már a bot.py-ból mindkét aktiváló funkciót importáljuk
+from bot import add_handlers, activate_subscription_and_notify, activate_subscription_and_notify_web
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -31,6 +31,7 @@ SZAMLAZZ_HU_AGENT_KEY = os.environ.get("SZAMLAZZ_HU_AGENT_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
@@ -41,7 +42,6 @@ api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 # --- Segédfüggvények ---
 def get_password_hash(password): return pwd_context.hash(password)
@@ -103,41 +103,29 @@ async def logout(request: Request):
 async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
-    
     is_subscribed = user.get('subscription_status') == 'active'
-    
-    # === JAVÍTÁS ITT: Valódi tippek lekérdezése ===
-    szelvenyek = []
-    if is_subscribed:
-        try:
-            now_utc = datetime.now(pytz.utc)
-            yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            
-            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
-            
-            if response.data:
-                all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
-                if all_tip_ids:
-                    meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-                    meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
-                    
-                    for szelveny_data in response.data:
-                        tipp_id_k = szelveny_data.get('tipp_id_k', [])
-                        szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
-                        
-                        if len(szelveny_meccsei) == len(tipp_id_k) and all(datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')) > now_utc for m in szelveny_meccsei):
-                            # Feldolgozzuk a meccseket a sablon számára
-                            for meccs in szelveny_meccsei:
-                                local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                                meccs['kezdes_str'] = local_time.strftime('%b %d. %H:%M')
-                                meccs['tipp_str'] = get_tip_details(meccs['tipp'])
-                            
-                            szelveny_data['meccsek'] = szelveny_meccsei
-                            szelvenyek.append(szelveny_data)
-        except Exception as e:
-            print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
+    # TODO: Később a lejárati dátumot is ellenőrizni kell
+    tippek = "A tippek lekérdezése folyamatban..." # Placeholder
+    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "tippek": tippek})
 
-    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "szelvenyek": szelvenyek})
+@api.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="/login", status_code=303)
+    is_subscribed = user.get('subscription_status') == 'active'
+    return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
+
+@api.post("/generate-telegram-link", response_class=HTMLResponse)
+async def generate_telegram_link(request: Request):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="/login", status_code=303)
+    
+    token = secrets.token_hex(16)
+    supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+    
+    link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
+    
+    return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
@@ -192,7 +180,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
             
-            if user_id and stripe_customer_id:
+            if user_id and stripe_customer_id: # Ez egy webes fizetés
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 if not line_items.data:
                     print("!!! HIBA: A webhook nem tudta lekérni a vásárolt termékeket.")
