@@ -1,4 +1,4 @@
-# main.py (Végleges Hibrid Modell)
+# main.py (Hibrid Modell - Végleges Fizetési Logikával)
 
 import os
 import asyncio
@@ -16,8 +16,8 @@ from telegram.ext import Application
 from passlib.context import CryptContext
 from supabase import create_client, Client
 
-# Most már a bot.py-ból a webes aktiváló funkciót is importáljuk
-from bot import add_handlers, activate_subscription_and_notify_web
+# Most már mindkét aktiváló funkciót importáljuk
+from bot import add_handlers, activate_subscription_and_notify, activate_subscription_and_notify_web
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -29,7 +29,7 @@ STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 SZAMLAZZ_HU_AGENT_KEY = os.environ.get("SZAMLAZZ_HU_AGENT_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "alapertelmezett_biztonsagi_kulcs")
+SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
@@ -102,8 +102,7 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
     is_subscribed = user.get('subscription_status') == 'active'
-    # TODO: Később a lejárati dátumot is ellenőrizni kell
-    tippek = "Hamarosan itt lesznek a tippek..."
+    tippek = "Itt fognak megjelenni a tippek..."
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "tippek": tippek})
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
@@ -117,8 +116,8 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
             'payment_method_types': ['card'],
             'line_items': [{'price': price_id_to_use, 'quantity': 1}],
             'mode': 'subscription',
-            'success_url': f"https://{request.url.hostname}/vip?payment=success",
-            'cancel_url': f"https://{request.url.hostname}/vip",
+            'success_url': f"https://mondomatutit.hu/vip?payment=success", # Javítva a saját domainre
+            'cancel_url': f"https://mondomatutit.hu/vip", # Javítva a saját domainre
             'metadata': {'user_id': user['id']}
         }
         if user.get('stripe_customer_id'):
@@ -159,14 +158,17 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             metadata = session.get('metadata', {})
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
-            
-            if user_id and stripe_customer_id: # Ez egy webes fizetés
-                # Itt egy extra API hívás kell, hogy a price ID-t megkapjuk
-                line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
-                price_id = line_items.data[0].price.id
 
+            if user_id and stripe_customer_id: # Ez egy webes fizetés
+                line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
+                if not line_items.data:
+                    print("!!! HIBA: A webhook nem tudta lekérni a vásárolt termékeket.")
+                    return {"status": "error"}
+                
+                price_id = line_items.data[0].price.id
                 duration_days = 0
                 price_details = {"description": "Ismeretlen szolgáltatás", "net_amount": 0}
+                
                 if price_id == STRIPE_PRICE_ID_WEEKLY:
                     duration_days = 7; price_details = {"description": "Mondom a Tutit! - Heti Előfizetés", "net_amount": 3490}
                 elif price_id == STRIPE_PRICE_ID_MONTHLY:
@@ -174,10 +176,20 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 
                 if duration_days > 0 and application:
                     await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
-                    # Számlázás
-                    customer_data = stripe.Customer.retrieve(stripe_customer_id)
-                    customer_details = {"name": customer_data.get("name", user.get('email')), "email": user.get('email'), "city": customer_data.get("address", {}).get("city"), "country": customer_data.get("address", {}).get("country"), "line1": customer_data.get("address", {}).get("line1"), "postal_code": customer_data.get("address", {}).get("postal_code")}
-                    create_szamlazz_hu_invoice(customer_details, price_details)
+                    
+                    user_data = supabase.table("felhasznalok").select("email").eq("id", user_id).single().execute().data
+                    if user_data:
+                        customer_data = stripe.Customer.retrieve(stripe_customer_id)
+                        customer_details = {
+                            "name": customer_data.get("name", user_data.get('email')), 
+                            "email": user_data.get('email'), 
+                            "city": customer_data.get("address", {}).get("city"), 
+                            "country": customer_data.get("address", {}).get("country"), 
+                            "line1": customer_data.get("address", {}).get("line1"), 
+                            "postal_code": customer_data.get("address", {}).get("postal_code")
+                        }
+                        create_szamlazz_hu_invoice(customer_details, price_details)
+
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
