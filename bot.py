@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Teljes Admin Funkcionalitással)
+# bot.py (Hibrid Modell - Statisztika Javítással)
 
 import os
 import telegram
@@ -26,6 +26,9 @@ AWAITING_BROADCAST = 0
 def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# === JAVÍTÁS ITT: A hiányzó lista visszahelyezése ===
+HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+
 def get_tip_details(tip_text):
     tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2" }
     return tip_map.get(tip_text, tip_text)
@@ -39,6 +42,7 @@ def admin_only(func):
     return wrapped
 
 # --- FŐ FUNKCIÓK ---
+
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -106,7 +110,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
     try:
         def sync_task():
             supabase = get_db_client()
-            now_hu = datetime.now(pytz.timezone('Europe/Budapest'))
+            now_hu = datetime.now(HUNGARY_TZ)
             end_of_today_utc = now_hu.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc)
             three_days_ago_utc = (now_hu - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).lte("created_at", str(end_of_today_utc)).order('created_at', desc=True).execute()
@@ -310,5 +314,5 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
-    print("Bot handlerek hozzáadva.")
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
