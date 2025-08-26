@@ -138,6 +138,9 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
 
-@api.get("/")
-def index():
-    return {"message": "Bot is running..."}
+@api.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    user = get_current_user(request)
+    # Most már az index.html-t töltjük be a base.html helyett
+    return templates.TemplateResponse("index.html", {"request": request, "user": user})
+
