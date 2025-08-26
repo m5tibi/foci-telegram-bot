@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Helyes Tipp-Megjelenítéssel)
+# main.py (Hibrid Modell - Dinamikus Szekciókkal)
 
 import os
 import asyncio
@@ -37,9 +37,7 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
 application = None
-
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
-
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -107,12 +105,17 @@ async def vip_area(request: Request):
     if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
     
     is_subscribed = user.get('subscription_status') == 'active'
-    szelvenyek = []
+    todays_slips = []
+    tomorrows_slips = []
     
     if is_subscribed:
         try:
-            yesterday_start_utc = (datetime.now(HUNGARY_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(yesterday_start_utc)).order('tipp_neve', desc=False).execute()
+            now_local = datetime.now(HUNGARY_TZ)
+            today_str = now_local.strftime("%Y-%m-%d")
+            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
             
             if response.data:
                 all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
@@ -125,17 +128,27 @@ async def vip_area(request: Request):
                         szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
                         
                         if len(szelveny_meccsei) == len(tipp_id_k):
+                            meccs_eredmenyek = [meccs.get('eredmeny') for meccs in szelveny_meccsei]
+                            if 'Veszített' in meccs_eredmenyek: continue
+                            if all(res in ['Nyert', 'Veszített', 'Érvénytelen'] for res in meccs_eredmenyek): continue
+
                             for meccs in szelveny_meccsei:
                                 local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
                                 meccs['kezdes_str'] = local_time.strftime('%b %d. %H:%M')
                                 meccs['tipp_str'] = get_tip_details(meccs['tipp'])
                             
                             szelveny_data['meccsek'] = szelveny_meccsei
-                            szelvenyek.append(szelveny_data)
+                            
+                            # === JAVÍTÁS ITT: Szétválogatás ===
+                            slip_date = szelveny_data['tipp_neve'].split(' - ')[-1]
+                            if slip_date == today_str:
+                                todays_slips.append(szelveny_data)
+                            elif slip_date == tomorrow_str:
+                                tomorrows_slips.append(szelveny_data)
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
 
-    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "szelvenyek": szelvenyek})
+    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips})
 
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
@@ -144,6 +157,7 @@ async def profile_page(request: Request):
     is_subscribed = user.get('subscription_status') == 'active'
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
+# ... (a fájl többi része változatlan)
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
@@ -177,7 +191,6 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     except Exception as e:
         return HTMLResponse(f"Hiba történt a Stripe kapcsolat során: {e}", status_code=500)
 
-# --- TELEGRAM BOT ÉS STRIPE WEBHOOK ---
 @api.on_event("startup")
 async def startup():
     global application
