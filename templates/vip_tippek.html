@@ -7,7 +7,7 @@
 
     {% if is_subscribed %}
         <h2>Szia {{ user.email }}!</h2>
-        <p>Itt vannak a mai napra érvényes, jövőbeli szelvényeid.</p>
+        <p>Itt vannak a mai napra érvényes szelvényeid.</p>
         
         <hr style="margin: 30px 0;">
 
@@ -31,7 +31,7 @@
                 </div>
             {% endfor %}
         {% else %}
-            <p>Jelenleg nincsenek elérhető jövőbeli szelvények. Kérlek, nézz vissza később!</p>
+            <p>A mai napra még nem készültek el a szelvények, vagy a meglévők már lezárultak. Kérlek, nézz vissza később!</p>
         {% endif %}
 
     {% else %}
