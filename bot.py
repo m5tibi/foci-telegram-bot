@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Formázási Hibák Javítva)
+# bot.py (Hibrid Modell - Webes Aktiválással)
 
 import os
 import telegram
@@ -93,6 +93,7 @@ async def start(update: telegram.Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
+            # A régi, botból indított fizetés linkje
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -101,6 +102,7 @@ async def start(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a start parancsban: {e}")
         await message.edit_text("Hiba történt a bot elérése közben. Kérlek, próbáld újra később.")
 
+# --- KÜLSŐRŐL HÍVHATÓ FUNKCIÓK ---
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
@@ -114,9 +116,25 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
         await asyncio.to_thread(_activate_sync)
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration_days} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
-        print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
+        print(f"Hiba az automatikus TELEGRAM aktiválás során ({chat_id}): {e}")
 
-# ... (A fájl többi része változatlan) ...
+async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
+    try:
+        def _activate_sync():
+            supabase = get_db_client()
+            expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
+            supabase.table("felhasznalok").update({
+                "subscription_status": "active", 
+                "subscription_expires_at": expires_at.isoformat(),
+                "stripe_customer_id": stripe_customer_id
+            }).eq("id", user_id).execute()
+        
+        await asyncio.to_thread(_activate_sync)
+        print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
+        
+    except Exception as e:
+        print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
+
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
@@ -201,6 +219,11 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
 
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
+    # ... (ez a funkció és a stat is a get_db_client()-et fogja használni)
+    pass
+# A teljes, módosított funkciók
+@admin_only
+async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
     message_to_edit = await reply_obj.reply_text("🔎 Elmúlt napok eredményeinek keresése...")
     try:
@@ -211,7 +234,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             three_days_ago_utc = (now_hu - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).lte("created_at", str(end_of_today_utc)).order('created_at', desc=True).execute()
             if not response_tuti.data: return "🔎 Nem találhatóak kiértékelhető szelvények az elmúlt 3 napból."
-            all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+            all_tip_ids = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
