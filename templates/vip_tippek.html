@@ -7,13 +7,32 @@
 
     {% if is_subscribed %}
         <h2>Szia {{ user.email }}!</h2>
-        <p>Itt vannak a mai napra érvényes szelvényeid.</p>
+        <p>Itt vannak a mai napra érvényes, jövőbeli szelvényeid.</p>
         
-        <div class="tippek-placeholder" style="border: 1px dashed #ccc; padding: 20px; margin-top: 20px;">
-            <h3>Napi Tuti #1</h3>
-            <p>Meccs: Csapat A vs Csapat B...</p>
-            <p>Tipp: Hazai</p>
-        </div>
+        <hr style="margin: 30px 0;">
+
+        {% if szelvenyek %}
+            {% for szelveny in szelvenyek %}
+                <div class="szelveny-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 25px; background-color: #fafafa;">
+                    <h3 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h3>
+                    
+                    {% for meccs in szelveny.meccsek %}
+                        <div class="meccs" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
+                            <p style="margin:0; font-weight: bold;">⚽️ {{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</p>
+                            <p style="margin:0; color: #555;">🏆 {{ meccs.liga_nev }}</p>
+                            <p style="margin:0; color: #555;">⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                            <p style="margin:0;">💡 Tipp: {{ meccs.tipp_str }} <strong style="color: #333;">@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        </div>
+                    {% endfor %}
+
+                    <p style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 15px;">
+                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
+                    </p>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>Jelenleg nincsenek elérhető jövőbeli szelvények. Kérlek, nézz vissza később!</p>
+        {% endif %}
 
     {% else %}
         <div class="alert alert-danger">
