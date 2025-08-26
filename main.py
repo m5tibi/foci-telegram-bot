@@ -1,11 +1,11 @@
-# main.py (Végleges, Import Javítással 3)
+# main.py (Végleges Hibrid Modell)
 
 import os
 import asyncio
 import stripe
 import requests
 import telegram
-import xml.etree.ElementTree as ET # <<< ITT VOLT A HIBA, JAVÍTVA
+import xml.etree.ElementTree as ET
 
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,6 +16,7 @@ from telegram.ext import Application
 from passlib.context import CryptContext
 from supabase import create_client, Client
 
+# Most már a bot.py-ból a webes aktiváló funkciót is importáljuk
 from bot import add_handlers, activate_subscription_and_notify_web
 
 # --- Konfiguráció ---
@@ -53,7 +54,7 @@ def get_current_user(request: Request):
         except Exception: return None
     return None
 
-# --- WEBOLDAL VÉGPONTOK (ROUTE-OK) ---
+# --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
@@ -99,32 +100,33 @@ async def logout(request: Request):
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
     user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
+    if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
     is_subscribed = user.get('subscription_status') == 'active'
+    # TODO: Később a lejárati dátumot is ellenőrizni kell
     tippek = "Hamarosan itt lesznek a tippek..."
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "tippek": tippek})
 
-# --- ÚJ, WEB-ALAPÚ FIZETÉSI VÉGPONT ---
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
+    if not user: return RedirectResponse(url="/login", status_code=303)
     price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
-    if not price_id_to_use:
-        return HTMLResponse("Hiba: Érvénytelen csomag.", status_code=400)
+    if not price_id_to_use: return HTMLResponse("Hiba: Érvénytelen csomag.", status_code=400)
     try:
-        checkout_session = stripe.checkout.Session.create(
-            customer=user.get('stripe_customer_id'), # Ha már van, használjuk
-            customer_email=user['email'] if not user.get('stripe_customer_id') else None, # Ha nincs, email alapján hoz létre
-            payment_method_types=['card'],
-            line_items=[{'price': price_id_to_use, 'quantity': 1}],
-            mode='subscription',
-            success_url=f"https://{request.url.hostname}/vip?payment=success",
-            cancel_url=f"https://{request.url.hostname}/vip",
-            metadata={'user_id': user['id']}
-        )
+        session_params = {
+            'payment_method_types': ['card'],
+            'line_items': [{'price': price_id_to_use, 'quantity': 1}],
+            'mode': 'subscription',
+            'success_url': f"https://{request.url.hostname}/vip?payment=success",
+            'cancel_url': f"https://{request.url.hostname}/vip",
+            'metadata': {'user_id': user['id']}
+        }
+        if user.get('stripe_customer_id'):
+            session_params['customer'] = user['stripe_customer_id']
+        else:
+            session_params['customer_email'] = user['email']
+        
+        checkout_session = stripe.checkout.Session.create(**session_params)
         return RedirectResponse(checkout_session.url, status_code=303)
     except Exception as e:
         return HTMLResponse(f"Hiba történt a Stripe kapcsolat során: {e}", status_code=500)
@@ -154,23 +156,59 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            
             metadata = session.get('metadata', {})
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
+            
+            if user_id and stripe_customer_id: # Ez egy webes fizetés
+                # Itt egy extra API hívás kell, hogy a price ID-t megkapjuk
+                line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
+                price_id = line_items.data[0].price.id
 
-            if user_id and stripe_customer_id: # Ez egy webes fizetés volt
-                price_id = session.get('line_items', {}).get('data', [{}])[0].get('price', {}).get('id')
-                duration_days = 7 if price_id == STRIPE_PRICE_ID_WEEKLY else 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 0
+                duration_days = 0
+                price_details = {"description": "Ismeretlen szolgáltatás", "net_amount": 0}
+                if price_id == STRIPE_PRICE_ID_WEEKLY:
+                    duration_days = 7; price_details = {"description": "Mondom a Tutit! - Heti Előfizetés", "net_amount": 3490}
+                elif price_id == STRIPE_PRICE_ID_MONTHLY:
+                    duration_days = 30; price_details = {"description": "Mondom a Tutit! - Havi Előfizetés", "net_amount": 9999}
+                
                 if duration_days > 0 and application:
-                    await activate_subscription_and_notify_web(user_id, application, duration_days, stripe_customer_id)
-                    # Számlázás itt következhet
-            else: # Ez a régi, Telegram-alapú webhook logika
-                chat_id = session.get('client_reference_id')
-                if chat_id and stripe_customer_id and application:
-                     # Itt a régi activate_subscription_and_notify-t kellene hívni, de egyszerűsítjük
-                     print(f"Régi típusú, Telegram alapú webhook érkezett: {chat_id}")
-    
+                    await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
+                    # Számlázás
+                    customer_data = stripe.Customer.retrieve(stripe_customer_id)
+                    customer_details = {"name": customer_data.get("name", user.get('email')), "email": user.get('email'), "city": customer_data.get("address", {}).get("city"), "country": customer_data.get("address", {}).get("country"), "line1": customer_data.get("address", {}).get("line1"), "postal_code": customer_data.get("address", {}).get("postal_code")}
+                    create_szamlazz_hu_invoice(customer_details, price_details)
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
+def create_szamlazz_hu_invoice(customer_details, price_details):
+    if not SZAMLAZZ_HU_AGENT_KEY:
+        print("!!! HIBA: A SZAMLAZZ_HU_AGENT_KEY nincs beállítva!")
+        return
+    xml_request = ET.Element("xmlszamla", {"xmlns": "http://www.szamlazz.hu/xmlszamla", "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance", "xsi:schemaLocation": "http://www.szamlazz.hu/xmlszamla http://www.szamlazz.hu/docs/xsds/agent/xmlszamla.xsd"})
+    beallitasok = ET.SubElement(xml_request, "beallitasok")
+    ET.SubElement(beallitasok, "szamlaagentkulcs").text = SZAMLAZZ_HU_AGENT_KEY
+    ET.SubElement(beallitasok, "eszamla").text = "true"; ET.SubElement(beallitasok, "szamlaLetoltes").text = "true"
+    fejlec = ET.SubElement(xml_request, "fejlec")
+    ET.SubElement(fejlec, "fizmod").text = "bankkártya"; ET.SubElement(fejlec, "penznem").text = "HUF"; ET.SubElement(fejlec, "szamlaNyelve").text = "hu"
+    vevo = ET.SubElement(xml_request, "vevo")
+    ET.SubElement(vevo, "nev").text = customer_details.get("name", "Vásárló")
+    ET.SubElement(vevo, "orszag").text = customer_details.get("country", "HU")
+    ET.SubElement(vevo, "irsz").text = customer_details.get("postal_code", "0000")
+    ET.SubElement(vevo, "telepules").text = customer_details.get("city", "Ismeretlen")
+    ET.SubElement(vevo, "cim").text = customer_details.get("line1", "Ismeretlen")
+    ET.SubElement(vevo, "email").text = customer_details.get("email", "")
+    tetel = ET.SubElement(xml_request, "tetelek"); item = ET.SubElement(tetel, "tetel")
+    ET.SubElement(item, "megnevezes").text = price_details.get("description")
+    ET.SubElement(item, "mennyiseg").text = "1"; ET.SubElement(item, "mertekegyseg").text = "hó" if "havi" in price_details.get("description").lower() else "hét"
+    ET.SubElement(item, "nettoAr").text = str(price_details.get("net_amount")); ET.SubElement(item, "afakulcs").text = "AAM"
+    ET.SubElement(item, "nettoErtek").text = str(price_details.get("net_amount")); ET.SubElement(item, "afaErtek").text = "0"; ET.SubElement(item, "bruttoErtek").text = str(price_details.get("net_amount"))
+    xml_data = ET.tostring(xml_request, encoding="UTF-8", xml_declaration=True)
+    try:
+        headers = {'Content-Type': 'application/xml'}
+        response = requests.post("https://www.szamlazz.hu/szamla/", data=xml_data, headers=headers, timeout=20)
+        response.raise_for_status()
+        if response.headers.get('szamla_pdf'): print(f"✅ Számla sikeresen létrehozva a(z) {customer_details.get('email')} címre.")
+        else: print(f"!!! HIBA a Számlázz.hu válaszában: {response.text}")
+    except requests.exceptions.RequestException as e: print(f"!!! HIBA a Számlázz.hu API hívása során: {e}")
