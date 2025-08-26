@@ -1,4 +1,4 @@
-# main.py (Végleges Hibrid Modell - Teljes Rendszer)
+# main.py (Hibrid Modell - Intelligens Tipp-Megjelenítéssel v2)
 
 import os
 import asyncio
@@ -8,7 +8,7 @@ import telegram
 import xml.etree.ElementTree as ET
 import secrets
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -105,10 +105,7 @@ async def vip_area(request: Request):
     if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
     
     is_subscribed = user.get('subscription_status') == 'active'
-    # TODO: Lejárati dátum ellenőrzése a jövőben
-    
     todays_slips, tomorrows_slips = [], []
-    page_subtitle = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
     
     if is_subscribed:
         try:
@@ -131,8 +128,9 @@ async def vip_area(request: Request):
                         
                         if len(szelveny_meccsei) == len(tipp_id_k):
                             meccs_eredmenyek = [meccs.get('eredmeny') for meccs in szelveny_meccsei]
+                            
                             if 'Veszített' in meccs_eredmenyek: continue
-                            if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek if res != 'Tipp leadva'): continue
+                            if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek): continue
 
                             for meccs in szelveny_meccsei:
                                 local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
