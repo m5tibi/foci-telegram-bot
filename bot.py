@@ -93,7 +93,6 @@ async def start(update: telegram.Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.edit_text(f"Üdv újra, {user.first_name}!\n\nHasználd a gombokat a navigációhoz!", reply_markup=reply_markup)
         else:
-            # A régi, botból indított fizetés linkje
             payment_url = f"https://m5tibi.github.io/foci-telegram-bot/?chat_id={user.id}"
             keyboard = [[InlineKeyboardButton("💳 Előfizetés", url=payment_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -134,7 +133,6 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         
     except Exception as e:
         print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
-
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
@@ -217,11 +215,7 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
 
-@admin_only
-async def eredmenyek(update: telegram.Update, context: CallbackContext):
-    # ... (ez a funkció és a stat is a get_db_client()-et fogja használni)
-    pass
-# A teljes, módosított funkciók
+# --- ADMIN FUNKCIÓK ---
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
