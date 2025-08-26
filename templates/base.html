@@ -21,8 +21,10 @@
 <body>
     <nav>
         <a href="/">Főoldal</a>
+        
         {% if user %}
             <a href="/vip">VIP Tippek</a>
+            <a href="/profile">Profil</a>
             <a href="/logout">Kijelentkezés</a>
         {% else %}
             <a href="/login">Bejelentkezés</a>
