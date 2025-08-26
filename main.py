@@ -1,4 +1,4 @@
-# main.py (Végleges, Weboldallal és Felhasználói Fiókokkal)
+# main.py (Végleges, Import Javítással)
 
 import os
 import asyncio
@@ -6,7 +6,9 @@ import stripe
 import requests
 import telegram
 import xml.etree.ElementTree as ET
-from fastapi import FastAPI, Request, Form, Depends
+
+# === JAVÍTÁS ITT: Hozzáadtuk a hiányzó 'Header'-t ===
+from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -30,17 +32,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
 
-# Sütikezeléshez szükséges titkos kulcs (a biztonságos bejelentkezéshez)
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "a_nagyon_biztonsagos_alapertelmezett_kulcsod")
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 
-# HTML sablonok beállítása
 templates = Jinja2Templates(directory="templates")
-
-# Jelszókezelés beállítása
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Supabase kliens
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Segédfüggvények ---
@@ -64,8 +60,6 @@ def get_current_user(request: Request):
 
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    # Itt később a szép, egyoldalas weboldalunk kódja lesz.
-    # Most egy egyszerű üdvözlőoldalt jelenítünk meg.
     user = get_current_user(request)
     return templates.TemplateResponse("base.html", {"request": request, "user": user})
 
@@ -75,13 +69,11 @@ async def register_form(request: Request):
 
 @api.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
-    # Ellenőrizzük, hogy létezik-e már a felhasználó
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
             return templates.TemplateResponse("register.html", {"request": request, "error": "Ez az e-mail cím már regisztrálva van."})
 
-        # Jelszó hashelése és új felhasználó létrehozása
         hashed_password = get_password_hash(password)
         supabase.table("felhasznalok").insert({
             "email": email,
@@ -105,7 +97,6 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         if not user_res.data or not verify_password(password, user_res.data['hashed_password']):
             return templates.TemplateResponse("login.html", {"request": request, "error": "Hibás e-mail cím vagy jelszó."})
 
-        # Sikeres bejelentkezés: elmentjük a felhasználó ID-ját a session-be
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
     except Exception as e:
@@ -121,13 +112,10 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
-
-    # Itt később lekérdezzük a valódi tippeket
-    # Most csak szimuláljuk, hogy a felhasználó elő van-e fizetve
     user['is_subscribed'] = user.get('subscription_status') == 'active'
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user})
 
-# --- TELEGRAM BOT ÉS STRIPE LOGIKA (Változatlan, de itt a helye) ---
+# --- TELEGRAM BOT ÉS STRIPE LOGIKA ---
 @api.on_event("startup")
 async def startup():
     await application.initialize(); add_handlers(application)
@@ -139,9 +127,6 @@ async def startup():
 async def process_telegram_update(request: Request):
     data = await request.json(); update = telegram.Update.de_json(data, application.bot)
     await application.process_update(update); return {"status": "ok"}
-
-# ... (Itt jön a create_checkout_session és a stripe_webhook funkció, ahogy korábban megírtuk) ...
-# A teljesség kedvéért beillesztem őket:
 
 def create_szamlazz_hu_invoice(customer_details, price_details):
     if not SZAMLAZZ_HU_AGENT_KEY:
