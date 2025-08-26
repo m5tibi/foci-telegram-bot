@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Telegram Fiók Összekötése - Mondom a Tutit!{% endblock %}
+
+{% block content %}
+    <h1>Telegram Fiók Összekötése</h1>
+    <p>Sikeresen legeneráltuk az egyedi, egyszer használatos összekötő linkedet.</p>
+    <p><strong>A folytatáshoz kérlek, kattints az alábbi linkre</strong>, ami át fog irányítani a Telegram alkalmazásba, hogy megerősítsd az összekötést.</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+        <a href="{{ link }}" target="_blank" class="button" style="font-size: 1.2rem; padding: 15px 30px;">
+            🚀 Összekötés a Telegram Bottal
+        </a>
+    </div>
+
+    <p style="text-align: center; color: #666;">Miután a botban megerősítetted az összekötést, ez az ablak bezárható.</p>
+{% endblock %}
