@@ -52,7 +52,26 @@ def is_user_subscribed(user_id: int) -> bool:
         print(f"Hiba az előfizető ellenőrzésekor ({user_id}): {e}")
     return False
 
-def subscriber_only(func):
+async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
+    try:
+        def _activate_sync():
+            supabase = get_db_client()
+            expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
+            # Itt a user_id (ami az adatbázis 'id' oszlopa) alapján frissítünk
+            supabase.table("felhasznalok").update({
+                "subscription_status": "active", 
+                "subscription_expires_at": expires_at.isoformat(),
+                "stripe_customer_id": stripe_customer_id
+            }).eq("id", user_id).execute()
+        
+        await asyncio.to_thread(_activate_sync)
+        print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
+        # Ide később jöhet egy Telegram értesítés, ha a fiók össze van kötve
+        
+    except Exception as e:
+        print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
+        
+        def subscriber_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
         is_active = await asyncio.to_thread(is_user_subscribed, update.effective_user.id)
@@ -422,3 +441,4 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
