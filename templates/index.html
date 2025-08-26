@@ -6,127 +6,36 @@
     <title>Mondom a Tutit! - Adat-alapú Foci Tippek</title>
     <meta name="description" content="Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod. Csatlakozz a Telegram csatornánkhoz!">
     <style>
-        :root {
-            --primary-color: #0088cc;
-            --secondary-color: #005f8e;
-            --text-color: #333;
-            --bg-color: #f4f7f6;
-            --white: #ffffff;
-        }
+        :root { --primary-color: #0088cc; --secondary-color: #005f8e; --text-color: #333; --bg-color: #f4f7f6; --white: #ffffff; }
         html { scroll-behavior: smooth; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            margin: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
         section { padding: 60px 0; }
-        .hero {
-            background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1470&q=80') no-repeat center center/cover;
-            color: var(--white);
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            text-align: center;
-        }
-        .hero-content {
-            max-width: 800px;
-        }
-        .hero h1 {
-            font-size: 3.5rem;
-            margin-bottom: 1rem;
-            line-height: 1.2;
-        }
-        .hero p {
-            font-size: 1.25rem;
-            margin-bottom: 2rem;
-        }
-        .cta-button {
-            display: inline-block;
-            background-color: var(--primary-color);
-            color: var(--white);
-            padding: 15px 30px;
-            text-decoration: none;
-            border-radius: 50px;
-            font-weight: bold;
-            font-size: 1.1rem;
-            transition: background-color 0.3s ease, transform 0.3s ease;
-        }
-        .cta-button:hover {
-            background-color: var(--secondary-color);
-            transform: translateY(-3px);
-        }
-        .section-title {
-            text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 40px;
-        }
-        .how-it-works-grid {
-            display: flex;
-            justify-content: space-around;
-            text-align: center;
-            gap: 30px;
-            flex-wrap: wrap;
-        }
-        .step {
-            flex-basis: 30%;
-            min-width: 250px;
-        }
+        .hero { background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1470&q=80') no-repeat center center/cover; color: var(--white); height: 100vh; display: flex; align-items: center; text-align: center; }
+        .hero-content { max-width: 800px; }
+        .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
+        .hero p { font-size: 1.25rem; margin-bottom: 2rem; }
+        .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
+        .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
+        .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
+        .step { flex-basis: 30%; min-width: 250px; }
         .step-icon { font-size: 3rem; color: var(--primary-color); }
         .step h3 { font-size: 1.5rem; margin-top: 15px; }
         .features, .pricing { background-color: var(--white); }
-        .features-list {
-            list-style: none;
-            padding: 0;
-            max-width: 600px;
-            margin: 0 auto;
-            font-size: 1.1rem;
-        }
-        .features-list li {
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-        }
-        .features-list li::before {
-            content: '✅';
-            margin-right: 15px;
-            color: #28a745;
-        }
-        .pricing-grid {
-            display: flex;
-            justify-content: center;
-            gap: 40px;
-            flex-wrap: wrap;
-        }
-        .price-card {
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 30px;
-            text-align: center;
-            width: 300px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.05);
-            transition: transform 0.3s ease;
-        }
+        .features-list { list-style: none; padding: 0; max-width: 600px; margin: 0 auto; font-size: 1.1rem; }
+        .features-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
+        .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; }
+        .pricing-grid { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
+        .price-card { border: 1px solid #ddd; border-radius: 10px; padding: 30px; text-align: center; width: 300px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); transition: transform 0.3s ease; }
         .price-card:hover { transform: translateY(-10px); }
         .price-card h3 { font-size: 1.8rem; color: var(--primary-color); }
         .price-card .price { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
         .price-card p { color: #666; margin-bottom: 25px; }
-        footer {
-            background-color: #2c3e50;
-            color: var(--white);
-            text-align: center;
-            padding: 30px 20px;
-        }
+        footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
         footer a:hover { text-decoration: underline; }
-        @media(max-width: 768px) {
-            .hero h1 { font-size: 2.5rem; }
-        }
+        @media(max-width: 768px) { .hero h1 { font-size: 2.5rem; } }
     </style>
 </head>
 <body>
@@ -135,7 +44,7 @@
         <div class="container hero-content">
             <h1>Nyerj a meccseken. Adat-alapú tippek, automatizálva.</h1>
             <p>Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.</p>
-            <a href="https://t.me/A_TE_NYILVANOS_CSATORNAD_NEVE" target="_blank" class="cta-button">CSATLAKOZOM A TELEGRAM CSATORNÁHOZ</a>
+            <a href="https://t.me/MondomATutit" target="_blank" class="cta-button">CSATLAKOZOM A TELEGRAM CSATORNÁHOZ</a>
         </div>
     </section>
 
@@ -189,7 +98,7 @@
         <div class="container">
             <p>© 2025 Mondom a Tutit! | Minden jog fenntartva.</p>
             <p>
-                <a href="https://t.me/A_TE_NYILVANOS_CSATORNAD_NEVE" target="_blank">Telegram Csatorna</a> |
+                <a href="https://t.me/MondomATutit" target="_blank">Telegram Csatorna</a> |
                 <a href="/aszf.html">ÁSZF</a> |
                 <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
             </p>
