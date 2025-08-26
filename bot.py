@@ -1,4 +1,4 @@
-# bot.py (Végleges Verzió - Konzisztens Adatbázis Kezeléssel)
+# bot.py (Végleges Verzió - Formázási Hibák Javítva)
 
 import os
 import telegram
@@ -25,7 +25,7 @@ ADMIN_CHAT_ID = 1326707238 # Cseréld ki a saját Telegram User ID-dra
 # --- Konverziós Állapotok ---
 AWAITING_BROADCAST = 0
 
-# --- Biztonságos Adatbázis-Kapcsolat Függvény ---
+# --- Biztonságos Adatbázis-Kapcsolat ---
 def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -52,26 +52,7 @@ def is_user_subscribed(user_id: int) -> bool:
         print(f"Hiba az előfizető ellenőrzésekor ({user_id}): {e}")
     return False
 
-async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
-    try:
-        def _activate_sync():
-            supabase = get_db_client()
-            expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
-            # Itt a user_id (ami az adatbázis 'id' oszlopa) alapján frissítünk
-            supabase.table("felhasznalok").update({
-                "subscription_status": "active", 
-                "subscription_expires_at": expires_at.isoformat(),
-                "stripe_customer_id": stripe_customer_id
-            }).eq("id", user_id).execute()
-        
-        await asyncio.to_thread(_activate_sync)
-        print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
-        # Ide később jöhet egy Telegram értesítés, ha a fiók össze van kötve
-        
-    except Exception as e:
-        print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
-        
-        def subscriber_only(func):
+def subscriber_only(func):
     @wraps(func)
     async def wrapped(update: telegram.Update, context: CallbackContext, *args, **kwargs):
         is_active = await asyncio.to_thread(is_user_subscribed, update.effective_user.id)
@@ -118,7 +99,7 @@ async def start(update: telegram.Update, context: CallbackContext):
             await message.edit_text("Szia! Ez egy privát, előfizetéses tippadó bot.\nA teljes hozzáféréshez kattints a gombra:", reply_markup=reply_markup)
     except Exception as e:
         print(f"Hiba a start parancsban: {e}")
-        await message.edit_text("Hiba történt a bot elérése közben. Próbáld újra később.")
+        await message.edit_text("Hiba történt a bot elérése közben. Kérlek, próbáld újra később.")
 
 async def activate_subscription_and_notify(chat_id: int, app: Application, duration_days: int, stripe_customer_id: str):
     try:
@@ -134,6 +115,8 @@ async def activate_subscription_and_notify(chat_id: int, app: Application, durat
         await app.bot.send_message(chat_id, f"✅ Sikeres előfizetés! Hozzáférésed {duration_days} napig érvényes.\nA /start paranccsal bármikor előhozhatod a menüt.")
     except Exception as e:
         print(f"Hiba az automatikus aktiválás során ({chat_id}): {e}")
+
+# ... (A fájl többi része változatlan) ...
 
 @subscriber_only
 async def manage_subscription(update: telegram.Update, context: CallbackContext):
@@ -216,8 +199,6 @@ async def napi_tuti(update: telegram.Update, context: CallbackContext):
         print(f"Hiba a napi tuti lekérésekor: {e}")
         await reply_obj.reply_text(f"Hiba történt.")
 
-# --- ADMIN FUNKCIÓK ---
-
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     reply_obj = update.callback_query.message if update.callback_query else update.message
@@ -230,7 +211,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             three_days_ago_utc = (now_hu - timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
             response_tuti = supabase.table("napi_tuti").select("tipp_neve, tipp_id_k").gte("created_at", str(three_days_ago_utc)).lte("created_at", str(end_of_today_utc)).order('created_at', desc=True).execute()
             if not response_tuti.data: return "🔎 Nem találhatóak kiértékelhető szelvények az elmúlt 3 napból."
-            all_tip_ids = [tip_id for szelveny in response_tuti.data for tip_id in szelveny.get('tipp_id_k', [])]
+            all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
             if not all_tip_ids: return "🔎 Vannak szelvények, de tippek nincsenek hozzájuk rendelve."
             meccsek_res = supabase.table("meccsek").select("id, eredmeny").in_("id", all_tip_ids).execute()
             eredmeny_map = {meccs['id']: meccs['eredmeny'] for meccs in meccsek_res.data}
@@ -441,4 +422,3 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-
