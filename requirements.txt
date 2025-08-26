@@ -7,3 +7,4 @@ python-dotenv
 pytz
 python-dateutil
 stripe
+# Build frissítés kényszerítése: 2025.08.26
