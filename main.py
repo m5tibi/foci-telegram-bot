@@ -1,11 +1,11 @@
-# main.py (Végleges Hibrid Modell - Letisztítva)
+# main.py (Végleges, Tiszta Verzió)
 
 import os
 import asyncio
 import stripe
 import requests
 import telegram
-import xml.et.ree.ElementTree as ET
+import xml.etree.ElementTree as ET # JAVÍTOTT IMPORT
 import secrets
 
 from fastapi import FastAPI, Request, Form, Depends, Header
@@ -176,7 +176,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
             
-            if user_id and stripe_customer_id: # Ez egy webes fizetés
+            if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 if not line_items.data:
                     print("!!! HIBA: A webhook nem tudta lekérni a vásárolt termékeket.")
