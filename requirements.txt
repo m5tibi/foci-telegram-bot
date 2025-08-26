@@ -8,3 +8,7 @@ pytz
 python-dateutil
 stripe
 # Build frissítés kényszerítése: 2025.08.26
+jinja2
+python-multipart
+passlib[bcrypt]
+itsdangerous
