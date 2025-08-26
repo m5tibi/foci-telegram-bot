@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Végleges Lejárat Ellenőrzéssel)
+# main.py (Hibrid Modell - Végleges Tipp-Megjelenítéssel)
 
 import os
 import asyncio
@@ -139,8 +139,10 @@ async def vip_area(request: Request):
                         
                         if len(szelveny_meccsei) == len(tipp_id_k):
                             meccs_eredmenyek = [meccs.get('eredmeny') for meccs in szelveny_meccsei]
+                            
+                            # Intelligens szűrés: csak a vesztes és a teljesen lezárt nyertes szelvényeket rejtjük el
                             if 'Veszített' in meccs_eredmenyek: continue
-                            if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek if res != 'Tipp leadva'): continue
+                            if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek): continue
 
                             for meccs in szelveny_meccsei:
                                 local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
@@ -196,8 +198,7 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     try:
         session_params = {
             'payment_method_types': ['card'], 'line_items': [{'price': price_id_to_use, 'quantity': 1}],
-            'mode': 'subscription',
-            'billing_address_collection': 'required',
+            'mode': 'subscription', 'billing_address_collection': 'required',
             'success_url': f"https://mondomatutit.hu/vip?payment=success",
             'cancel_url': f"https://mondomatutit.hu/vip",
             'metadata': {'user_id': user['id']}
@@ -247,10 +248,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     return {"status": "error"}
                 price_id = line_items.data[0].price.id
                 duration_days = 0
-                if price_id == STRIPE_PRICE_ID_WEEKLY:
-                    duration_days = 7
-                elif price_id == STRIPE_PRICE_ID_MONTHLY:
-                    duration_days = 30
+                if price_id == STRIPE_PRICE_ID_WEEKLY: duration_days = 7
+                elif price_id == STRIPE_PRICE_ID_MONTHLY: duration_days = 30
                 
                 if duration_days > 0 and application:
                     await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
