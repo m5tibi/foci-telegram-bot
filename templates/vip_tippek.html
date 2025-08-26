@@ -7,15 +7,14 @@
 
     {% if is_subscribed %}
         <h2>Szia {{ user.email }}!</h2>
-        <p>Itt vannak a mai napra érvényes szelvényeid.</p>
         
         <hr style="margin: 30px 0;">
 
-        {% if szelvenyek %}
-            {% for szelveny in szelvenyek %}
+        {% if todays_slips %}
+            <h3>Mai Aktív Szelvények</h3>
+            {% for szelveny in todays_slips %}
                 <div class="szelveny-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 25px; background-color: #fafafa;">
-                    <h3 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h3>
-                    
+                    <h4 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
                     {% for meccs in szelveny.meccsek %}
                         <div class="meccs" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
                             <p style="margin:0; font-weight: bold;">⚽️ {{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</p>
@@ -24,22 +23,40 @@
                             <p style="margin:0;">💡 Tipp: {{ meccs.tipp_str }} <strong style="color: #333;">@{{ "%.2f"|format(meccs.odds) }}</strong></p>
                         </div>
                     {% endfor %}
-
                     <p style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 15px;">
                         🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
                     </p>
                 </div>
             {% endfor %}
-        {% else %}
-            <p>A mai napra még nem készültek el a szelvények, vagy a meglévők már lezárultak. Kérlek, nézz vissza később!</p>
+        {% endif %}
+
+        {% if tomorrows_slips %}
+            <h3>Holnapi Szelvények</h3>
+            {% for szelveny in tomorrows_slips %}
+                <div class="szelveny-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 25px; background-color: #f0f8ff;">
+                    <h4 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                     {% for meccs in szelveny.meccsek %}
+                        <div class="meccs" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
+                            <p style="margin:0; font-weight: bold;">⚽️ {{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</p>
+                            <p style="margin:0; color: #555;">🏆 {{ meccs.liga_nev }}</p>
+                            <p style="margin:0; color: #555;">⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                            <p style="margin:0;">💡 Tipp: {{ meccs.tipp_str }} <strong style="color: #333;">@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        </div>
+                    {% endfor %}
+                    <p style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 15px;">
+                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
+                    </p>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        {% if not todays_slips and not tomorrows_slips %}
+             <p>Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!</p>
         {% endif %}
 
     {% else %}
-        <div class="alert alert-danger">
-            <strong>Sajnos nincs aktív előfizetésed.</strong>
-        </div>
+        <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
         <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
-        
         <div class="pricing-grid" style="margin-top: 30px;">
             <div class="price-card">
                 <h3>HETI CSOMAG</h3>
@@ -53,7 +70,7 @@
             <div class="price-card">
                 <h3>HAVI CSOMAG</h3>
                 <div class="price">9,999 Ft</div>
-                <p>A legjobb ár-érték arány a tudatos sportfogadóknak.</p>
+                <p>A legjobb ár-érték arányú választás.</p>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="monthly">
                     <button type="submit" class="button">Előfizetek</button>
