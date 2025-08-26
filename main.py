@@ -1,19 +1,16 @@
-# main.py (Hibrid Modell - Számla Bridge-re Bízva)
+# main.py (Hibrid Modell - Kötelező Cím Bekéréssel)
 
 import os
 import asyncio
 import stripe
 import telegram
-
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application
-
 from passlib.context import CryptContext
 from supabase import create_client, Client
-
 from bot import add_handlers, activate_subscription_and_notify_web
 
 # --- Konfiguráció ---
@@ -114,8 +111,29 @@ async def create_portal_session(request: Request):
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
-    # A fizetés-előkészítés logikája változatlan
-    pass
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="/login", status_code=303)
+    price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
+    if not price_id_to_use: return HTMLResponse("Hiba: Érvénytelen csomag.", status_code=400)
+    try:
+        session_params = {
+            'payment_method_types': ['card'], 
+            'line_items': [{'price': price_id_to_use, 'quantity': 1}],
+            'mode': 'subscription',
+            'billing_address_collection': 'required', # <<< EZ AZ ÚJ, FONTOS SOR
+            'success_url': f"https://mondomatutit.hu/vip?payment=success",
+            'cancel_url': f"https://mondomatutit.hu/vip",
+            'metadata': {'user_id': user['id']}
+        }
+        if user.get('stripe_customer_id'):
+            session_params['customer'] = user['stripe_customer_id']
+        else:
+            session_params['customer_email'] = user['email']
+        
+        checkout_session = stripe.checkout.Session.create(**session_params)
+        return RedirectResponse(checkout_session.url, status_code=303)
+    except Exception as e:
+        return HTMLResponse(f"Hiba történt a Stripe kapcsolat során: {e}", status_code=500)
 
 # --- TELEGRAM BOT ÉS STRIPE WEBHOOK ---
 @api.on_event("startup")
@@ -146,7 +164,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
             
-            if user_id and stripe_customer_id: # Ez egy webes fizetés
+            if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 if not line_items.data:
                     print("!!! HIBA: A webhook nem tudta lekérni a vásárolt termékeket.")
@@ -159,7 +177,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     duration_days = 30
                 
                 if duration_days > 0 and application:
-                    # Az aktiválás továbbra is a mi feladatunk!
                     await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
         
         return {"status": "success"}
