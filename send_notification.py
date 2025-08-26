@@ -1,47 +1,40 @@
-# send_notification.py (V1.5 - Letisztult Értesítés)
-
+# send_notification.py (Hibrid Modell Verzió)
 import os
 import asyncio
 from supabase import create_client, Client
 import telegram
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 async def send_notifications():
     if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN]):
-        print("Hiba: A szükséges környezeti változók (Supabase/Telegram) nincsenek beállítva.")
+        print("Hiba: Környezeti változók hiányoznak.")
         return
 
-    print("Értesítő szkript indítása...")
+    print("Értesítő szkript indítása (Hibrid Modell)...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
     try:
-        response = supabase.table("felhasznalok").select("chat_id").eq("is_active", True).execute()
+        # Azokat a felhasználókat kérjük le, akiknek van aktív előfizetésük ÉS össze van kötve a Telegram fiókjuk
+        response = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
         
         if not response.data:
-            print("A lekérdezés nem hozott vissza adatot. Nincsenek aktív felhasználók.")
+            print("Nincsenek értesítendő aktív, összekötött felhasználók.")
             return
         
         chat_ids = [user['chat_id'] for user in response.data]
-        print(f"Talált aktív felhasználói ID-k: {chat_ids}")
+        print(f"Értesítés küldése {len(chat_ids)} felhasználónak...")
 
     except Exception as e:
         print(f"Hiba a felhasználók lekérése során: {e}")
         return
 
-    message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények! Kattints a gombra a megtekintéshez."
-    
-    # === JAVÍTÁS ITT: Csak egy gombot hagyunk, egyértelműbb szöveggel ===
-    keyboard = [
-        [
-            InlineKeyboardButton("🔥 Napi Tutik Megtekintése", callback_data="show_tuti")
-        ]
-    ]
+    message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények!"
+    keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése a Weboldalon", url="https://mondomatutit.hu/vip")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     successful_sends = 0
@@ -49,7 +42,6 @@ async def send_notifications():
         try:
             await bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup)
             successful_sends += 1
-            print(f"Értesítés sikeresen elküldve a(z) {chat_id} felhasználónak.")
         except Exception as e:
             print(f"Hiba a(z) {chat_id} felhasználónak küldés során: {e}")
         await asyncio.sleep(0.1) 
