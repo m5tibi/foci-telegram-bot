@@ -1,11 +1,11 @@
-# main.py (Hibrid Modell - Teljes Rendszer)
+# main.py (Végleges Hibrid Modell - Letisztítva)
 
 import os
 import asyncio
 import stripe
 import requests
 import telegram
-import xml.etree.ElementTree as ET
+import xml.et.ree.ElementTree as ET
 import secrets
 
 from fastapi import FastAPI, Request, Form, Depends, Header
@@ -17,8 +17,7 @@ from telegram.ext import Application
 from passlib.context import CryptContext
 from supabase import create_client, Client
 
-# Most már a bot.py-ból mindkét aktiváló funkciót importáljuk
-from bot import add_handlers, activate_subscription_and_notify, activate_subscription_and_notify_web
+from bot import add_handlers, activate_subscription_and_notify_web
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -56,7 +55,7 @@ def get_current_user(request: Request):
         except Exception: return None
     return None
 
-# --- WEBOLDAL VÉGPONTOK (ROUTE-OK) ---
+# --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
@@ -104,8 +103,8 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
     is_subscribed = user.get('subscription_status') == 'active'
-    # TODO: Később a lejárati dátumot is ellenőrizni kell
-    tippek = "A tippek lekérdezése folyamatban..." # Placeholder
+    # TODO: Lejárati dátum ellenőrzés
+    tippek = "A tippek lekérdezése folyamatban..."
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "tippek": tippek})
 
 @api.get("/profile", response_class=HTMLResponse)
@@ -119,12 +118,9 @@ async def profile_page(request: Request):
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/login", status_code=303)
-    
     token = secrets.token_hex(16)
     supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
-    
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
-    
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
@@ -195,8 +191,9 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 
                 if duration_days > 0 and application:
                     await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
-                    user_data = supabase.table("felhasznalok").select("email").eq("id", user_id).single().execute().data
-                    if user_data:
+                    user_data_res = supabase.table("felhasznalok").select("email").eq("id", user_id).single().execute()
+                    if user_data_res.data:
+                        user_data = user_data_res.data
                         customer_data = stripe.Customer.retrieve(stripe_customer_id)
                         customer_details = {
                             "name": customer_data.get("name", user_data.get('email')), "email": user_data.get('email'), 
