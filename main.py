@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Felhasználói Fiókokkal)
+# main.py (Hibrid Modell - Végleges Verzió)
 
 import os
 import asyncio
@@ -20,7 +20,7 @@ from bot import add_handlers, activate_subscription_and_notify
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
+RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL") # Ezt a Render automatikusan beállítja
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
@@ -28,7 +28,7 @@ STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 SZAMLAZZ_HU_AGENT_KEY = os.environ.get("SZAMLAZZ_HU_AGENT_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "alapertelmezett_biztonsagi_kulcs")
+SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
@@ -76,6 +76,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
             return templates.TemplateResponse("register.html", {"request": request, "error": "Ez az e-mail cím már regisztrálva van."})
 
         hashed_password = get_password_hash(password)
+        # Most már email és jelszó párossal hozzuk létre a felhasználót
         supabase.table("felhasznalok").insert({
             "email": email,
             "hashed_password": hashed_password,
@@ -96,7 +97,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
         
-        if not user_res.data or not verify_password(password, user_res.data.get('hashed_password', '')):
+        if not user_res.data or not user_res.data.get('hashed_password') or not verify_password(password, user_res.data['hashed_password']):
             return templates.TemplateResponse("login.html", {"request": request, "error": "Hibás e-mail cím vagy jelszó."})
 
         request.session["user_id"] = user_res.data['id']
@@ -116,9 +117,12 @@ async def vip_area(request: Request):
         return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
 
     is_subscribed = user.get('subscription_status') == 'active'
-    # Itt később a lejáratot is ellenőrizzük majd
+    # TODO: Később itt a lejárati dátumot is ellenőrizni kell
     
-    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
+    # TODO: Ide kell a logika, ami lekérdezi és megjeleníti a tippeket
+    tippek = "Hamarosan itt lesznek a tippek..."
+    
+    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "tippek": tippek})
 
 # --- TELEGRAM BOT ÉS STRIPE LOGIKA ---
 @api.on_event("startup")
@@ -139,58 +143,52 @@ async def process_telegram_update(request: Request):
         await application.process_update(update)
     return {"status": "ok"}
 
-def create_szamlazz_hu_invoice(customer_details, price_details):
-    # ... (a funkció tartalma változatlan)
-    pass
-
+# A fizetési és webhook funkciókat a következő lépésekben fogjuk átalakítani, hogy a webes felhasználókhoz kapcsolódjanak.
+# Egyelőre a régi, Telegram-alapú logika marad, hogy a bot ne omoljon össze.
 @api.post("/create-checkout-session")
 async def create_checkout_session(request: Request):
-    # ... (a funkció tartalma változatlan)
-    pass
-
-@api.post("/stripe-webhook")
-async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    # ... (a funkció tartalma változatlan)
-    pass
-
-# A teljesség kedvéért a változatlan részeket is beillesztem
-def create_szamlazz_hu_invoice(customer_details, price_details):
-    if not SZAMLAZZ_HU_AGENT_KEY:
-        print("!!! HIBA: A SZAMLAZZ_HU_AGENT_KEY nincs beállítva!")
-        return
-    xml_request = ET.Element("xmlszamla", {"xmlns": "http://www.szamlazz.hu/xmlszamla", "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance", "xsi:schemaLocation": "http://www.szamlazz.hu/xmlszamla http://www.szamlazz.hu/docs/xsds/agent/xmlszamla.xsd"})
-    beallitasok = ET.SubElement(xml_request, "beallitasok")
-    ET.SubElement(beallitasok, "szamlaagentkulcs").text = SZAMLAZZ_HU_AGENT_KEY
-    ET.SubElement(beallitasok, "eszamla").text = "true"; ET.SubElement(beallitasok, "szamlaLetoltes").text = "true"
-    fejlec = ET.SubElement(xml_request, "fejlec")
-    ET.SubElement(fejlec, "fizmod").text = "bankkártya"; ET.SubElement(fejlec, "penznem").text = "HUF"; ET.SubElement(fejlec, "szamlaNyelve").text = "hu"
-    vevo = ET.SubElement(xml_request, "vevo")
-    ET.SubElement(vevo, "nev").text = customer_details.get("name", "Vásárló")
-    ET.SubElement(vevo, "orszag").text = customer_details.get("country", "HU")
-    ET.SubElement(vevo, "irsz").text = customer_details.get("postal_code", "0000")
-    ET.SubElement(vevo, "telepules").text = customer_details.get("city", "Ismeretlen")
-    ET.SubElement(vevo, "cim").text = customer_details.get("line1", "Ismeretlen")
-    ET.SubElement(vevo, "email").text = customer_details.get("email", "")
-    tetel = ET.SubElement(xml_request, "tetelek"); item = ET.SubElement(tetel, "tetel")
-    ET.SubElement(item, "megnevezes").text = price_details.get("description")
-    ET.SubElement(item, "mennyiseg").text = "1"; ET.SubElement(item, "mertekegyseg").text = "hó" if "havi" in price_details.get("description").lower() else "hét"
-    ET.SubElement(item, "nettoAr").text = str(price_details.get("net_amount")); ET.SubElement(item, "afakulcs").text = "AAM"
-    ET.SubElement(item, "nettoErtek").text = str(price_details.get("net_amount")); ET.SubElement(item, "afaErtek").text = "0"; ET.SubElement(item, "bruttoErtek").text = str(price_details.get("net_amount"))
-    xml_data = ET.tostring(xml_request, encoding="UTF-8", xml_declaration=True)
+    # Ezt a részt a következő fázisban teljesen átírjuk.
+    data = await request.json(); chat_id = data.get('chat_id'); plan = data.get('plan')
+    if not chat_id: return {"error": "Hiányzó felhasználói azonosító."}, 400
+    price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
+    if not price_id_to_use: return {"error": "Érvénytelen csomag."}, 400
     try:
-        headers = {'Content-Type': 'application/xml'}
-        response = requests.post("https://www.szamlazz.hu/szamla/", data=xml_data, headers=headers, timeout=20)
-        response.raise_for_status()
-        if response.headers.get('szamla_pdf'): print(f"✅ Számla sikeresen létrehozva a(z) {customer_details.get('email')} címre.")
-        else: print(f"!!! HIBA a Számlázz.hu válaszában: {response.text}")
-    except requests.exceptions.RequestException as e: print(f"!!! HIBA a Számlázz.hu API hívása során: {e}")
-
-@api.post("/create-checkout-session")
-async def create_checkout_session_web(request: Request):
-    # Ezt a funkciót kell majd átírnunk, hogy a webes user ID-val dolgozzon
-    pass
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{'price': price_id_to_use, 'quantity': 1}],
+            mode='subscription', expand=['line_items'],
+            success_url=f'https://m5tibi.github.io/foci-telegram-bot/?payment=success',
+            cancel_url=f'https://m5tibi.github.io/foci-telegram-bot/',
+            client_reference_id=str(chat_id)
+        )
+        return {"id": session.id}
+    except Exception as e:
+        print(f"!!! STRIPE HIBA: {e}"); return {"error": str(e)}, 400
 
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    # Ezt a funkciót is át kell majd írnunk
+    # Ezt a részt is teljesen átírjuk majd.
+    data = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            chat_id = session.get('client_reference_id')
+            stripe_customer_id = session.get('customer')
+            if chat_id and stripe_customer_id:
+                line_items = session.get('line_items', {})
+                if not line_items or not line_items.get('data'):
+                    print("!!! HIBA: A webhook nem tartalmazta a vásárolt termékeket."); return {"status": "error"}
+                price_id = line_items['data'][0].get('price', {}).get('id')
+                duration_days = 0
+                if price_id == STRIPE_PRICE_ID_WEEKLY: duration_days = 7
+                elif price_id == STRIPE_PRICE_ID_MONTHLY: duration_days = 30
+                if duration_days > 0 and application:
+                    await activate_subscription_and_notify(int(chat_id), application, duration_days, stripe_customer_id)
+        return {"status": "success"}
+    except Exception as e:
+        print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
+# A Számlázó funkciót a webhook átírásakor fogjuk újra bekötni.
+def create_szamlazz_hu_invoice(customer_details, price_details):
     pass
