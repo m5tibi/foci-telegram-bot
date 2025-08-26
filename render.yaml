@@ -6,4 +6,3 @@ services:
     pythonVersion: "3.11.9"
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:api --host 0.0.0.0 --port $PORT"
-  
