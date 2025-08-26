@@ -1,4 +1,4 @@
-# main.py (Végleges, Import Javítással 2)
+# main.py (Végleges, Minden Importot Tartalmazó Verzió)
 
 import os
 import asyncio
@@ -7,13 +7,14 @@ import requests
 import telegram
 import xml.etree.ElementTree as ET
 
-# === JAVÍTÁS ITT: Hozzáadtuk a hiányzó importokat ===
+# === JAVÍTÁS ITT: Az összes szükséges FastAPI és Telegram Bot import egy helyen ===
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-# ================================================
-
 from starlette.middleware.sessions import SessionMiddleware
+from telegram.ext import Application
+# =============================================================================
+
 from passlib.context import CryptContext
 from supabase import create_client, Client
 
@@ -32,6 +33,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
+application = None # Ezt a startup funkcióban fogjuk inicializálni
 
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "a_nagyon_biztonsagos_alapertelmezett_kulcsod")
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
@@ -117,9 +119,6 @@ async def vip_area(request: Request):
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user})
 
 # --- TELEGRAM BOT ÉS STRIPE LOGIKA ---
-# Itt már a bot objektumot is a startup eseményben hozzuk létre, hogy biztosan meglegyen
-application = None
-
 @api.on_event("startup")
 async def startup():
     global application
