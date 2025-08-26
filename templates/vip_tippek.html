@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}VIP Tippek - Mondom a Tutit!{% endblock %}
+
+{% block content %}
+    <h1>Mai VIP Tippek</h1>
+
+    {% if user.is_subscribed %}
+        <p>Szia {{ user.email }}! Itt vannak a mai napra érvényes szelvényeid.</p>
+        
+        <div class="tippek-placeholder">
+            <h3>Napi Tuti #1</h3>
+            <p>Meccs: Csapat A vs Csapat B...</p>
+            <p>Tipp: Hazai</p>
+        </div>
+
+    {% else %}
+        <div class="alert alert-danger">
+            Sajnos nincs aktív előfizetésed.
+        </div>
+        <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
+        {% endif %}
+{% endblock %}
