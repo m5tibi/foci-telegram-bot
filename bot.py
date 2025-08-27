@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Statisztika Javítással)
+# bot.py (Hibrid Modell - Statisztika Javítással és Napi Tuti Lekéréssel)
 
 import os
 import telegram
@@ -19,7 +19,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-ADMIN_CHAT_ID = 1326707238 # Cseréld ki a saját Telegram User ID-dra
+ADMIN_CHAT_ID = 1326707238 # A te Telegram User ID-d
 AWAITING_BROADCAST = 0
 
 # --- Segédfüggvények ---
@@ -41,7 +41,7 @@ def admin_only(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-# --- FŐ FUNKCIÓK ---
+# --- FŐ FUNKCIióK ---
 
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
@@ -95,12 +95,69 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
 async def admin_menu(update: telegram.Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Statisztikák", callback_data="admin_show_stat_current_month_0")],
+        [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips")], # ÚJ GOMB
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
+
+# ÚJ FUNKCIÓ AZ AKTUÁLIS SZELVÉNYEK LEKÉRÉSÉHEZ
+@admin_only
+async def admin_show_slips(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    message_to_edit = await query.message.edit_text("📬 Aktuális Napi Tuti szelvények keresése...")
+    
+    try:
+        def sync_fetch_slips():
+            supabase = get_db_client()
+            now_local = datetime.now(HUNGARY_TZ)
+            today_str = now_local.strftime("%Y-%m-%d")
+            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # Keressük a mai és holnapi szelvényeket
+            response = supabase.table("napi_tuti").select("*").in_("tipp_neve", [f"Napi Tuti #1 - {today_str}", f"Napi Tuti #2 - {today_str}", f"Napi Tuti #3 - {today_str}", f"Napi Tuti #4 - {today_str}", f"Napi Tuti #1 - {tomorrow_str}", f"Napi Tuti #2 - {tomorrow_str}", f"Napi Tuti #3 - {tomorrow_str}", f"Napi Tuti #4 - {tomorrow_str}"]).order('tipp_neve', desc=False).execute()
+            
+            if not response.data:
+                return "Nem találhatóak aktív (mai vagy holnapi) Napi Tuti szelvények."
+
+            all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+            if not all_tip_ids:
+                 return "Vannak szelvények, de nincsenek hozzájuk meccsek rendelve."
+
+            meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+            meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
+            
+            final_message = "📬 *Aktuális Napi Tuti Szelvények*\n\n"
+            
+            for szelveny_data in response.data:
+                tipp_id_k = szelveny_data.get('tipp_id_k', [])
+                szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
+                
+                if not szelveny_meccsei:
+                    continue
+
+                final_message += f"*{szelveny_data['tipp_neve']}*\n"
+                final_message += f"Megbízhatóság: *{szelveny_data['confidence_percent']}%* | Eredő Odds: *{szelveny_data['eredo_odds']:.2f}*\n"
+                
+                for meccs in szelveny_meccsei:
+                    local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+                    kezdes_str = local_time.strftime('%H:%M')
+                    tipp_str = get_tip_details(meccs['tipp'])
+                    final_message += f" ⚽️ `{kezdes_str}` {meccs['csapat_H']} vs {meccs['csapat_V']} \n     💡 Tipp: {tipp_str} @{meccs['odds']:.2f}\n"
+                
+                final_message += "-----------------------------------\n"
+            
+            return final_message
+
+        final_message = await asyncio.to_thread(sync_fetch_slips)
+        await message_to_edit.edit_text(final_message, parse_mode='Markdown')
+
+    except Exception as e:
+        print(f"Hiba a Napi Tutik lekérésekor (admin): {e}")
+        await message_to_edit.edit_text(f"Hiba történt a szelvények lekérése közben: {e}")
 
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
@@ -299,6 +356,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
+    elif command == "admin_show_slips": await admin_show_slips(update, context) # ÚJ HANDLER
     elif command == "admin_close": 
         await query.answer()
         await query.message.delete()
