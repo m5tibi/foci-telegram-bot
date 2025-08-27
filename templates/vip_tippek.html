@@ -7,23 +7,22 @@
 
     {% if is_subscribed %}
         <h2>Szia {{ user.email }}!</h2>
-        
-        <hr style="margin: 30px 0;">
+        <hr>
 
         {% if todays_slips %}
             <h3>Mai Aktív Szelvények</h3>
             {% for szelveny in todays_slips %}
-                <div class="szelveny-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 25px; background-color: #fafafa;">
-                    <h4 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                <div class="szelveny-card">
+                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
                     {% for meccs in szelveny.meccsek %}
-                        <div class="meccs" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
-                            <p style="margin:0; font-weight: bold;">⚽️ {{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</p>
-                            <p style="margin:0; color: #555;">🏆 {{ meccs.liga_nev }}</p>
-                            <p style="margin:0; color: #555;">⏰ Kezdés: {{ meccs.kezdes_str }}</p>
-                            <p style="margin:0;">💡 Tipp: {{ meccs.tipp_str }} <strong style="color: #333;">@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        <div class="meccs">
+                            <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
+                            <p>🏆 {{ meccs.liga_nev }}</p>
+                            <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                            <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
                         </div>
                     {% endfor %}
-                    <p style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 15px;">
+                    <p class="eredo-odds">
                         🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
                     </p>
                 </div>
@@ -33,17 +32,17 @@
         {% if tomorrows_slips %}
             <h3>Holnapi Szelvények</h3>
             {% for szelveny in tomorrows_slips %}
-                <div class="szelveny-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 25px; background-color: #f0f8ff;">
-                    <h4 style="color: #0088cc; margin-top: 0;">{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                <div class="szelveny-card tomorrow">
+                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
                      {% for meccs in szelveny.meccsek %}
-                        <div class="meccs" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
-                            <p style="margin:0; font-weight: bold;">⚽️ {{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</p>
-                            <p style="margin:0; color: #555;">🏆 {{ meccs.liga_nev }}</p>
-                            <p style="margin:0; color: #555;">⏰ Kezdés: {{ meccs.kezdes_str }}</p>
-                            <p style="margin:0;">💡 Tipp: {{ meccs.tipp_str }} <strong style="color: #333;">@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        <div class="meccs">
+                           <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
+                           <p>🏆 {{ meccs.liga_nev }}</p>
+                           <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                           <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
                         </div>
                     {% endfor %}
-                    <p style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 15px;">
+                    <p class="eredo-odds">
                         🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
                     </p>
                 </div>
