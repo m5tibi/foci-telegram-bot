@@ -22,9 +22,8 @@
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
         section { padding: 60px 0; }
 
-        /* Módosított HERO szekció az új, egyedi háttérképpel */
         .hero {
-            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('/images/hero-background.jpg') no-repeat center center/cover;
+            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('images/hero-background.jpg') no-repeat center center/cover;
             color: var(--white);
             min-height: 50vh;
             display: flex;
@@ -32,7 +31,7 @@
             text-align: center;
             padding: 40px 0;
         }
-        .hero-content { max-width: 800px; }
+        .hero-content { max-width: 800px; margin: 0 auto; }
         .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
         .hero p { font-size: 1.25rem; margin-bottom: 2rem; }
         .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
@@ -121,7 +120,7 @@
             </div>
 
             <div id="login" class="auth-content active">
-                <form action="/login" method="post">
+                <form action="https://foci-telegram-bot.onrender.com/login" method="post">
                     <div class="form-group">
                         <label for="login-email">E-mail cím</label>
                         <input type="email" id="login-email" name="email" required>
@@ -135,7 +134,7 @@
             </div>
 
             <div id="register" class="auth-content">
-                <form action="/register" method="post">
+                <form action="https://foci-telegram-bot.onrender.com/register" method="post">
                     <div class="form-group">
                         <label for="reg-email">E-mail cím</label>
                         <input type="email" id="reg-email" name="email" required>
@@ -177,7 +176,7 @@
         <div class="container">
             <h2 class="section-title">A Te Személyes Tippmestered</h2>
             <ul class="features-list">
-                <li>Napi min. 1-4, Gondosan Összeállított Szelvény</li>
+                <li>Napi 2-4, Gondosan Összeállított Szelvény</li>
                 <li>Rangsorolás és Megbízhatósági Százalék Minden Szelvényhez</li>
                 <li>Teljesen Automata, Érzelemmentes, Adat-alapú Tippadás</li>
                 <li>Kényelmes és Diszkrét Hozzáférés a Privát Telegram Boton Keresztül</li>
