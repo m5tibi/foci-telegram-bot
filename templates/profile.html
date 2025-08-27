@@ -7,7 +7,7 @@
     <p><strong>E-mail címed:</strong> {{ user.email }}</p>
     <p><strong>Előfizetés állapota:</strong> {% if is_subscribed %}Aktív ✅{% else %}Inaktív ❌{% endif %}</p>
 
-    <hr style="margin: 30px 0;">
+    <hr>
 
     <h2>Előfizetés Kezelése</h2>
     <p>Itt tudod kezelni a bankkártyaadataidat vagy lemondani a megújuló előfizetésedet a Stripe biztonságos felületén.</p>
@@ -15,11 +15,11 @@
         <button type="submit" class="button">Ugrás az Ügyfélportálra</button>
     </form>
 
-    <hr style="margin: 30px 0;">
+    <hr>
 
     <h2>Telegram Összekötés</h2>
     {% if user.chat_id %}
-        <div class="alert" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">
+        <div class="alert alert-success">
             <strong>A Telegram fiókod már össze van kötve!</strong><br>
             Mostantól automatikus értesítéseket kapsz a friss tippekről.
         </div>
@@ -29,11 +29,7 @@
             <button type="submit" class="button">Összekötés Indítása</button>
         </form>
         <div id="telegram-link-container" style="display:none; margin-top: 15px;">
-             <div class="alert" style="background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb;">
-                <strong>Sikeresen legeneráltuk a linked!</strong><br>
-                Kattints rá, hogy a Telegramban megerősítsd az összekötést, majd frissítsd ezt az oldalt.
-            </div>
-        </div>
+             </div>
     {% endif %}
 
 <script>
@@ -52,7 +48,7 @@ if (form) {
             linkContainer.style.display = 'block';
             form.style.display = 'none';
         } else {
-            linkContainer.innerHTML = '<p style="color: red;">Hiba történt a link generálása közben.</p>';
+            linkContainer.innerHTML = '<div class="alert alert-danger">Hiba történt a link generálása közben.</div>';
             linkContainer.style.display = 'block';
         }
     });
