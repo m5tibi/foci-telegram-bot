@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Végleges Tipp-Megjelenítéssel)
+# main.py (Hibrid Modell - CORS Javítással)
 
 import os
 import asyncio
@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware # ÚJ IMPORT
 from telegram.ext import Application
 
 from passlib.context import CryptContext
@@ -37,6 +38,25 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
 application = None
+
+# JAVÍTÁS ITT: CORS Middleware hozzáadása
+origins = [
+    "https://mondomatutit.hu",
+    "https://www.mondomatutit.hu",
+    "http://mondomatutit.hu",
+    "http://www.mondomatutit.hu",
+    "https://m5tibi.github.io", # A biztonság kedvéért a github.io URL is
+]
+
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# JAVÍTÁS VÉGE
+
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -71,7 +91,9 @@ def is_web_user_subscribed(user: dict) -> bool:
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
-    return templates.TemplateResponse("index.html", {"request": request, "user": user})
+    # A főoldal most már a GitHub Pages-en van, ez a végpont valójában inaktív.
+    # De meghagyjuk, hátha szükség lesz rá a jövőben.
+    return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
 
 @api.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request):
@@ -85,7 +107,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
             return templates.TemplateResponse("register.html", {"request": request, "error": "Ez az e-mail cím már regisztrálva van."})
         hashed_password = get_password_hash(password)
         supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
-        return RedirectResponse(url="/login?registered=true", status_code=303)
+        return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
     except Exception as e:
         return templates.TemplateResponse("register.html", {"request": request, "error": f"Hiba történt a regisztráció során: {e}"})
 
@@ -108,12 +130,12 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
 @api.get("/logout")
 async def logout(request: Request):
     request.session.pop("user_id", None)
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="/login?error=not_logged_in", status_code=303)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
@@ -140,7 +162,6 @@ async def vip_area(request: Request):
                         if len(szelveny_meccsei) == len(tipp_id_k):
                             meccs_eredmenyek = [meccs.get('eredmeny') for meccs in szelveny_meccsei]
                             
-                            # Intelligens szűrés: csak a vesztes és a teljesen lezárt nyertes szelvényeket rejtjük el
                             if 'Veszített' in meccs_eredmenyek: continue
                             if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek): continue
 
@@ -164,14 +185,14 @@ async def vip_area(request: Request):
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="/login", status_code=303)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="/login", status_code=303)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     token = secrets.token_hex(16)
     supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
@@ -183,7 +204,7 @@ async def create_portal_session(request: Request):
     if not user or not user.get("stripe_customer_id"):
         return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
     try:
-        return_url = f"https://mondomatutit.hu/profile"
+        return_url = f"{RENDER_APP_URL}/profile"
         portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url)
         return RedirectResponse(portal_session.url, status_code=303)
     except Exception as e:
@@ -192,15 +213,15 @@ async def create_portal_session(request: Request):
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="/login", status_code=303)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
     if not price_id_to_use: return HTMLResponse("Hiba: Érvénytelen csomag.", status_code=400)
     try:
         session_params = {
             'payment_method_types': ['card'], 'line_items': [{'price': price_id_to_use, 'quantity': 1}],
             'mode': 'subscription', 'billing_address_collection': 'required',
-            'success_url': f"https://mondomatutit.hu/vip?payment=success",
-            'cancel_url': f"https://mondomatutit.hu/vip",
+            'success_url': f"{RENDER_APP_URL}/vip?payment=success",
+            'cancel_url': f"{RENDER_APP_URL}/vip",
             'metadata': {'user_id': user['id']}
         }
         if user.get('stripe_customer_id'):
