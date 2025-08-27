@@ -3,119 +3,216 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Foci Tippadó Bot - Előfizetés</title>
-    <script src="https://js.stripe.com/v3/"></script>
+    <title>Mondom a Tutit! - Adat-alapú Foci Tippek</title>
+    <meta name="description" content="Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod. Csatlakozz a Telegram csatornánkhoz!">
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: #f0f2f5;
+        :root {
+            --primary-color: #38A169;
+            --secondary-color: #2F855A;
+            --text-color: #333;
+            --bg-color: #f4f7f6;
+            --white: #ffffff;
+            --bg-dark: #1A202C;
+            --bg-card: #2D3748;
+            --border-color: #4A5568;
+            --text-light: #E2E8F0;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+        section { padding: 60px 0; }
+
+        /* Módosított HERO szekció az új, egyedi háttérképpel */
+        .hero {
+            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('/images/hero-background.jpg') no-repeat center center/cover;
+            color: var(--white);
+            min-height: 50vh;
             display: flex;
-            justify-content: center;
             align-items: center;
-            height: 100vh;
-            margin: 0;
-            color: #333;
-        }
-        .container {
             text-align: center;
-            background-color: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            padding: 40px 0;
         }
-        h2 {
+        .hero-content { max-width: 800px; }
+        .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
+        .hero p { font-size: 1.25rem; margin-bottom: 2rem; }
+        .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
+        .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
+
+        .auth-section {
+            background-color: var(--bg-dark);
+            padding: 50px 0;
+        }
+        .auth-box {
+            max-width: 450px;
+            margin: auto;
+            background-color: var(--bg-card);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            color: var(--text-light);
+        }
+        .auth-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
             margin-bottom: 25px;
         }
-        .price-button {
-            display: block;
-            width: 100%;
-            max-width: 320px;
+        .auth-tabs button {
+            flex-grow: 1;
             padding: 15px;
-            margin: 15px auto;
-            font-size: 16px;
-            font-weight: bold;
-            color: white;
-            background-color: #0088cc;
             border: none;
-            border-radius: 8px;
+            background: none;
+            color: var(--text-light);
+            font-size: 1.1rem;
+            font-weight: bold;
             cursor: pointer;
-            transition: background-color 0.2s ease;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
         }
-        .price-button:hover {
-            background-color: #006699;
+        .auth-tabs button.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
         }
-        .price-button .plan-duration {
-            font-size: 18px;
+        .auth-content { display: none; }
+        .auth-content.active { display: block; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem; }
+        .auth-button { width: 100%; background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1rem; font-weight: bold; transition: background-color 0.3s ease; }
+        .auth-button:hover { background-color: var(--secondary-color); }
+
+        .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
+        .step { flex-basis: 30%; min-width: 250px; }
+        .step-icon { font-size: 3rem; color: var(--primary-color); }
+        .step h3 { font-size: 1.5rem; margin-top: 15px; }
+        .features, .pricing { background-color: var(--white); }
+        .features-list { list-style: none; padding: 0; max-width: 600px; margin: 0 auto; font-size: 1.1rem; }
+        .features-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
+        .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; }
+
+        footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
+        footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
+        footer a:hover { text-decoration: underline; }
+        @media(max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero { min-height: 40vh; }
         }
-        .price-button .plan-price {
-            font-weight: normal;
-            font-size: 14px;
+        @media(max-width: 480px) {
+            .hero h1 { font-size: 2rem; }
+            .hero p { font-size: 1rem; }
+            .hero { min-height: 35vh; }
         }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h2>Válassz előfizetési csomagot:</h2>
+    <section class="hero">
+        <div class="container hero-content">
+            <h1>Nyerj a meccseken. Adat-alapú tippek, automatizálva.</h1>
+            <p>Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.</p>
+        </div>
+    </section>
 
-        <button class="price-button" id="weekly-button">
-            <span class="plan-duration">Heti Előfizetés</span><br>
-            <span class="plan-price">3,490 Ft</span>
-        </button>
+    <section id="login-register" class="auth-section">
+        <div class="auth-box">
+            <div class="auth-tabs">
+                <button class="tab-link active" onclick="openTab(event, 'login')">Bejelentkezés</button>
+                <button class="tab-link" onclick="openTab(event, 'register')">Regisztráció</button>
+            </div>
 
-        <button class="price-button" id="monthly-button">
-            <span class="plan-duration">Havi Előfizetés</span><br>
-            <span class="plan-price">9,999 Ft</span>
-        </button>
-    </div>
+            <div id="login" class="auth-content active">
+                <form action="/login" method="post">
+                    <div class="form-group">
+                        <label for="login-email">E-mail cím</label>
+                        <input type="email" id="login-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Jelszó</label>
+                        <input type="password" id="login-password" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-button">Bejelentkezés</button>
+                </form>
+            </div>
 
-    <script>
-        // === FONTOS: EZT A 2 ÉRTÉKET CSERÉLD KI A SAJÁTODRA! ===
-        const STRIPE_PUBLISHABLE_KEY = "pk_live_51RxsXHGTueuLQQunZfdSp6S4dEGp1kXASTVCULUjMaM3UyENDNMYZ5UJzVROgkGhXkvd2t6rUVnN0kSJ4TokjgRa00l51KmVOD"; // CSERÉLD KI A SAJÁT STRIPE PUBLISHABLE KULCSODRA!
-        const RENDER_APP_URL = "https://foci-telegram-bot.onrender.com"; // CSERÉLD KI A SAJÁT RENDER ALKALMAZÁSOD URL-JÉRE!
-        // =========================================================
+            <div id="register" class="auth-content">
+                <form action="/register" method="post">
+                    <div class="form-group">
+                        <label for="reg-email">E-mail cím</label>
+                        <input type="email" id="reg-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-password">Jelszó</label>
+                        <input type="password" id="reg-password" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-button">Regisztráció</button>
+                </form>
+            </div>
+        </div>
+    </section>
 
-        const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+    <section id="how-it-works">
+        <div class="container">
+            <h2 class="section-title">Leegyszerűsítjük a Sportfogadást</h2>
+            <div class="how-it-works-grid">
+                <div class="step">
+                    <div class="step-icon">📊</div>
+                    <h3>1. Napi Elemzés</h3>
+                    <p>Botunk minden nap átfésüli a globális focikínálatot. Csapatok formája, H2H statisztikák, tabella, oddsok – semmi sem kerüli el a figyelmét.</p>
+                </div>
+                <div class="step">
+                    <div class="step-icon">🎯</div>
+                    <h3>2. A Legjobb Tippek Kiválasztása</h3>
+                    <p>Egyedi pontozórendszerünkkel kiszűri a legértékesebb, legmagasabb valószínűségű tippeket, és rangsorolt szelvényekbe szervezi őket.</p>
+                </div>
+                <div class="step">
+                    <div class="step-icon">📲</div>
+                    <h3>3. Azonnali Küldés Telegramon</h3>
+                    <p>Minden nap, kényelmesen megkapod a "Napi Tuti" szelvényeket a privát Telegram botunkon keresztül. Nincs több keresgélés, nincs több bizonytalanság.</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        function getChatIdFromUrl() {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get('chat_id');
+    <section class="features">
+        <div class="container">
+            <h2 class="section-title">A Te Személyes Tippmestered</h2>
+            <ul class="features-list">
+                <li>Napi 2-4, Gondosan Összeállított Szelvény</li>
+                <li>Rangsorolás és Megbízhatósági Százalék Minden Szelvényhez</li>
+                <li>Teljesen Automata, Érzelemmentes, Adat-alapú Tippadás</li>
+                <li>Kényelmes és Diszkrét Hozzáférés a Privát Telegram Boton Keresztül</li>
+                <li>Egyszerű, Biztonságos Heti és Havi Előfizetési Lehetőségek</li>
+            </ul>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>© 2025 Mondom a Tutit! | Minden jog fenntartva.</p>
+            <p>
+                <a href="https://t.me/MondomATutit" target="_blank">Telegram Csatorna</a> |
+                <a href="/aszf.html">ÁSZF</a> |
+                <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
+            </p>
+        </div>
+    </footer>
+
+<script>
+    // Script a bejelentkezési/regisztrációs fülek váltásához
+    function openTab(evt, tabName) {
+        var i, authcontent, tablinks;
+        authcontent = document.getElementsByClassName("auth-content");
+        for (i = 0; i < authcontent.length; i++) {
+            authcontent[i].style.display = "none";
         }
-
-        function createCheckoutSession(plan) {
-            const chatId = getChatIdFromUrl();
-            if (!chatId) {
-                alert("Hiba: A felhasználói azonosító hiányzik az URL-ből. Kérlek, indítsd a folyamatot újra a Telegram botból.");
-                return;
-            }
-
-            fetch(`${RENDER_APP_URL}/create-checkout-session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chatId, plan: plan })
-            })
-            .then(response => response.json())
-            .then(session => {
-                if (session.id) {
-                    return stripe.redirectToCheckout({ sessionId: session.id });
-                } else {
-                    console.error("Hiba a session létrehozásakor:", session);
-                    alert("Hiba történt a fizetés előkészítése közben. Kérlek, próbáld újra később.");
-                }
-            })
-            .catch(error => {
-                console.error('Kommunikációs hiba a szerverrel:', error);
-                alert("Hiba történt a szerverrel való kommunikáció során.");
-            });
+        tablinks = document.getElementsByClassName("tab-link");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
         }
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.className += " active";
+    }
+</script>
 
-        document.getElementById('weekly-button').addEventListener('click', () => {
-            createCheckoutSession('weekly');
-        });
-
-        document.getElementById('monthly-button').addEventListener('click', () => {
-            createCheckoutSession('monthly');
-        });
-    </script>
 </body>
 </html>
