@@ -1,111 +1,193 @@
-{% extends "base.html" %}
-
-{% block content %}
-<section class="hero">
-    <div class="container hero-content">
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mondom a Tutit! - Adat-alapú Foci Tippek</title>
+    <meta name="description" content="Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.">
+    <style>
+        :root {
+            --primary-color: #0088cc;
+            --secondary-color: #005f8e;
+            --text-color: #333;
+            --bg-color: #f4f7f6;
+            --white: #ffffff;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-color); margin: 0; color: var(--text-color); }
+        .container { max-width: 900px; margin: 20px auto; padding: 20px; background-color: var(--white); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        nav { background-color: #2c3e50; padding: 15px; text-align: center; }
+        nav a { color: white; text-decoration: none; margin: 0 15px; font-weight: bold; }
+        .button { background-color: var(--primary-color); color: white; padding: 12px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; text-decoration:none; display: inline-block; width: 100%; box-sizing: border-box;}
         
-        <div>
-            <h1>Nyerj a meccseken. Adat-alapú tippek, automatizálva.</h1>
-            <p>Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.</p>
-        </div>
+        /* FŐOLDALI HERO SZEKCIÓ STÍLUSAI */
+        .hero { 
+            display: flex; 
+            align-items: center; 
+            text-align: center; 
+            justify-content: center; 
+            min-height: 100vh;
+            padding: 40px 20px;
+            box-sizing: border-box;
+            background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1470&q=80') no-repeat center center/cover; 
+            color: white; 
+        }
+        .hero-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 600px;
+        }
+        .hero h1 { font-size: 3rem; margin-bottom: 1rem; color: white; }
+        .hero p { font-size: 1.1rem; margin-bottom: 2.5rem; }
         
-        <div id="login-section" class="form-container">
-            <div class="form-tabs">
-                <button class="tab-link active" onclick="openForm(event, 'login')">Bejelentkezés</button>
-                <button class="tab-link" onclick="openForm(event, 'register')">Regisztráció</button>
-            </div>
+        .form-container { 
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 8px; 
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
+            backdrop-filter: blur(5px);
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+            color: #333;
+        }
+        .form-tabs { display: flex; margin-bottom: 20px; }
+        .tab-link { flex: 1; padding: 12px; background-color: #e9ecef; border: none; cursor: pointer; font-size: 1rem; transition: background-color 0.3s; color: #495057; }
+        .tab-link.active { background-color: #fff; color: #0088cc; font-weight: bold; }
+        .tab-content { display: none; }
+        .form-group { margin-bottom: 15px; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
+        .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
+        .step { flex-basis: 30%; min-width: 250px; }
+        .step-icon { font-size: 3rem; color: var(--primary-color); }
+        .step h3 { font-size: 1.5rem; margin-top: 15px; }
+        .features, .pricing { background-color: var(--white); }
+        .features-list { list-style: none; padding: 0; max-width: 600px; margin: 0 auto; font-size: 1.1rem; }
+        .features-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
+        .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; }
+        .pricing-grid { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
+        .price-card { border: 1px solid #ddd; border-radius: 10px; padding: 30px; text-align: center; width: 300px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        .price-card h3 { font-size: 1.8rem; color: var(--primary-color); }
+        .price-card .price { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
+        .price-card p { color: #666; margin-bottom: 25px; }
+        footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
+        footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
+        footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">Főoldal</a>
+        {% if user %}
+            <a href="/vip">VIP Tippek</a>
+            <a href="/profile">Profil</a>
+            <a href="/logout">Kijelentkezés</a>
+        {% else %}
+            <a href="/#login-section">Bejelentkezés / Regisztráció</a>
+        {% endif %}
+    </nav>
 
-            <div id="login" class="tab-content" style="display: block;">
-                <form action="/login" method="post">
-                    <div class="form-group">
-                        <input type="email" name="email" placeholder="E-mail cím" required>
+    <div class="container" style="max-width: 100%; padding: 0; margin:0;">
+        <section class="hero">
+            <div class="container hero-content">
+                <div>
+                    <h1>Nyerj a meccseken. Adat-alapú tippek, automatizálva.</h1>
+                    <p>Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.</p>
+                </div>
+                
+                <div id="login-section" class="form-container">
+                    <div class="form-tabs">
+                        <button class="tab-link active" onclick="openForm(event, 'login')">Bejelentkezés</button>
+                        <button class="tab-link" onclick="openForm(event, 'register')">Regisztráció</button>
                     </div>
-                    <div class="form-group">
-                        <input type="password" name="password" placeholder="Jelszó" required>
+                    <div id="login" class="tab-content" style="display: block;">
+                        <form action="/login" method="post">
+                            <div class="form-group"><input type="email" name="email" placeholder="E-mail cím" required></div>
+                            <div class="form-group"><input type="password" name="password" placeholder="Jelszó" required></div>
+                            <button type="submit" class="button">Bejelentkezés</button>
+                        </form>
                     </div>
-                    <button type="submit" class="button">Bejelentkezés</button>
-                </form>
-            </div>
-
-            <div id="register" class="tab-content">
-                <form action="/register" method="post">
-                    <div class="form-group">
-                        <input type="email" name="email" placeholder="E-mail cím" required>
+                    <div id="register" class="tab-content">
+                        <form action="/register" method="post">
+                            <div class="form-group"><input type="email" name="email" placeholder="E-mail cím" required></div>
+                            <div class="form-group"><input type="password" name="password" placeholder="Jelszó" required></div>
+                            <button type="submit" class="button">Regisztráció</button>
+                        </form>
                     </div>
-                    <div class="form-group">
-                        <input type="password" name="password" placeholder="Jelszó" required>
+                </div>
+            </div>
+        </section>
+
+        <section id="how-it-works">
+            <div class="container">
+                <h2 class="section-title">Leegyszerűsítjük a Sportfogadást</h2>
+                <div class="how-it-works-grid">
+                    <div class="step"><div class="step-icon">📊</div><h3>1. Napi Elemzés</h3><p>Botunk minden nap átfésüli a globális focikínálatot. Csapatok formája, H2H statisztikák, tabella, oddsok – semmi sem kerüli el a figyelmét.</p></div>
+                    <div class="step"><div class="step-icon">🎯</div><h3>2. A Legjobb Tippek Kiválasztása</h3><p>Egyedi pontozórendszerünkkel kiszűri a legértékesebb, legmagasabb valószínűségű tippeket, és rangsorolt szelvényekbe szervezi őket.</p></div>
+                    <div class="step"><div class="step-icon">📲</div><h3>3. Azonnali Értesítés Telegramon</h3><p>Minden nap, kényelmesen megkapod az értesítést a friss tippekről a Telegram botunkon keresztül, amint elérhetővé válnak a weboldalon.</p></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="container">
+                <h2 class="section-title">A Te Személyes Tippmestered</h2>
+                <ul class="features-list">
+                    <li>Napi 2-4, Gondosan Összeállított Szelvény</li>
+                    <li>Rangsorolás és Megbízhatósági Százalék Minden Szelvényhez</li>
+                    <li>Teljesen Automata, Érzelemmentes, Adat-alapú Tippadás</li>
+                    <li>Kényelmes Hozzáférés a Weboldal VIP Zónájában</li>
+                    <li>Azonnali Telegram Értesítés a Friss Tippekről</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="pricing">
+            <div class="container">
+                <h2 class="section-title">Válassz Csomagot és Kezdd el Ma!</h2>
+                {% if user %}
+                    <p style="text-align:center;">Válassz csomagot a VIP Zónában!</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="/vip" class="button" style="max-width: 300px;">Tovább a VIP Zónába</a>
                     </div>
-                    <button type="submit" class="button">Regisztráció</button>
-                </form>
+                {% else %}
+                    <p style="text-align:center;">A fizetéshez és a tippek eléréséhez kérlek, regisztrálj vagy jelentkezz be a lap tetején!</p>
+                {% endif %}
+                <div class="pricing-grid" style="margin-top: 30px;">
+                    <div class="price-card"><h3>HETI CSOMAG</h3><div class="price">3,490 Ft</div><p>Ideális, ha kipróbálnád a szolgáltatást.</p></div>
+                    <div class="price-card"><h3>HAVI CSOMAG</h3><div class="price">9,999 Ft</div><p>A legjobb ár-érték arány a tudatos sportfogadóknak.</p></div>
+                </div>
             </div>
-        </div>
-
+        </section>
+        
+        <footer>
+            <div class="container">
+                <p>© 2025 Mondom a Tutit! | Minden jog fenntartva.</p>
+                <p>
+                    <a href="https://t.me/A_TE_NYILVANOS_CSATORNAD_NEVE" target="_blank">Telegram Csatorna</a> |
+                    <a href="/aszf.html">ÁSZF</a> |
+                    <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
+                </p>
+            </div>
+        </footer>
     </div>
-</section>
 
-<section id="how-it-works">
-    <div class="container">
-        <h2 class="section-title">Leegyszerűsítjük a Sportfogadást</h2>
-        <div class="how-it-works-grid">
-            <div class="step">
-                <div class="step-icon">📊</div>
-                <h3>1. Napi Elemzés</h3>
-                <p>Botunk minden nap átfésüli a globális focikínálatot. Csapatok formája, H2H statisztikák, tabella, oddsok – semmi sem kerüli el a figyelmét.</p>
-            </div>
-            <div class="step">
-                <div class="step-icon">🎯</div>
-                <h3>2. A Legjobb Tippek Kiválasztása</h3>
-                <p>Egyedi pontozórendszerünkkel kiszűri a legértékesebb, legmagasabb valószínűségű tippeket, és rangsorolt szelvényekbe szervezi őket.</p>
-            </div>
-            <div class="step">
-                <div class="step-icon">📲</div>
-                <h3>3. Azonnali Értesítés Telegramon</h3>
-                <p>Minden nap, kényelmesen megkapod az értesítést a friss tippekről a Telegram botunkon keresztül, amint elérhetővé válnak a weboldalon.</p>
-            </div>
-        </div>
-    </div>
-</section>
-
-<section class="features">
-    <div class="container">
-        <h2 class="section-title">A Te Személyes Tippmestered</h2>
-        <ul class="features-list">
-            <li>Napi 2-4, Gondosan Összeállított Szelvény</li>
-            <li>Rangsorolás és Megbízhatósági Százalék Minden Szelvényhez</li>
-            <li>Teljesen Automata, Érzelemmentes, Adat-alapú Tippadás</li>
-            <li>Kényelmes Hozzáférés a Weboldal VIP Zónájában</li>
-            <li>Azonnali Telegram Értesítés a Friss Tippekről</li>
-        </ul>
-    </div>
-</section>
-
-<section class="pricing">
-    <div class="container">
-        <h2 class="section-title">Válassz Csomagot és Kezdd el Ma!</h2>
-        <p style="text-align:center;">A fizetéshez és a tippek eléréséhez kérlek, regisztrálj vagy jelentkezz be a fenti panelen!</p>
-        <div class="pricing-grid">
-            <div class="price-card">
-                <h3>HETI CSOMAG</h3>
-                <div class="price">3,490 Ft</div>
-                <p>Ideális, ha kipróbálnád a szolgáltatást.</p>
-            </div>
-            <div class="price-card">
-                <h3>HAVI CSOMAG</h3>
-                <div class="price">9,999 Ft</div>
-                <p>A legjobb ár-érték arány a tudatos sportfogadóknak.</p>
-            </div>
-        </div>
-    </div>
-</section>
-
-<footer>
-    <div class="container">
-        <p>© 2025 Mondom a Tutit! | Minden jog fenntartva.</p>
-        <p>
-            <a href="https://t.me/A_TE_NYILVANOS_CSATORNAD_NEVE" target="_blank">Telegram Csatorna</a> |
-            <a href="/aszf.html">ÁSZF</a> |
-            <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
-        </p>
-    </div>
-</footer>
-{% endblock %}
+    <script>
+        function openForm(evt, formName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tab-link");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(formName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+    </script>
+</body>
+</html>
