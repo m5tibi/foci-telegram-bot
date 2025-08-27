@@ -6,11 +6,11 @@
     <title>Mondom a Tutit! - Adat-alapú Foci Tippek</title>
     <meta name="description" content="Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod. Csatlakozz a Telegram csatornánkhoz!">
     <style>
-        :root { 
-            --primary-color: #38A169; /* ÚJ SZÍN: A megbeszélt zöld */
-            --secondary-color: #2F855A; /* ÚJ SZÍN: A megbeszélt sötétebb zöld */
-            --text-color: #333; 
-            --bg-color: #f4f7f6; 
+        :root {
+            --primary-color: #38A169;
+            --secondary-color: #2F855A;
+            --text-color: #333;
+            --bg-color: #f4f7f6;
             --white: #ffffff;
             --bg-dark: #1A202C;
             --bg-card: #2D3748;
@@ -21,25 +21,24 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
         section { padding: 60px 0; }
-        
-        /* Módosított HERO szekció */
-        .hero { 
-            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('https://images.unsplash.com/photo-1549722363-23c2162b78b5?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80') no-repeat center center/cover; /* ÚJ KÉP AI/foci témában */
-            color: var(--white); 
-            min-height: 50vh; /* CSÖKKENTETT MAGASSÁG */
-            display: flex; 
-            align-items: center; 
-            text-align: center; 
-            padding: 40px 0; /* Hozzáadva a kisebb magassághoz */
+
+        /* Módosított HERO szekció az új, egyedi háttérképpel */
+        .hero {
+            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('/images/hero-background.jpg') no-repeat center center/cover;
+            color: var(--white);
+            min-height: 50vh;
+            display: flex;
+            align-items: center;
+            text-align: center;
+            padding: 40px 0;
         }
-        .hero-content { max-width: 800px; }
+        .hero-content { max-width: 800px; margin: 0 auto; }
         .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
         .hero p { font-size: 1.25rem; margin-bottom: 2rem; }
         .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
         .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
         .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
-        
-        /* ÚJ SZEKCIÓ: Login/Regisztrációs panel */
+
         .auth-section {
             background-color: var(--bg-dark);
             padding: 50px 0;
@@ -81,7 +80,7 @@
         .form-group input { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem; }
         .auth-button { width: 100%; background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1rem; font-weight: bold; transition: background-color 0.3s ease; }
         .auth-button:hover { background-color: var(--secondary-color); }
-        
+
         .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
         .step { flex-basis: 30%; min-width: 250px; }
         .step-icon { font-size: 3rem; color: var(--primary-color); }
@@ -90,13 +89,13 @@
         .features-list { list-style: none; padding: 0; max-width: 600px; margin: 0 auto; font-size: 1.1rem; }
         .features-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
         .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; }
-        
+
         footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
         footer a:hover { text-decoration: underline; }
-        @media(max-width: 768px) { 
-            .hero h1 { font-size: 2.5rem; } 
-            .hero { min-height: 40vh; } /* Még kisebb mobilon */
+        @media(max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero { min-height: 40vh; }
         }
         @media(max-width: 480px) {
             .hero h1 { font-size: 2rem; }
@@ -162,7 +161,7 @@
                 </div>
                 <div class="step">
                     <div class="step-icon">🎯</div>
-                    <h3>2. A Legjobb Tippek Kiválasztása</h3>
+                    <h3>2. A Legjobb Tippek Kiválálasztása</h3>
                     <p>Egyedi pontozórendszerünkkel kiszűri a legértékesebb, legmagasabb valószínűségű tippeket, és rangsorolt szelvényekbe szervezi őket.</p>
                 </div>
                 <div class="step">
