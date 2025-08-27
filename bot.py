@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Statisztika Javítással és Napi Tuti Lekéréssel)
+# bot.py (Hibrid Modell - Weboldal-azonos szelvény formázással)
 
 import os
 import telegram
@@ -26,7 +26,6 @@ AWAITING_BROADCAST = 0
 def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# === JAVÍTÁS ITT: A hiányzó lista visszahelyezése ===
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
@@ -41,7 +40,7 @@ def admin_only(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-# --- FŐ FUNKCIióK ---
+# --- FŐ FUNKCIÓK ---
 
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user
@@ -51,9 +50,9 @@ async def start(update: telegram.Update, context: CallbackContext):
         token = context.args[0]
         def connect_account():
             supabase = get_db_client()
-            res = supabase.table("felhasznalok").select("id").eq("telegram_connect_token", token).single().execute()
+            res = supabase.table("felhasnalok").select("id").eq("telegram_connect_token", token).single().execute()
             if res.data:
-                supabase.table("felhasznalok").update({"chat_id": chat_id, "telegram_connect_token": None}).eq("id", res.data['id']).execute()
+                supabase.table("felhasnalok").update({"chat_id": chat_id, "telegram_connect_token": None}).eq("id", res.data['id']).execute()
                 return True
             return False
         
@@ -77,7 +76,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         def _activate_sync():
             supabase = get_db_client()
             expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
-            supabase.table("felhasznalok").update({
+            supabase.table("felhasnalok").update({
                 "subscription_status": "active", 
                 "subscription_expires_at": expires_at.isoformat(),
                 "stripe_customer_id": stripe_customer_id
@@ -95,7 +94,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
 async def admin_menu(update: telegram.Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Statisztikák", callback_data="admin_show_stat_current_month_0")],
-        [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips")], # ÚJ GOMB
+        [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
@@ -103,7 +102,24 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
-# ÚJ FUNKCIÓ AZ AKTUÁLIS SZELVÉNYEK LEKÉRÉSÉHEZ
+def format_slip_for_telegram(szelveny):
+    """Segédfüggvény egy szelvény formázásához a weboldalhoz hasonlóan."""
+    message = f"*{szelveny['tipp_neve']}* (Megbízhatóság: *{szelveny['confidence_percent']}%*)\n\n"
+    
+    for meccs in szelveny['meccsek']:
+        local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+        kezdes_str = local_time.strftime('%b %d. %H:%M')
+        tipp_str = get_tip_details(meccs['tipp'])
+
+        message += f"⚽️ *{meccs['csapat_H']} vs {meccs['csapat_V']}*\n"
+        message += f"🏆 _{meccs['liga_nev']}_\n"
+        message += f"⏰ Kezdés: {kezdes_str}\n"
+        message += f"💡 Tipp: {tipp_str} *@{'%.2f' % meccs['odds']}*\n\n"
+    
+    message += f"🎯 Eredő odds: *{'%.2f' % szelveny['eredo_odds']}*\n"
+    message += "-----------------------------------\n"
+    return message
+
 @admin_only
 async def admin_show_slips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -117,8 +133,7 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # Keressük a mai és holnapi szelvényeket
-            response = supabase.table("napi_tuti").select("*").in_("tipp_neve", [f"Napi Tuti #1 - {today_str}", f"Napi Tuti #2 - {today_str}", f"Napi Tuti #3 - {today_str}", f"Napi Tuti #4 - {today_str}", f"Napi Tuti #1 - {tomorrow_str}", f"Napi Tuti #2 - {tomorrow_str}", f"Napi Tuti #3 - {tomorrow_str}", f"Napi Tuti #4 - {tomorrow_str}"]).order('tipp_neve', desc=False).execute()
+            response = supabase.from_("napi_tuti").select("*").or_(f"tipp_neve.ilike.%{today_str}%", f"tipp_neve.ilike.%{tomorrow_str}%").order('tipp_neve', desc=False).execute()
             
             if not response.data:
                 return "Nem találhatóak aktív (mai vagy holnapi) Napi Tuti szelvények."
@@ -130,30 +145,37 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
             meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
             
-            final_message = "📬 *Aktuális Napi Tuti Szelvények*\n\n"
-            
+            todays_slips, tomorrows_slips = [], []
             for szelveny_data in response.data:
                 tipp_id_k = szelveny_data.get('tipp_id_k', [])
                 szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
                 
-                if not szelveny_meccsei:
-                    continue
-
-                final_message += f"*{szelveny_data['tipp_neve']}*\n"
-                final_message += f"Megbízhatóság: *{szelveny_data['confidence_percent']}%* | Eredő Odds: *{szelveny_data['eredo_odds']:.2f}*\n"
-                
-                for meccs in szelveny_meccsei:
-                    local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                    kezdes_str = local_time.strftime('%H:%M')
-                    tipp_str = get_tip_details(meccs['tipp'])
-                    final_message += f" ⚽️ `{kezdes_str}` {meccs['csapat_H']} vs {meccs['csapat_V']} \n     💡 Tipp: {tipp_str} @{meccs['odds']:.2f}\n"
-                
-                final_message += "-----------------------------------\n"
+                if szelveny_meccsei:
+                    szelveny_data['meccsek'] = szelveny_meccsei
+                    if today_str in szelveny_data['tipp_neve']:
+                        todays_slips.append(szelveny_data)
+                    elif tomorrow_str in szelveny_data['tipp_neve']:
+                        tomorrows_slips.append(szelveny_data)
             
-            return final_message
+            final_message = ""
+            if todays_slips:
+                final_message += "*--- Mai Aktív Szelvények ---*\n\n"
+                for szelveny in todays_slips:
+                    final_message += format_slip_for_telegram(szelveny)
+            
+            if tomorrows_slips:
+                final_message += "*--- Holnapi Szelvények ---*\n\n"
+                for szelveny in tomorrows_slips:
+                    final_message += format_slip_for_telegram(szelveny)
+            
+            return final_message if final_message else "Nem találhatóak feldolgozható aktív szelvények."
 
         final_message = await asyncio.to_thread(sync_fetch_slips)
-        await message_to_edit.edit_text(final_message, parse_mode='Markdown')
+        # A Telegram üzenet maximális hossza 4096 karakter. Ha ennél hosszabb, hibát dobna.
+        if len(final_message) > 4096:
+            await message_to_edit.edit_text("Túl sok az aktív szelvény, az üzenet meghaladja a maximális hosszt. Kérlek, nézd meg a weboldalon.")
+        else:
+            await message_to_edit.edit_text(final_message, parse_mode='Markdown')
 
     except Exception as e:
         print(f"Hiba a Napi Tutik lekérésekor (admin): {e}")
@@ -356,7 +378,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
-    elif command == "admin_show_slips": await admin_show_slips(update, context) # ÚJ HANDLER
+    elif command == "admin_show_slips": await admin_show_slips(update, context)
     elif command == "admin_close": 
         await query.answer()
         await query.message.delete()
