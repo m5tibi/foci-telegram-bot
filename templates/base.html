@@ -47,14 +47,20 @@
             padding: 20px;
             text-align: center;
             border-bottom: 1px solid var(--border-color);
+            display: flex; /* Flexbox a menüpontokhoz */
+            justify-content: center; /* Középre igazítás */
+            flex-wrap: wrap; /* Tördelés kisebb képernyőn */
+            gap: 15px; /* Hozzáadott rés a menüpontok közé */
         }
         nav a {
             color: var(--text-light);
             text-decoration: none;
-            margin: 0 15px;
+            /* margin: 0 15px; */ /* Ezt kivettem, mert a gap kezeli */
             font-weight: bold;
             font-family: 'Poppins', sans-serif;
             transition: color 0.3s ease;
+            white-space: nowrap; /* Megakadályozza a tördelést egy elemen belül */
+            padding: 5px 10px; /* Kisebb padding, hogy beférjenek */
         }
         nav a:hover {
             color: var(--primary-green);
@@ -96,6 +102,10 @@
             font-weight: bold;
             font-family: 'Poppins', sans-serif;
             transition: background-color 0.3s ease;
+            /* Hozzáadva a mobilos láthatóság javításához */
+            display: inline-block; 
+            width: auto; 
+            text-align: center;
         }
         .button:hover {
             background-color: var(--primary-green-hover);
@@ -190,6 +200,22 @@
         .price-card .price { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
         .price-card p { color: var(--text-medium); margin-bottom: 25px; }
 
+        /* Mobil nézetre optimalizált navigáció */
+        @media (max-width: 600px) {
+            nav {
+                flex-direction: column; /* Egymás alá kerülnek a menüpontok */
+                gap: 10px; /* Kisebb rés */
+                padding: 15px;
+            }
+            nav a {
+                padding: 8px 15px; /* Kisebb padding mobilon */
+                font-size: 0.95rem; /* Kicsit kisebb betűméret */
+            }
+            .container {
+                margin: 20px auto;
+                padding: 15px;
+            }
+        }
     </style>
 </head>
 <body>
