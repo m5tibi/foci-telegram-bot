@@ -1,4 +1,4 @@
-# send_notification.py (Hibrid Modell Verzió)
+# send_notification.py (Hibrid Modell Verzió - Admin Garantált Értesítéssel)
 import os
 import asyncio
 from supabase import create_client, Client
@@ -8,26 +8,38 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+ADMIN_CHAT_ID = 1326707238 # A te admin ID-d, hogy biztosan megkapd az értesítést
 
 async def send_notifications():
     if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN]):
         print("Hiba: Környezeti változók hiányoznak.")
         return
 
-    print("Értesítő szkript indítása (Hibrid Modell)...")
+    print("Értesítő szkript indítása (Admin Garantált Értesítéssel)...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    
+    chat_ids_to_notify = set()
 
     try:
-        # Azokat a felhasználókat kérjük le, akiknek van aktív előfizetésük ÉS össze van kötve a Telegram fiókjuk
+        # 1. Előfizetők lekérése
         response = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
         
-        if not response.data:
-            print("Nincsenek értesítendő aktív, összekötött felhasználók.")
+        if response.data:
+            subscriber_ids = {user['chat_id'] for user in response.data}
+            chat_ids_to_notify.update(subscriber_ids)
+            print(f"{len(subscriber_ids)} aktív előfizető hozzáadva az értesítési listához.")
+
+        # 2. Admin hozzáadása a listához, garantáltan
+        if ADMIN_CHAT_ID:
+            chat_ids_to_notify.add(ADMIN_CHAT_ID)
+            print(f"Admin ({ADMIN_CHAT_ID}) hozzáadva az értesítési listához.")
+
+        if not chat_ids_to_notify:
+            print("Nincsenek értesítendő felhasználók.")
             return
         
-        chat_ids = [user['chat_id'] for user in response.data]
-        print(f"Értesítés küldése {len(chat_ids)} felhasználónak...")
+        print(f"Értesítés küldése összesen {len(chat_ids_to_notify)} felhasználónak...")
 
     except Exception as e:
         print(f"Hiba a felhasználók lekérése során: {e}")
@@ -38,7 +50,7 @@ async def send_notifications():
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     successful_sends = 0
-    for chat_id in chat_ids:
+    for chat_id in chat_ids_to_notify:
         try:
             await bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup)
             successful_sends += 1
