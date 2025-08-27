@@ -29,29 +29,50 @@
             <button type="submit" class="button">Összekötés Indítása</button>
         </form>
         <div id="telegram-link-container" style="display:none; margin-top: 15px;">
-             </div>
+             <button onclick="closeTelegramLink()" class="button" style="margin-top: 15px;">Bezárás</button>
+        </div>
     {% endif %}
 
 <script>
 // Ez a script kezeli a Telegram link generálását anélkül, hogy új oldalra vinne
 const form = document.getElementById('telegram-form');
+const telegramLinkContainer = document.getElementById('telegram-link-container');
+
 if (form) {
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const response = await fetch('/generate-telegram-link', {
             method: 'POST'
         });
-        const linkContainer = document.getElementById('telegram-link-container');
+        
         if (response.ok) {
             const content = await response.text();
-            linkContainer.innerHTML = content;
-            linkContainer.style.display = 'block';
-            form.style.display = 'none';
+            // Ellenőrizzük, hogy a tartalom egy linket tartalmaz-e, vagy csak egy üzenetet
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(content, 'text/html');
+            const linkElement = doc.querySelector('a');
+
+            if (linkElement) {
+                // Ha van link, akkor azt és a bezárás gombot jelenítjük meg
+                telegramLinkContainer.innerHTML = content + '<button onclick="closeTelegramLink()" class="button" style="margin-top: 15px;">Bezárás</button>';
+            } else {
+                // Ha nincs link (pl. hibaüzenet), akkor csak azt és a bezárás gombot
+                telegramLinkContainer.innerHTML = content + '<button onclick="closeTelegramLink()" class="button" style="margin-top: 15px;">Bezárás</button>';
+            }
+            telegramLinkContainer.style.display = 'block';
+            form.style.display = 'none'; // Elrejtjük a "Összekötés Indítása" gombot
         } else {
-            linkContainer.innerHTML = '<div class="alert alert-danger">Hiba történt a link generálása közben.</div>';
-            linkContainer.style.display = 'block';
+            telegramLinkContainer.innerHTML = '<div class="alert alert-danger">Hiba történt a link generálása közben.</div><button onclick="closeTelegramLink()" class="button" style="margin-top: 15px;">Bezárás</button>';
+            telegramLinkContainer.style.display = 'block';
+            form.style.display = 'none';
         }
     });
+}
+
+function closeTelegramLink() {
+    telegramLinkContainer.style.display = 'none';
+    form.style.display = 'block'; // Visszaállítjuk a "Összekötés Indítása" gombot
+    telegramLinkContainer.innerHTML = ''; // Kiürítjük a tartalmát
 }
 </script>
 
