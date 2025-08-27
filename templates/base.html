@@ -10,19 +10,19 @@
 
         /* Színpaletta és alap változók */
         :root {
-            --bg-dark: #1A202C;         /* Sötét háttér */
-            --bg-card: #2D3748;         /* Kicsit világosabb "kártya" háttér */
-            --primary-green: #38A169;     /* Élénk zöld a gombokhoz és kiemelésekhez */
-            --primary-green-hover: #2F855A; /* Sötétebb zöld hover effekthez */
-            --text-light: #E2E8F0;      /* Világos szövegszín */
-            --text-medium: #A0AEC0;     /* Halványabb szöveg (pl. leírások) */
-            --border-color: #4A5568;    /* Elválasztók, keretek színe */
-            --danger-bg: #4A2222;       /* Hibaüzenet háttere */
-            --danger-text: #FEB2B2;     /* Hibaüzenet szövege */
-            --danger-border: #C53030;    /* Hibaüzenet kerete */
-            --success-bg: #2A433A;      /* Siker üzenet háttere */
-            --success-text: #9AE6B4;    /* Siker üzenet szövege */
-            --success-border: #38A169;   /* Siker üzenet kerete */
+            --bg-dark: #1A202C;
+            --bg-card: #2D3748;
+            --primary-green: #38A169;
+            --primary-green-hover: #2F855A;
+            --text-light: #E2E8F0;
+            --text-medium: #A0AEC0;
+            --border-color: #4A5568;
+            --danger-bg: #4A2222;
+            --danger-text: #FEB2B2;
+            --danger-border: #C53030;
+            --success-bg: #2A433A;
+            --success-text: #9AE6B4;
+            --success-border: #38A169;
         }
 
         body {
@@ -47,20 +47,19 @@
             padding: 20px;
             text-align: center;
             border-bottom: 1px solid var(--border-color);
-            display: flex; /* Flexbox a menüpontokhoz */
-            justify-content: center; /* Középre igazítás */
-            flex-wrap: wrap; /* Tördelés kisebb képernyőn */
-            gap: 15px; /* Hozzáadott rés a menüpontok közé */
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 15px;
         }
         nav a {
             color: var(--text-light);
             text-decoration: none;
-            /* margin: 0 15px; */ /* Ezt kivettem, mert a gap kezeli */
             font-weight: bold;
             font-family: 'Poppins', sans-serif;
             transition: color 0.3s ease;
-            white-space: nowrap; /* Megakadályozza a tördelést egy elemen belül */
-            padding: 5px 10px; /* Kisebb padding, hogy beférjenek */
+            white-space: nowrap;
+            padding: 5px 10px;
         }
         nav a:hover {
             color: var(--primary-green);
@@ -102,9 +101,8 @@
             font-weight: bold;
             font-family: 'Poppins', sans-serif;
             transition: background-color 0.3s ease;
-            /* Hozzáadva a mobilos láthatóság javításához */
-            display: inline-block; 
-            width: auto; 
+            display: inline-block;
+            width: auto;
             text-align: center;
         }
         .button:hover {
@@ -139,14 +137,13 @@
             border: none;
             border-top: 1px solid var(--border-color);
         }
-        
-        /* Szelvény kártya stílusok */
+
         .szelveny-card {
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 25px;
-            background-color: var(--bg-dark); /* Eltér a container hátterétől */
+            background-color: var(--bg-dark);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
         .szelveny-card:hover {
@@ -165,7 +162,7 @@
             padding-bottom: 15px;
             margin-bottom: 15px;
         }
-        .szelveny-card .meccs:last-of-type { /* Az utolsó meccs alatt ne legyen vonal */
+        .szelveny-card .meccs:last-of-type {
             border-bottom: none;
             margin-bottom: 0;
             padding-bottom: 0;
@@ -188,28 +185,25 @@
             color: var(--primary-green);
         }
 
-        /* Holnapi szelvények megkülönböztetése */
         .tomorrow {
             opacity: 0.85;
         }
-        
-        /* Ár kártyák (pl. VIP oldalon) */
+
         .pricing-grid { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
         .price-card { background-color: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px; text-align: center; width: 300px; }
         .price-card h3 { font-size: 1.8rem; color: var(--primary-green); }
         .price-card .price { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
         .price-card p { color: var(--text-medium); margin-bottom: 25px; }
 
-        /* Mobil nézetre optimalizált navigáció */
         @media (max-width: 600px) {
             nav {
-                flex-direction: column; /* Egymás alá kerülnek a menüpontok */
-                gap: 10px; /* Kisebb rés */
+                flex-direction: column;
+                gap: 10px;
                 padding: 15px;
             }
             nav a {
-                padding: 8px 15px; /* Kisebb padding mobilon */
-                font-size: 0.95rem; /* Kicsit kisebb betűméret */
+                padding: 8px 15px;
+                font-size: 0.95rem;
             }
             .container {
                 margin: 20px auto;
@@ -220,14 +214,15 @@
 </head>
 <body>
     <nav>
-        <a href="/">Főoldal</a>
+        <a href="https://mondomatutit.hu">Főoldal</a>
         
         {% if user %}
             <a href="/vip">VIP Tippek</a>
             <a href="/profile">Profil</a>
             <a href="/logout">Kijelentkezés</a>
         {% else %}
-            <a href="/#login-register">Bejelentkezés</a>
+            <a href="/login">Bejelentkezés</a>
+            <a href="/register">Regisztráció</a>
         {% endif %}
     </nav>
     <div class="container">
