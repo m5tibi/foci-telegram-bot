@@ -10,29 +10,56 @@
         nav { background-color: #2c3e50; padding: 15px; text-align: center; }
         nav a { color: white; text-decoration: none; margin: 0 15px; font-weight: bold; }
         h1 { color: #0088cc; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; }
-        .form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .button { background-color: #0088cc; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        .button { background-color: #0088cc; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
         .alert { padding: 15px; margin-bottom: 20px; border-radius: 4px; }
         .alert-danger { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        /* --- ÚJ STÍLUSOK A FŐOLDALI PANELHEZ --- */
+        .hero { display: flex; align-items: center; text-align: center; justify-content: center; height: 100vh; background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1470&q=80') no-repeat center center/cover; color: white; }
+        .hero-content { max-width: 500px; }
+        .hero h1 { font-size: 3rem; margin-bottom: 1rem; color: white; }
+        .hero p { font-size: 1.1rem; margin-bottom: 2rem; }
+        
+        .form-container { background-color: rgba(255, 255, 255, 0.9); border-radius: 8px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); backdrop-filter: blur(5px); }
+        .form-tabs { display: flex; margin-bottom: 15px; }
+        .tab-link { flex: 1; padding: 10px; background-color: #ddd; border: none; cursor: pointer; font-size: 1rem; transition: background-color 0.3s; }
+        .tab-link.active { background-color: #fff; color: #0088cc; }
+        .tab-content { display: none; }
+        .form-group { margin-bottom: 15px; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        /* --- STÍLUSOK VÉGE --- */
     </style>
 </head>
 <body>
     <nav>
         <a href="/">Főoldal</a>
-        
         {% if user %}
             <a href="/vip">VIP Tippek</a>
             <a href="/profile">Profil</a>
             <a href="/logout">Kijelentkezés</a>
         {% else %}
-            <a href="/login">Bejelentkezés</a>
-            <a href="/register">Regisztráció</a>
+            <a href="/#login-section">Bejelentkezés</a>
+            <a href="/#login-section">Regisztráció</a>
         {% endif %}
     </nav>
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    
+    <script>
+        function openForm(evt, formName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tab-link");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(formName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+    </script>
 </body>
 </html>
