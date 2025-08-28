@@ -1,4 +1,4 @@
-# send_notification.py (Hibrid Modell Verzió - Admin Garantált Értesítéssel)
+# send_notification.py (Hibrid Modell Verzió - Javított VIP Linkkel)
 import os
 import asyncio
 from supabase import create_client, Client
@@ -15,7 +15,7 @@ async def send_notifications():
         print("Hiba: Környezeti változók hiányoznak.")
         return
 
-    print("Értesítő szkript indítása (Admin Garantált Értesítéssel)...")
+    print("Értesítő szkript indítása (Javított VIP Linkkel)...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     
@@ -46,7 +46,10 @@ async def send_notifications():
         return
 
     message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények!"
-    keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése a Weboldalon", url="https://mondomatutit.hu/vip")]]
+    
+    # JAVÍTÁS ITT: A link most már a helyes, Renderen futó VIP oldalra mutat
+    vip_url = "https://foci-telegram-bot.onrender.com/vip"
+    keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése", url=vip_url)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     successful_sends = 0
