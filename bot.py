@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Weboldal-azonos szelvény formázással)
+# bot.py (Hibrid Modell - Supabase Query Javítással és Vízjellel)
 
 import os
 import telegram
@@ -50,9 +50,9 @@ async def start(update: telegram.Update, context: CallbackContext):
         token = context.args[0]
         def connect_account():
             supabase = get_db_client()
-            res = supabase.table("felhasnalok").select("id").eq("telegram_connect_token", token).single().execute()
+            res = supabase.table("felhasznalok").select("id").eq("telegram_connect_token", token).single().execute()
             if res.data:
-                supabase.table("felhasnalok").update({"chat_id": chat_id, "telegram_connect_token": None}).eq("id", res.data['id']).execute()
+                supabase.table("felhasznalok").update({"chat_id": chat_id, "telegram_connect_token": None}).eq("id", res.data['id']).execute()
                 return True
             return False
         
@@ -76,7 +76,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         def _activate_sync():
             supabase = get_db_client()
             expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
-            supabase.table("felhasnalok").update({
+            supabase.table("felhasznalok").update({
                 "subscription_status": "active", 
                 "subscription_expires_at": expires_at.isoformat(),
                 "stripe_customer_id": stripe_customer_id
@@ -103,7 +103,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
 def format_slip_for_telegram(szelveny):
-    """Segédfüggvény egy szelvény formázásához a weboldalhoz hasonlóan."""
+    """Segédfüggvény egy szelvény formázásához a weboldalhoz hasonlóan, vízjellel."""
     message = f"*{szelveny['tipp_neve']}* (Megbízhatóság: *{szelveny['confidence_percent']}%*)\n\n"
     
     for meccs in szelveny['meccsek']:
@@ -117,6 +117,8 @@ def format_slip_for_telegram(szelveny):
         message += f"💡 Tipp: {tipp_str} *@{'%.2f' % meccs['odds']}*\n\n"
     
     message += f"🎯 Eredő odds: *{'%.2f' % szelveny['eredo_odds']}*\n"
+    # ÚJ RÉSZ: Vízjel hozzáadása
+    message += "_www.mondomatutit.hu_\n"
     message += "-----------------------------------\n"
     return message
 
@@ -133,7 +135,9 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            response = supabase.from_("napi_tuti").select("*").or_(f"tipp_neve.ilike.%{today_str}%", f"tipp_neve.ilike.%{tomorrow_str}%").order('tipp_neve', desc=False).execute()
+            # JAVÍTÁS ITT: Helyes Supabase 'or' szintaxis az 'ilike' szűrőhöz
+            filter_value = f"tipp_neve.ilike.*{today_str}*,tipp_neve.ilike.*{tomorrow_str}*"
+            response = supabase.table("napi_tuti").select("*").or_(filter_value).order('tipp_neve', desc=False).execute()
             
             if not response.data:
                 return "Nem találhatóak aktív (mai vagy holnapi) Napi Tuti szelvények."
@@ -171,7 +175,6 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             return final_message if final_message else "Nem találhatóak feldolgozható aktív szelvények."
 
         final_message = await asyncio.to_thread(sync_fetch_slips)
-        # A Telegram üzenet maximális hossza 4096 karakter. Ha ennél hosszabb, hibát dobna.
         if len(final_message) > 4096:
             await message_to_edit.edit_text("Túl sok az aktív szelvény, az üzenet meghaladja a maximális hosszt. Kérlek, nézd meg a weboldalon.")
         else:
