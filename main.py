@@ -104,20 +104,19 @@ async def handle_registration(request: Request, email: str = Form(...), password
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            return templates.TemplateResponse("register.html", {"request": request, "error": "Ez az e-mail cím már regisztrálva van."})
+            # A hibaüzenetet a frontend kezeli majd a query paraméter alapján
+            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
         hashed_password = get_password_hash(password)
         supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
         return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
-    except Exception as e:
-        return templates.TemplateResponse("register.html", {"request": request, "error": f"Hiba történt a regisztráció során: {e}"})
+    except Exception:
+        return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
 
 @api.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
         if not user_res.data or not user_res.data.get('hashed_password') or not verify_password(password, user_res.data['hashed_password']):
-            # A biztonság kedvéért itt nem adunk vissza hibaüzenetet a sablonnal,
-            # mert a frontend már a statikus oldalon van. Helyette átirányítunk.
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
@@ -136,7 +135,6 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
     if is_subscribed:
-        # ... (a tippek lekérdezésének logikája változatlan)
         try:
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
