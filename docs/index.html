@@ -209,18 +209,9 @@
 
     <section id="gallery">
         <div class="container">
-            <h2 class="section-title">Büszkeségeink: Korábbi Nyeremények és Visszajelzések</h2>
-            <div class="gallery-grid">
-                <div class="gallery-item">
-                    <img src="images/wins/win1.jpg" alt="Nyerő szelvény 1">
+            <h2 class="section-title">Büszkeségeink: Korábbi Nyerő Szelvények</h2>
+            <div class="gallery-grid" id="gallery-container">
                 </div>
-                <div class="gallery-item">
-                    <img src="images/wins/win2.jpg" alt="Nyerő szelvény 2">
-                </div>
-                <div class="gallery-item">
-                    <img src="images/wins/win3.jpg" alt="Felhasználói visszajelzés">
-                </div>
-            </div>
         </div>
     </section>
 
@@ -249,6 +240,34 @@
         document.getElementById(tabName).style.display = "block";
         evt.currentTarget.className += " active";
     }
+
+    // ÚJ SCRIPT: A galéria dinamikus betöltéséhez
+    document.addEventListener('DOMContentLoaded', function() {
+        const galleryContainer = document.getElementById('gallery-container');
+        const basePath = 'images/wins/';
+        
+        // --- FONTOS ---
+        // Itt add meg, hány darab képet töltöttél fel.
+        // Ha pl. 8 képed van (win1.jpg-től win8.jpg-ig), akkor a szám 8 legyen.
+        const totalImages = 8; // <-- EZT A SZÁMOT ÍRD ÁT A FELTÖLTÖTT KÉPEID SZÁMÁRA!
+        
+        if (galleryContainer) {
+            for (let i = 1; i <= totalImages; i++) {
+                const imageUrl = `${basePath}win${i}.jpg`;
+                
+                const galleryItem = document.createElement('div');
+                galleryItem.className = 'gallery-item';
+                
+                const img = document.createElement('img');
+                img.src = imageUrl;
+                img.alt = `Nyerő szelvény ${i}`;
+                img.loading = 'lazy'; // Késleltetett betöltés a gyorsabb oldalméretért
+                
+                galleryItem.appendChild(img);
+                galleryContainer.appendChild(galleryItem);
+            }
+        }
+    });
 </script>
 </body>
 </html>
