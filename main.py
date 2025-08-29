@@ -1,11 +1,10 @@
-# main.py (Hibrid Modell - CORS Javítással)
+# main.py (Hibrid Modell - Admin Értesítéssel)
 
 import os
 import asyncio
 import stripe
 import requests
 import telegram
-import xml.etree.ElementTree as ET
 import secrets
 import pytz
 from datetime import datetime, timedelta
@@ -14,7 +13,7 @@ from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from fastapi.middleware.cors import CORSMiddleware # ÚJ IMPORT
+from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
 
 from passlib.context import CryptContext
@@ -29,23 +28,22 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
-SZAMLAZZ_HU_AGENT_KEY = os.environ.get("SZAMLAZZ_HU_AGENT_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
+ADMIN_CHAT_ID = 1326707238 # A te admin chat ID-d az értesítésekhez
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
 application = None
 
-# JAVÍTÁS ITT: CORS Middleware hozzáadása
 origins = [
     "https://mondomatutit.hu",
     "https://www.mondomatutit.hu",
     "http://mondomatutit.hu",
     "http://www.mondomatutit.hu",
-    "https://m5tibi.github.io", # A biztonság kedvéért a github.io URL is
+    "https://m5tibi.github.io",
 ]
 
 api.add_middleware(
@@ -55,7 +53,6 @@ api.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# JAVÍTÁS VÉGE
 
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
@@ -77,27 +74,30 @@ def get_current_user(request: Request):
     return None
 
 def is_web_user_subscribed(user: dict) -> bool:
-    if not user:
-        return False
+    if not user: return False
     if user.get("subscription_status") == "active":
         expires_at_str = user.get("subscription_expires_at")
         if expires_at_str:
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-            if expires_at > datetime.now(pytz.utc):
-                return True
+            if expires_at > datetime.now(pytz.utc): return True
     return False
+
+# ÚJ FUNKCIÓ: Admin értesítés küldése Telegramon
+async def send_admin_notification(message: str):
+    if not TOKEN or not ADMIN_CHAT_ID:
+        print("Telegram token vagy Admin Chat ID hiányzik, az admin értesítés nem küldhető el.")
+        return
+    try:
+        bot = telegram.Bot(token=TOKEN)
+        await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
+        print("Admin értesítés sikeresen elküldve.")
+    except Exception as e:
+        print(f"Hiba az admin értesítés küldésekor: {e}")
 
 # --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    user = get_current_user(request)
-    # A főoldal most már a GitHub Pages-en van, ez a végpont valójában inaktív.
-    # De meghagyjuk, hátha szükség lesz rá a jövőben.
     return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
-
-@api.get("/register", response_class=HTMLResponse)
-async def register_form(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
 
 @api.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -111,21 +111,18 @@ async def handle_registration(request: Request, email: str = Form(...), password
     except Exception as e:
         return templates.TemplateResponse("register.html", {"request": request, "error": f"Hiba történt a regisztráció során: {e}"})
 
-@api.get("/login", response_class=HTMLResponse)
-async def login_form(request: Request):
-    registered = request.query_params.get('registered')
-    return templates.TemplateResponse("login.html", {"request": request, "registered": registered})
-
 @api.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
         if not user_res.data or not user_res.data.get('hashed_password') or not verify_password(password, user_res.data['hashed_password']):
-            return templates.TemplateResponse("login.html", {"request": request, "error": "Hibás e-mail cím vagy jelszó."})
+            # A biztonság kedvéért itt nem adunk vissza hibaüzenetet a sablonnal,
+            # mert a frontend már a statikus oldalon van. Helyette átirányítunk.
+            return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
-    except Exception as e:
-        return templates.TemplateResponse("login.html", {"request": request, "error": f"Hiba történt a bejelentkezés során: {e}"})
+    except Exception:
+        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
 @api.get("/logout")
 async def logout(request: Request):
@@ -136,50 +133,31 @@ async def logout(request: Request):
 async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-    
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
-    
     if is_subscribed:
+        # ... (a tippek lekérdezésének logikája változatlan)
         try:
             now_local = datetime.now(HUNGARY_TZ)
-            today_str = now_local.strftime("%Y-%m-%d")
-            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
-            
             if response.data:
-                all_tip_ids = [tip_id for szelveny in response.data for tip_id in szelveny.get('tipp_id_k', [])]
+                all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
                 if all_tip_ids:
-                    meccsek_response = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-                    meccsek_map = {meccs['id']: meccs for meccs in meccsek_response.data}
-                    
-                    for szelveny_data in response.data:
-                        tipp_id_k = szelveny_data.get('tipp_id_k', [])
-                        szelveny_meccsei = [meccsek_map.get(tip_id) for tip_id in tipp_id_k if meccsek_map.get(tip_id)]
-                        
-                        if len(szelveny_meccsei) == len(tipp_id_k):
-                            meccs_eredmenyek = [meccs.get('eredmeny') for meccs in szelveny_meccsei]
-                            
-                            if 'Veszített' in meccs_eredmenyek: continue
-                            if all(res in ['Nyert', 'Érvénytelen'] for res in meccs_eredmenyek): continue
-
-                            for meccs in szelveny_meccsei:
-                                local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                                meccs['kezdes_str'] = local_time.strftime('%b %d. %H:%M')
-                                meccs['tipp_str'] = get_tip_details(meccs['tipp'])
-                            
-                            szelveny_data['meccsek'] = szelveny_meccsei
-                            
-                            slip_date = szelveny_data['tipp_neve'].split(' - ')[-1]
-                            if slip_date == today_str:
-                                todays_slips.append(szelveny_data)
-                            elif slip_date == tomorrow_str:
-                                tomorrows_slips.append(szelveny_data)
-        except Exception as e:
-            print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
-
+                    meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
+                    for sz_data in response.data:
+                        sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+                        if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
+                            m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
+                            if 'Veszített' in m_eredmenyek or all(r in ['Nyert', 'Érvénytelen'] for r in m_eredmenyek): continue
+                            for m in sz_meccsei:
+                                m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
+                                m['tipp_str'] = get_tip_details(m['tipp'])
+                            sz_data['meccsek'] = sz_meccsei
+                            if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
+                            elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
+        except Exception as e: print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips})
 
 @api.get("/profile", response_class=HTMLResponse)
@@ -201,38 +179,25 @@ async def generate_telegram_link(request: Request):
 @api.post("/create-portal-session", response_class=RedirectResponse)
 async def create_portal_session(request: Request):
     user = get_current_user(request)
-    if not user or not user.get("stripe_customer_id"):
-        return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
+    if not user or not user.get("stripe_customer_id"): return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
     try:
         return_url = f"{RENDER_APP_URL}/profile"
         portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url)
         return RedirectResponse(portal_session.url, status_code=303)
-    except Exception as e:
-        return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
+    except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-    price_id_to_use = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else None
-    if not price_id_to_use: return HTMLResponse("Hiba: Érvénytelen csomag.", status_code=400)
+    price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
-        session_params = {
-            'payment_method_types': ['card'], 'line_items': [{'price': price_id_to_use, 'quantity': 1}],
-            'mode': 'subscription', 'billing_address_collection': 'required',
-            'success_url': f"{RENDER_APP_URL}/vip?payment=success",
-            'cancel_url': f"{RENDER_APP_URL}/vip",
-            'metadata': {'user_id': user['id']}
-        }
-        if user.get('stripe_customer_id'):
-            session_params['customer'] = user['stripe_customer_id']
-        else:
-            session_params['customer_email'] = user['email']
-        
-        checkout_session = stripe.checkout.Session.create(**session_params)
+        params = {'payment_method_types': ['card'], 'line_items': [{'price': price_id, 'quantity': 1}], 'mode': 'subscription', 'billing_address_collection': 'required', 'success_url': f"{RENDER_APP_URL}/vip?payment=success", 'cancel_url': f"{RENDER_APP_URL}/vip", 'metadata': {'user_id': user['id']}}
+        if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
+        else: params['customer_email'] = user['email']
+        checkout_session = stripe.checkout.Session.create(**params)
         return RedirectResponse(checkout_session.url, status_code=303)
-    except Exception as e:
-        return HTMLResponse(f"Hiba történt a Stripe kapcsolat során: {e}", status_code=500)
+    except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
 
 @api.on_event("startup")
 async def startup():
@@ -264,16 +229,18 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             
             if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
-                if not line_items.data:
-                    print("!!! HIBA: A webhook nem tudta lekérni a vásárolt termékeket.")
-                    return {"status": "error"}
                 price_id = line_items.data[0].price.id
-                duration_days = 0
-                if price_id == STRIPE_PRICE_ID_WEEKLY: duration_days = 7
-                elif price_id == STRIPE_PRICE_ID_MONTHLY: duration_days = 30
-                
+                duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
                 if duration_days > 0 and application:
                     await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
+                    
+                    # ÚJ RÉSZ: Admin értesítése
+                    plan_type = "Havi" if duration_days == 30 else "Heti"
+                    customer_details = stripe.Customer.retrieve(stripe_customer_id)
+                    customer_email = customer_details.get('email', 'Ismeretlen e-mail')
+                    notification_message = f"🎉 *Új Előfizető!*\n\n*E-mail:* {customer_email}\n*Csomag:* {plan_type}\n*Stripe ID:* `{stripe_customer_id}`"
+                    await send_admin_notification(notification_message)
+
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
