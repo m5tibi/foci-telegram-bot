@@ -79,6 +79,8 @@
         .form-group input { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem; }
         .auth-button { width: 100%; background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1rem; font-weight: bold; transition: background-color 0.3s ease; }
         .auth-button:hover { background-color: var(--secondary-color); }
+        .telegram-promo { text-align: center; padding-top: 40px; }
+        .telegram-promo p { font-size: 1.1rem; margin-bottom: 20px; color: var(--text-medium); }
         .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
         .step { flex-basis: 30%; min-width: 250px; }
         .step-icon { font-size: 3rem; color: var(--primary-color); }
@@ -114,7 +116,7 @@
 
     <section class="hero">
         <div class="container hero-content">
-            <h1>Nyerj a meccseken! Adat-alapú tippek, automatizálva</h1>
+            <h1>Nyerj a meccseken. Adat-alapú tippek, automatizálva.</h1>
             <p>Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod.</p>
         </div>
     </section>
@@ -153,6 +155,13 @@
                     <button type="submit" class="auth-button">Regisztráció</button>
                 </form>
             </div>
+            
+            <div class="telegram-promo">
+                <hr style="border-color: var(--border-color); margin: 30px 0;">
+                <p>Kíváncsi vagy a korábbi eredményeinkre és a közösségre? Csatlakozz a nyilvános Telegram csatornánkhoz!</p>
+                <a href="https://t.me/MondomATutit" target="_blank" class="cta-button">Csatlakozás a Telegramhoz</a>
+            </div>
+            
         </div>
     </section>
 
@@ -198,7 +207,7 @@
             <h2 class="section-title">Gyakran Ismételt Kérdések</h2>
             <div class="faq-item">
                 <h3>Mikor érkeznek a tippek?</h3>
-                <p>Az aktuális napi tippek mindig előző nap este, általában 19:00 és 21:00 között kerülnek fel a VIP zónába. Amint elérhetővé válnak, Telegramon értesítést küldünk.</p>
+                <p>A tippek általában minden nap este, 19:00 és 21:00 között kerülnek fel a VIP zónába. Amint elérhetővé válnak, Telegramon értesítést küldünk.</p>
             </div>
             <div class="faq-item">
                 <h3>Hogyan mondhatom le az előfizetést?</h3>
@@ -252,47 +261,37 @@
         evt.currentTarget.className += " active";
     }
 
-    // ÚJ SCRIPT: A galéria dinamikus betöltéséhez és működtetéséhez
+    // A galéria dinamikus betöltéséhez és működtetéséhez
     document.addEventListener('DOMContentLoaded', function() {
         const splideList = document.querySelector('#image-carousel .splide__list');
         const basePath = 'images/wins/';
         
         // --- FONTOS ---
         // Itt add meg, hány darab képet töltöttél fel.
-        // Ha pl. 8 képed van (win1.jpg-től win8.jpg-ig), akkor a szám 8 legyen.
-        const totalImages = 10; // <-- EZT A SZÁMOT ÍRD ÁT A FELTÖLTÖTT KÉPEID SZÁMÁRA!
+        const totalImages = 8; // <-- EZT A SZÁMOT ÍRD ÁT A FELTÖLTÖTT KÉPEID SZÁMÁRA!
         
         if (splideList) {
             for (let i = 1; i <= totalImages; i++) {
                 const imageUrl = `${basePath}win${i}.jpg`;
-                
-                // Létrehozzuk a listaelemeket a képeknek
                 const slide = document.createElement('li');
                 slide.className = 'splide__slide';
-                
                 const img = document.createElement('img');
                 img.src = imageUrl;
                 img.alt = `Nyerő szelvény ${i}`;
                 img.loading = 'lazy';
-                
                 slide.appendChild(img);
                 splideList.appendChild(slide);
             }
 
-            // A galéria inicializálása a képek betöltése után
             new Splide('#image-carousel', {
-                type: 'loop',       // Végtelenített lapozás
-                perPage: 3,         // Asztali gépen 3 kép látszik egyszerre
+                type: 'loop',
+                perPage: 3,
                 perMove: 1,
-                gap: '1rem',        // Térköz a képek között
-                pagination: false,  // Eltünteti az alsó pontokat
+                gap: '1rem',
+                pagination: false,
                 breakpoints: {
-                    768: {          // Kisebb képernyőn (tablet)
-                        perPage: 2, // 2 kép látszik
-                    },
-                    640: {          // Mobilon
-                        perPage: 1, // 1 kép látszik
-                    }
+                    768: { perPage: 2 },
+                    640: { perPage: 1 }
                 }
             }).mount();
         }
