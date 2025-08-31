@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mondom a Tutit! - Adat-alapú Foci Tippek</title>
     <meta name="description" content="Intelligens botunk minden nap több száz mérkőzést elemez, hogy neked már csak a zöldülő szelvényekkel kelljen foglalkoznod. Csatlakozz a Telegram csatornánkhoz!">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
     <style>
         :root {
             --primary-color: #38A169;
@@ -21,7 +23,6 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
         section { padding: 60px 0; }
-
         .hero {
             background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('images/hero-background.jpg') no-repeat center center/cover;
             color: var(--white);
@@ -37,7 +38,6 @@
         .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
         .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
         .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
-
         .auth-section {
             background-color: var(--bg-dark);
             padding: 50px 0;
@@ -79,16 +79,25 @@
         .form-group input { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem; }
         .auth-button { width: 100%; background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1rem; font-weight: bold; transition: background-color 0.3s ease; }
         .auth-button:hover { background-color: var(--secondary-color); }
-
+        .telegram-promo { text-align: center; padding-top: 40px; }
+        .telegram-promo p { font-size: 1.1rem; margin-bottom: 20px; color: var(--text-medium); }
         .how-it-works-grid { display: flex; justify-content: space-around; text-align: center; gap: 30px; flex-wrap: wrap; }
         .step { flex-basis: 30%; min-width: 250px; }
         .step-icon { font-size: 3rem; color: var(--primary-color); }
         .step h3 { font-size: 1.5rem; margin-top: 15px; }
-        .features, .pricing { background-color: var(--white); }
-        .features-list { list-style: none; padding: 0; max-width: 600px; margin: 0 auto; font-size: 1.1rem; }
-        .features-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
-        .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; }
-
+        .features { background-color: var(--white); }
+        .features-list { list-style: none; padding: 0; max-width: 700px; margin: 0 auto; font-size: 1.1rem; }
+        .features-list li { padding: 12px 0; border-bottom: 1px solid #eee; display: flex; align-items: center; }
+        .features-list li::before { content: '✅'; margin-right: 15px; color: #28a745; font-size: 1.5rem; }
+        .faq-section { background-color: var(--white); }
+        .faq-item { margin-bottom: 20px; border-left: 3px solid var(--primary-color); padding-left: 15px; }
+        .faq-item h3 { margin-top: 0; }
+        .splide__slide img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
         footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
         footer a:hover { text-decoration: underline; }
@@ -114,11 +123,12 @@
 
     <section id="login-register" class="auth-section">
         <div class="auth-box">
+            <h2 style="text-align: center; margin-top: 0;">Csatlakozz a VIP Zónához!</h2>
+            <p style="text-align: center;">A tippek megtekintéséhez regisztrálj vagy jelentkezz be.</p>
             <div class="auth-tabs">
                 <button class="tab-link active" onclick="openTab(event, 'login')">Bejelentkezés</button>
                 <button class="tab-link" onclick="openTab(event, 'register')">Regisztráció</button>
             </div>
-
             <div id="login" class="auth-content active">
                 <form action="https://foci-telegram-bot.onrender.com/login" method="post">
                     <div class="form-group">
@@ -132,7 +142,6 @@
                     <button type="submit" class="auth-button">Bejelentkezés</button>
                 </form>
             </div>
-
             <div id="register" class="auth-content">
                 <form action="https://foci-telegram-bot.onrender.com/register" method="post">
                     <div class="form-group">
@@ -146,6 +155,13 @@
                     <button type="submit" class="auth-button">Regisztráció</button>
                 </form>
             </div>
+            
+            <div class="telegram-promo">
+                <hr style="border-color: var(--border-color); margin: 30px 0;">
+                <p>Kíváncsi vagy a korábbi eredményeinkre és a közösségre? Csatlakozz a nyilvános Telegram csatornánkhoz!</p>
+                <a href="https://t.me/MondomATutit" target="_blank" class="cta-button">Csatlakozás a Telegramhoz</a>
+            </div>
+            
         </div>
     </section>
 
@@ -165,8 +181,8 @@
                 </div>
                 <div class="step">
                     <div class="step-icon">📲</div>
-                    <h3>3. Azonnali Küldés Telegramon</h3>
-                    <p>Minden nap, kényelmesen megkapod a "Napi Tuti" szelvényeket a privát Telegram botunkon keresztül. Nincs több keresgélés, nincs több bizonytalanság.</p>
+                    <h3>3. Értesítés és Hozzáférés</h3>
+                    <p>A friss tippekről azonnali értesítést kapsz Telegramon, a szelvényeket pedig a weboldal zárt, VIP zónájában érheted el bármikor.</p>
                 </div>
             </div>
         </div>
@@ -174,14 +190,45 @@
 
     <section class="features">
         <div class="container">
-            <h2 class="section-title">A Te Személyes Tippmestered</h2>
+            <h2 class="section-title">Mit Kapsz a VIP Előfizetéssel?</h2>
             <ul class="features-list">
-                <li>Napi min. 1-4, Gondosan Összeállított Szelvény</li>
-                <li>Rangsorolás és Megbízhatósági Százalék Minden Szelvényhez</li>
-                <li>Teljesen Automata, Érzelemmentes, Adat-alapú Tippadás</li>
-                <li>Kényelmes és Diszkrét Hozzáférés a Privát Telegram Boton Keresztül</li>
-                <li>Egyszerű, Biztonságos Heti és Havi Előfizetési Lehetőségek</li>
+                <li>Napi minimum 1-4, gondosan összeállított, adat-alapú szelvényt.</li>
+                <li>Minden szelvényhez egy megbízhatósági százalékot, hogy lásd, melyik a legerősebb.</li>
+                <li>Teljesen automata, érzelemmentes, tiszta statisztikán alapuló tippadást.</li>
+                <li>Kényelmes hozzáférést a tippekhez a zárt, tagoknak szóló VIP weboldalon.</li>
+                <li>Azonnali Telegram értesítést, amint a friss tippek elérhetővé válnak.</li>
+                <li>Egyszerű, biztonságos heti és havi előfizetési lehetőséget, amit bármikor lemondhatsz.</li>
             </ul>
+        </div>
+    </section>
+
+    <section class="faq-section">
+        <div class="container">
+            <h2 class="section-title">Gyakran Ismételt Kérdések</h2>
+            <div class="faq-item">
+                <h3>Mikor érkeznek a tippek?</h3>
+                <p>A tippek általában minden nap este, 19:00 és 21:00 között kerülnek fel a VIP zónába. Amint elérhetővé válnak, Telegramon értesítést küldünk.</p>
+            </div>
+            <div class="faq-item">
+                <h3>Hogyan mondhatom le az előfizetést?</h3>
+                <p>Bejelentkezés után a "Profil" menüpontban egyetlen kattintással, bármikor lemondhatod a megújuló előfizetésedet a Stripe biztonságos ügyfélportálján keresztül. A hozzáférésed a már kifizetett időszak végéig megmarad.</p>
+            </div>
+            <div class="faq-item">
+                <h3>Garantált a nyeremény?</h3>
+                <p>Nem. A sportfogadás kockázattal jár. A mi rendszerünk a valószínűségeket maximalizálja adatelemzéssel, de 100%-os garanciát senki sem adhat. Kérünk, mindig játssz felelősségteljesen!</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="gallery">
+        <div class="container">
+            <h2 class="section-title">Válogatás Nyerő Szelvényeinkből</h2>
+            <div class="splide" id="image-carousel" aria-label="Korábbi nyerő szelvények galériája">
+                <div class="splide__track">
+                    <ul class="splide__list">
+                        </ul>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -195,6 +242,8 @@
             </p>
         </div>
     </footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
 
 <script>
     // Script a bejelentkezési/regisztrációs fülek váltásához
@@ -211,7 +260,42 @@
         document.getElementById(tabName).style.display = "block";
         evt.currentTarget.className += " active";
     }
-</script>
 
+    // A galéria dinamikus betöltéséhez és működtetéséhez
+    document.addEventListener('DOMContentLoaded', function() {
+        const splideList = document.querySelector('#image-carousel .splide__list');
+        const basePath = 'images/wins/';
+        
+        // --- FONTOS ---
+        // Itt add meg, hány darab képet töltöttél fel.
+        const totalImages = 8; // <-- EZT A SZÁMOT ÍRD ÁT A FELTÖLTÖTT KÉPEID SZÁMÁRA!
+        
+        if (splideList) {
+            for (let i = 1; i <= totalImages; i++) {
+                const imageUrl = `${basePath}win${i}.jpg`;
+                const slide = document.createElement('li');
+                slide.className = 'splide__slide';
+                const img = document.createElement('img');
+                img.src = imageUrl;
+                img.alt = `Nyerő szelvény ${i}`;
+                img.loading = 'lazy';
+                slide.appendChild(img);
+                splideList.appendChild(slide);
+            }
+
+            new Splide('#image-carousel', {
+                type: 'loop',
+                perPage: 3,
+                perMove: 1,
+                gap: '1rem',
+                pagination: false,
+                breakpoints: {
+                    768: { perPage: 2 },
+                    640: { perPage: 1 }
+                }
+            }).mount();
+        }
+    });
+</script>
 </body>
 </html>
