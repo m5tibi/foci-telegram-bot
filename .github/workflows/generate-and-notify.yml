@@ -2,7 +2,7 @@ name: Napi Tipp Generálás és Értesítés
 
 on:
   schedule:
-    - cron: '0 17 * * *' # Minden nap 17:00 UTC-kor (magyar idő szerint 19:00)
+    - cron: '0 17 * * *' # Minden nap 17:00 UTC-kor (magyar idő szerint 19:00 nyáron, 18:00 télen)
   workflow_dispatch:
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
         run: python tipp_generator.py
 
       - name: Napi frissítés küldése
-        # MÓDOSÍTÁS: Ez a lépés most már mindig lefut
+        # Ez a lépés most már MINDIG lefut, függetlenül attól, hogy talált-e tippet a generátor
         if: always()
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
