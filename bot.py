@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Átalakított Admin Funkciókkal)
+# bot.py (Hibrid Modell - Javított Eredmény-megjelenítéssel)
 
 import os
 import telegram
@@ -41,7 +41,6 @@ def admin_only(func):
     return wrapped
 
 # --- FŐ FUNKCIÓK ---
-# ... (a start és activate_subscription_and_notify_web függvények változatlanok)
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user; chat_id = update.effective_chat.id
     if context.args and len(context.args) > 0:
@@ -59,6 +58,7 @@ async def start(update: telegram.Update, context: CallbackContext):
         return
     keyboard = [[InlineKeyboardButton("🚀 Ugrás a Weboldalra", url="https://mondomatutit.hu")]]; reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(chat_id=chat_id, text=f"Szia {user.first_name}! 👋\n\nA szolgáltatásunk a weboldalunkra költözött. Kérlek, ott regisztrálj és fizess elő a tippek megtekintéséhez.", reply_markup=reply_markup)
+
 async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
@@ -128,26 +128,36 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             return {"today": todays_message, "tomorrow": tomorrows_message}
         
         messages = await asyncio.to_thread(sync_fetch_slips)
-        await message_to_edit.edit_text("Szelvények sikeresen lekérdezve.", delete_after=3)
+        await message_to_edit.delete()
+        
+        has_content = False
         if messages.get("today"):
             await context.bot.send_message(chat_id=query.message.chat_id, text=messages["today"], parse_mode='Markdown')
+            has_content = True
         if messages.get("tomorrow"):
             await context.bot.send_message(chat_id=query.message.chat_id, text=messages["tomorrow"], parse_mode='Markdown')
-        if not messages.get("today") and not messages.get("tomorrow"):
+            has_content = True
+            
+        if not has_content:
             await context.bot.send_message(chat_id=query.message.chat_id, text="Nem találhatóak aktív (mai vagy holnapi) Napi Tuti szelvények.")
 
     except Exception as e:
         print(f"Hiba a Napi Tutik lekérésekor (admin): {e}"); await message_to_edit.edit_text(f"Hiba történt: {e}")
 
-# ÁTÍRT FUNKCIÓ AZ EREDMÉNYEKHEZ
+# JAVÍTOTT FUNKCIÓ AZ EREDMÉNYEKHEZ
 def format_slip_with_results(slip_data, meccsek_map):
     slip_results = [meccsek_map.get(mid, {}).get('eredmeny') for mid in slip_data.get('tipp_id_k', [])]
     overall_status = ""
-    if 'Tipp leadva' in slip_results or None in slip_results: overall_status = "⏳ Folyamatban"
-    elif 'Veszített' in slip_results: overall_status = "❌ Veszített"
-    else: overall_status = "✅ Nyert"
+    # JAVÍTOTT LOGIKA: A vesztes prioritást élvez
+    if 'Veszített' in slip_results:
+        overall_status = "❌ Veszített"
+    elif 'Tipp leadva' in slip_results or None in slip_results:
+        overall_status = "⏳ Folyamatban"
+    else: # Ha nincs vesztes és nincs folyamatban lévő, akkor nyert (vagy érvénytelen)
+        overall_status = "✅ Nyert"
 
-    message = f"*{slip_data['tipp_neve']}*\nStátusz: *{overall_status}*\n\n"
+    # JAVÍTOTT FORMÁZÁS: A csillagok eltávolítva a címből
+    message = f"{slip_data['tipp_neve']}\nStátusz: *{overall_status}*\n\n"
     
     for meccs_id in slip_data.get('tipp_id_k', []):
         meccs = meccsek_map.get(meccs_id)
@@ -160,10 +170,10 @@ def format_slip_with_results(slip_data, meccsek_map):
         message += f"🏆 Bajnokság: {meccs['liga_nev']}\n"
         message += f"⏰ Kezdés: {local_time.strftime('%H:%M')}\n"
         
-        if meccs.get('veg_eredmeny'): message += f"🏁 Végeredmény: {meccs['veg_eredmeny']}\n"
+        if meccs.get('veg_eredmeny') and meccs['eredmeny'] != 'Tipp leadva': message += f"🏁 Végeredmény: {meccs['veg_eredmeny']}\n"
         
         tipp_str = get_tip_details(meccs['tipp'])
-        indoklas_str = f" ({meccs['indoklas']})" if meccs.get('indoklas') else ""
+        indoklas_str = f" ({meccs['indoklas']})" if meccs.get('indoklas') and 'döntetlen-veszély' not in meccs.get('indoklas') else ""
         message += f"💡 Tipp: {tipp_str}{indoklas_str} {icon}\n\n"
         
     return message
@@ -200,13 +210,12 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
 
         for slip in slips_to_show:
             formatted_message = format_slip_with_results(slip, meccsek_map)
-            await context.bot.send_message(chat_id=query.message.chat_id, text=formatted_message)
-            await asyncio.sleep(0.5) # Rate limit elkerülése
+            await context.bot.send_message(chat_id=query.message.chat_id, text=formatted_message, parse_mode='Markdown')
+            await asyncio.sleep(0.5)
 
     except Exception as e: 
         print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
 
-# ... (a többi admin funkció, mint a stat, show_users, stb. változatlan marad)
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése..."); await query.answer()
