@@ -1,7 +1,6 @@
-# main.py (Hibrid Modell - Pontosított Szöveggel)
+# main.py (Hibrid Modell - Javított Napi Státusz Kezeléssel)
 
 import os
-# ... (a többi import változatlan)
 import asyncio
 import stripe
 import requests
@@ -9,14 +8,17 @@ import telegram
 import secrets
 import pytz
 from datetime import datetime, timedelta
+
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
+
 from passlib.context import CryptContext
 from supabase import create_client, Client
+
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 
 # --- Konfiguráció és API beállítások ---
@@ -93,13 +95,15 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # A mai nap releváns státuszának lekérdezése
-            # (A generátor a holnapi napra teszi be a státuszt, amit mi a mai napon olvasunk ki)
-            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
-            
-            # ... (a szelvények lekérdezésének logikája változatlan)
+            # A tippek a holnapi napra vonatkoznak, de a felhasználó a mai napon is látja őket.
+            # A státuszt ezért a holnapi napra keressük, mert a generátor azt írja be este.
+            status_target_date = tomorrow_str if now_local.hour >= 18 else today_str
+            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
+
+            # Szelvények lekérdezése
             search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
+            
             if response.data:
                 all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
                 if all_tip_ids:
@@ -116,11 +120,10 @@ async def vip_area(request: Request):
                             if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
                             elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
             
-            # MÓDOSÍTÁS: Pontosított üzenet
             if not todays_slips and not tomorrows_slips and status_response.data:
                 status = status_response.data[0].get('status')
                 if status == "Nincs megfelelő tipp":
-                    daily_status_message = "A mai napra (illetve a ma estére/éjszakára várt meccsekre) az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
+                    daily_status_message = "A holnapi napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza később!"
 
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
@@ -157,6 +160,10 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         return RedirectResponse(url="/vip", status_code=303)
     except Exception:
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+@api.get("/logout")
+async def logout(request: Request):
+    request.session.pop("user_id", None)
+    return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
