@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Javított Napi Státusz Kezeléssel)
+# main.py (Hibrid Modell - Véglegesen Javított Napi Státusz Kezeléssel)
 
 import os
 import asyncio
@@ -37,23 +37,12 @@ ADMIN_CHAT_ID = 1326707238
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
 application = None
-
 origins = [
-    "https://mondomatutit.hu",
-    "https://www.mondomatutit.hu",
-    "http://mondomatutit.hu",
-    "http://www.mondomatutit.hu",
+    "https://mondomatutit.hu", "https://www.mondomatutit.hu",
+    "http://mondomatutit.hu", "http://www.mondomatutit.hu",
     "https://m5tibi.github.io",
 ]
-
-api.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -63,7 +52,6 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 # --- Segédfüggvények ---
 def get_password_hash(password): return pwd_context.hash(password)
 def verify_password(plain_password, hashed_password): return pwd_context.verify(plain_password, hashed_password)
-
 def get_current_user(request: Request):
     user_id = request.session.get("user_id")
     if user_id:
@@ -72,7 +60,6 @@ def get_current_user(request: Request):
             return res.data
         except Exception: return None
     return None
-
 def is_web_user_subscribed(user: dict) -> bool:
     if not user: return False
     if user.get("subscription_status") == "active":
@@ -81,7 +68,6 @@ def is_web_user_subscribed(user: dict) -> bool:
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
             if expires_at > datetime.now(pytz.utc): return True
     return False
-
 async def send_admin_notification(message: str):
     if not TOKEN or not ADMIN_CHAT_ID:
         print("Telegram token vagy Admin Chat ID hiányzik, az admin értesítés nem küldhető el.")
@@ -141,11 +127,8 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # A generátor este a holnapi dátummal menti a státuszt.
-            # A felhasználó ezt másnap, azaz az akkori "mai" napon látja.
-            # Ezért a mai nap dátumával keressük a státuszt.
-            status_target_date = today_str
-            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
+            # JAVÍTÁS: Mindig a mai nap státuszát ellenőrizzük, mert a felhasználó a mai napra kíváncsi.
+            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
             
             search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
@@ -169,7 +152,7 @@ async def vip_area(request: Request):
             if not todays_slips and not tomorrows_slips and status_response.data:
                 status = status_response.data[0].get('status')
                 if status == "Nincs megfelelő tipp":
-                    daily_status_message = "A mai napra (illetve a ma estére/éjszakára várt meccsekre) az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
+                    daily_status_message = "A mai napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
 
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
