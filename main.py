@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Javított Függvénynévvel)
+# main.py (Hibrid Modell - Véglegesen Javított Napi Státusz Kezeléssel)
 
 import os
 import asyncio
@@ -127,12 +127,13 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            status_target_date = today_str
-            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
+            # JAVÍTÁS: Először a mai nap státuszát ellenőrizzük, mert a felhasználó a mai napra kíváncsi.
+            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
             
             if status_response.data and status_response.data[0].get('status') == "Nincs megfelelő tipp":
                  daily_status_message = "A mai napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
             else:
+                # Csak akkor keressük a szelvényeket, ha nincs "nincs tipp" üzenet
                 search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
                 response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
                 
@@ -187,7 +188,7 @@ async def create_portal_session(request: Request):
     except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web")
-async def create_checkout_session_web(request: Request, plan: str = Form(...)): # JAVÍTÁS ITT: _ használata - helyett
+async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
