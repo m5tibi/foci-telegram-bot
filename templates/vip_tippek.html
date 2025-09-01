@@ -58,7 +58,13 @@
         {% endif %}
 
         {% if not todays_slips and not tomorrows_slips %}
-             <p>Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!</p>
+             {% if daily_status_message %}
+                <div class="alert alert-success" style="text-align: center;">
+                    <strong>{{ daily_status_message }}</strong>
+                </div>
+             {% else %}
+                <p>Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!</p>
+             {% endif %}
         {% endif %}
 
     {% else %}
