@@ -1,6 +1,7 @@
-# tipp_generator.py (V28 - Napi Státusz Jelentéssel)
+# tipp_generator.py (V28.1 - Pontosított Szöveggel)
 
 import os
+# ... (a többi import változatlan)
 import requests
 from supabase import create_client, Client
 from datetime import datetime, timedelta
@@ -9,20 +10,18 @@ import pytz
 import math
 import itertools
 
-# --- Konfiguráció ---
+# --- Konfiguráció és Liga Lista ---
+# ... (ez a rész változatlan)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
-
-# --- Globális Liga Lista ---
-# ... (A liga lista változatlan)
 LEAGUES = { 39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 61: "Francia Ligue 1", 40: "Angol Championship", 141: "Spanyol La Liga 2", 136: "Olasz Serie B", 79: "Német 2. Bundesliga", 62: "Francia Ligue 2", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 144: "Belga Jupiler Pro League", 203: "Török Süper Lig", 119: "Svéd Allsvenskan", 103: "Norvég Eliteserien", 106: "Dán Superliga", 218: "Svájci Super League", 113: "Osztrák Bundesliga", 253: "USA MLS", 262: "Mexikói Liga MX", 71: "Brazil Serie A", 128: "Argentin Liga Profesional", 98: "Japán J1 League", 188: "Ausztrál A-League", 292: "Dél-Koreai K League 1", 2: "Bajnokok Ligája", 3: "Európa-liga", 848: "Európa-konferencialiga", 13: "Copa Libertadores" }
 
 # --- API és Elemző Függvények ---
-# ... (Az összes API hívó és elemző függvény, beleértve a check_for_draw_risk-et is, változatlan marad)
+# ... (az elemző függvények, pl. get_api_data, check_for_draw_risk, stb. változatlanok)
 def get_api_data(endpoint, params):
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
@@ -32,11 +31,8 @@ def get_api_data(endpoint, params):
     except requests.exceptions.RequestException as e:
         print(f"  - Hiba az API hívás során ({endpoint}): {e}"); return []
 def get_fixtures_from_api(date_str):
-    all_fixtures = []
-    print(f"--- Meccsek keresése a következő napra: {date_str} ---")
+    all_fixtures = []; print(f"--- Meccsek keresése: {date_str} ---")
     for league_id, league_name in LEAGUES.items():
-        # A printet kivettem, hogy rövidebb legyen a log
-        # print(f"  -> Liga lekérése: {league_name}")
         params = {"date": date_str, "league": str(league_id), "season": str(datetime.now(BUDAPEST_TZ).year)}
         found_fixtures = get_api_data("fixtures", params)
         if found_fixtures: all_fixtures.extend(found_fixtures)
@@ -186,7 +182,6 @@ def analyze_and_generate_tips(fixtures, target_date_str):
             print(f"  -> TALÁLAT! Legjobb tipp: {best_tip['tipp']}, Pont: {best_tip['confidence_score']}, Indok: {best_tip['indoklas']}")
     return final_tips
 
-# ... (A save_tips és create_specials függvények változatlanok)
 def save_tips_to_supabase(tips):
     if not tips: print("Nincsenek menthető tippek."); return False
     try:
@@ -223,13 +218,11 @@ def create_ranked_daily_specials(date_str):
             else: print("Nem található több megfelelő szelvénykombináció."); break
     except Exception as e: print(f"!!! HIBA a Napi Tuti készítése során: {e}")
 
-# ÚJ FÜGGVÉNY: Státusz rögzítése az adatbázisba
+# MÓDOSÍTOTT FÜGGVÉNY: Pontosított szöveggel
 def record_daily_status(date_str, status, reason=""):
     try:
         print(f"Napi státusz rögzítése: {date_str} - {status}")
-        # Töröljük a korábbi bejegyzést erre a napra, hogy elkerüljük a duplikációt
         supabase.table("daily_status").delete().eq("date", date_str).execute()
-        # Beillesztjük az új státuszt
         supabase.table("daily_status").insert({
             "date": date_str,
             "status": status,
@@ -239,13 +232,10 @@ def record_daily_status(date_str, status, reason=""):
     except Exception as e:
         print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-
 def main():
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V28) indítása - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V28.1) indítása - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
-    
-    # Mivel a generátor a holnapi napra keres, a státuszt is a holnapi napra rögzítjük
     
     all_fixtures = get_fixtures_from_api(start_time.strftime("%Y-%m-%d")) + get_fixtures_from_api(target_date_str)
     
@@ -257,13 +247,14 @@ def main():
             if save_successful:
                 tips_found = True
                 create_ranked_daily_specials(target_date_str)
-                record_daily_status(target_date_str, "Tippek generálva", f"{len(final_tips)} tipp alapján.")
+                record_daily_status(target_date_str, "Tippek generálva", f"{len(final_tips)} egyedi tipp alapján szelvények készültek.")
     
     if not tips_found:
         print("Az elemzés után nem maradt megfelelő tipp.")
-        record_daily_status(target_date_str, "Nincs megfelelő tipp", "A mai kínálatból az algoritmus nem talált elegendő értékkel bíró meccset.")
+        # MÓDOSÍTÁS: Pontosított indoklás
+        record_daily_status(target_date_str, "Nincs megfelelő tipp", "A holnapi kínálatból az algoritmus nem talált a minőségi kritériumoknak megfelelő, értékes tippet.")
         
-    # Az értesítésküldés logikáját egy külön szkriptre bízzuk, amit a workflow mindig lefutatt
+    # Ez a rész a workflow számára ad kimenetet, változatlan marad.
     if "GITHUB_OUTPUT" in os.environ:
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             print(f"TIPS_FOUND={str(tips_found).lower()}", file=f)
