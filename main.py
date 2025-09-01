@@ -127,33 +127,33 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # JAVÍTÁS: Mindig a mai nap státuszát ellenőrizzük, mert a felhasználó a mai napra kíváncsi.
-            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
-            
-            search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
-            response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
-            
-            if response.data:
-                all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
-                if all_tip_ids:
-                    meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
-                    for sz_data in response.data:
-                        sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
-                        if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
-                            m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
-                            if 'Veszített' in m_eredmenyek or all(r in ['Nyert', 'Érvénytelen'] for r in m_eredmenyek): continue
-                            for m in sz_meccsei:
-                                m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
-                                m['tipp_str'] = get_tip_details(m['tipp'])
-                            sz_data['meccsek'] = sz_meccsei
-                            if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
-                            elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
-            
-            if not todays_slips and not tomorrows_slips and status_response.data:
-                status = status_response.data[0].get('status')
-                if status == "Nincs megfelelő tipp":
-                    daily_status_message = "A mai napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
+            # JAVÍTÁS: Mindig a holnapi napra vonatkozó státuszt nézzük, mert a generátor este fut
+            status_target_date = tomorrow_str
+            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
 
+            # Ha a státusz "Nincs megfelelő tipp", akkor beállítjuk az üzenetet és nem is keresünk tovább
+            if status_response.data and status_response.data[0].get('status') == "Nincs megfelelő tipp":
+                 daily_status_message = "A holnapi napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza később!"
+            else:
+                # Csak akkor keressük a szelvényeket, ha nincs "nincs tipp" üzenet
+                search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
+                response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
+                
+                if response.data:
+                    all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
+                    if all_tip_ids:
+                        meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
+                        for sz_data in response.data:
+                            sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+                            if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
+                                m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
+                                if 'Veszített' in m_eredmenyek or all(r in ['Nyert', 'Érvénytelen'] for r in m_eredmenyek): continue
+                                for m in sz_meccsei:
+                                    m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
+                                    m['tipp_str'] = get_tip_details(m['tipp'])
+                                sz_data['meccsek'] = sz_meccsei
+                                if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
+                                elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
 
@@ -190,7 +190,7 @@ async def create_portal_session(request: Request):
     except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web", response_class=RedirectResponse)
-async def create_checkout_session_web(request: Request, plan: str = Form(...)):
+async def create_checkout_session-web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
