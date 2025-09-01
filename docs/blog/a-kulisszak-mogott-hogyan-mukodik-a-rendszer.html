@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A Kulisszák Mögött: Hogyan Készülnek a Tippek? - Mondom a Tutit!</title>
+    <meta name="description" content="Hogyan működik a Mondom a Tutit! rendszere? Ismerd meg az adatalapú elemzés és az automatizált tippgenerálás folyamatát.">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
+    <style>
+        :root { --primary-color: #38A169; --text-color: #333; --bg-color: #f4f7f6; --white: #ffffff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .article-header { background-color: #2c3e50; color: var(--white); padding: 40px 20px; text-align: center; }
+        .article-header h1 { margin: 0; font-size: 2.5rem; }
+        .article-content { background-color: var(--white); padding: 30px; border-radius: 8px; margin-top: -30px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .article-content h2 { color: var(--primary-color); border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .article-content p, .article-content li { font-size: 1.1rem; }
+        .cta-box { text-align: center; margin-top: 40px; padding: 20px; background-color: #f0f2f5; border-radius: 8px;}
+        .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease; }
+        footer { text-align: center; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <div class="article-header">
+        <p>2025. szeptember 4.</p>
+        <h1>A Kulisszák Mögött: Hogyan Készülnek a Tippek?</h1>
+    </div>
+    <div class="container">
+        <div class="article-content">
+            <p>Sokan kérdeztétek, hogy pontosan hogyan is működik a "Mondom a Tutit!", és mi rejlik a napi szinten érkező, adat-alapú tippek mögött. Ebben a bejegyzésben lerántjuk a leplet a rendszerről, és bemutatjuk azt az automatizált folyamatot, ami leveszi a terhet a válladról és érzelemmentes, statisztikai alapokon nyugvó tippeket ad.</p>
+            
+            <h2>Az Ötlet: Adatok az Érzelmek Helyett</h2>
+            <p>A legtöbb sportfogadó ismeri az érzést: órákat töltesz a statisztikák böngészésével, mégis egy megérzés vagy egy szimpátia alapján hozol döntést, ami végül elviszi a szelvényt. Az alapötlet az volt, hogy hozzunk létre egy rendszert, ami 100%-ban kizárja az emberi tényezőt, és csak a tiszta, kemény adatokra támaszkodik.</p>
+
+            <h2>A Rendszer Felépítése: Egy Jól Olajozott Gépezet</h2>
+            <p>A "Mondom a Tutit!" nem egyetlen program, hanem több, egymással kommunikáló online szolgáltatás összessége, ami éjjel-nappal dolgozik:</p>
+            <ul>
+                <li><strong>A Tipp-generátor:</strong> A rendszer agya, egy Python szkript, ami minden este több ezer adatpontot gyűjt be a RapidAPI-n keresztül. Figyeli a csapatok formáját, H2H statisztikáit, tabellán elfoglalt helyét, sérülteket, sőt, még a kulcsjátékosok hiányát is.</li>
+                <li><strong>Az Automatizáció Motorja (GitHub Actions):</strong> Egy fáradhatatlan robot, ami minden este pontosan ugyanabban az időben elindítja a tipp-generátort, majd az eredmény-ellenőrzőt is.</li>
+                <li><strong>Az Adatbázis (Supabase):</strong> A rendszer memóriája, ahol az összes felhasználói adatot, a meccseket, a tippeket és a szelvényeket biztonságosan tároljuk.</li>
+                <li><strong>A Backend (Render):</strong> A VIP zóna biztonságos és gyors motorja, ami kezeli a bejelentkezéseket és kiszolgálja a tagoknak szóló, exkluzív tartalmat.</li>
+                <li><strong>A Weboldal (GitHub Pages):</strong> A modern, gyors és megbízható "kirakat", amit éppen olvasol.</li>
+                <li><strong>A Fizetési Rendszer (Stripe):</strong> A világ egyik legbiztonságosabb online fizetési szolgáltatója, ami garantálja az adataid védelmét.</li>
+            </ul>
+
+            <h2>Egy Tipikus Nap a Rendszer Életében</h2>
+            <ol>
+                <li><strong>Este 7-kor:</strong> A rendszer "felébred", és elkezdi letölteni a következő 24-48 óra meccskínálatát a világ 50+ bajnokságából.</li>
+                <li><strong>Elemzés:</strong> Az algoritmus minden egyes meccset több száz szempont alapján kiértékel, és kiszámolja a saját, belső "Megbízhatósági Pontszámát" minden lehetséges kimenetelre.</li>
+                <li><strong>Döntetlen-szűrés:</strong> Egy beépített "biztonsági fék" ellenőrzi a döntetlenre utaló jeleket, és ha szükséges, a kockázatosabb tippeket biztonságosabb, dupla esélyes verzióra cseréli.</li>
+                <li><strong>Szelvényépítés:</strong> A legmagasabb pontszámot kapott, legértékesebb tippekből a rendszer 2-es és 3-as kötésű szelvényeket ("Napi Tutikat") állít össze.</li>
+                <li><strong>Közzététel és Értesítés:</strong> A kész szelvények felkerülnek a VIP zónába, a rendszer pedig rögzíti a napi státuszt, és kiküldi a Telegram értesítést minden aktív előfizetőnek.</li>
+            </ol>
+
+            <div class="cta-box">
+                <h3>Készen állsz, hogy kipróbáld?</h3>
+                <p>Most, hogy már látod, mennyi munka és adat van minden egyes tipp mögött, csatlakozz a VIP zónához, és hagyd, hogy a mi rendszerünk dolgozzon helyetted!</p>
+                <a href="/index.html#login-register" class="cta-button">Irány a VIP Zóna!</a>
+            </div>
+            
+            <footer>
+                <p><a href="/blog.html">← Vissza a Blogra</a></p>
+            </footer>
+        </div>
+    </div>
+</body>
+</html>
