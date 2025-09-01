@@ -1,6 +1,7 @@
-# main.py (Hibrid Modell - Napi Státusz Kezeléssel)
+# main.py (Hibrid Modell - Pontosított Szöveggel)
 
 import os
+# ... (a többi import változatlan)
 import asyncio
 import stripe
 import requests
@@ -8,21 +9,18 @@ import telegram
 import secrets
 import pytz
 from datetime import datetime, timedelta
-
 from fastapi import FastAPI, Request, Form, Depends, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
-
 from passlib.context import CryptContext
 from supabase import create_client, Client
-
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 
-# --- Konfiguráció ---
-# ... (A konfigurációs változók változatlanok)
+# --- Konfiguráció és API beállítások ---
+# ... (ez a rész változatlan)
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
@@ -34,9 +32,6 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
-
-# --- FastAPI Alkalmazás és Beállítások ---
-# ... (Az API beállítások, CORS, stb. változatlanok)
 api = FastAPI()
 application = None
 origins = [
@@ -53,7 +48,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 
 # --- Segédfüggvények ---
-# ... (A segédfüggvények, pl. get_current_user, is_web_user_subscribed, send_admin_notification változatlanok)
+# ... (ez a rész változatlan)
 def get_password_hash(password): return pwd_context.hash(password)
 def verify_password(plain_password, hashed_password): return pwd_context.verify(plain_password, hashed_password)
 def get_current_user(request: Request):
@@ -83,8 +78,6 @@ async def send_admin_notification(message: str):
     except Exception as e:
         print(f"Hiba az admin értesítés küldésekor: {e}")
 
-
-# --- VIP Oldal Módosítása ---
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
     user = get_current_user(request)
@@ -92,19 +85,18 @@ async def vip_area(request: Request):
     
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
-    daily_status_message = "" # Új változó a státuszüzenetnek
+    daily_status_message = ""
     
     if is_subscribed:
         try:
             now_local = datetime.now(HUNGARY_TZ)
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-
-            # MÓDOSÍTÁS: A mai és holnapi nap státuszának lekérdezése
-            status_response = supabase.table("daily_status").select("status").in_("date", [today_str, tomorrow_str]).order("date", desc=True).limit(1).execute()
             
-            # Szelvények lekérdezése a mai és holnapi napra
-            # A logika itt változatlan, de a megjelenítést a státusz befolyásolhatja
+            # A mai nap releváns státuszának lekérdezése
+            # (A generátor a holnapi napra teszi be a státuszt, amit mi a mai napon olvasunk ki)
+            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
+            
             # ... (a szelvények lekérdezésének logikája változatlan)
             search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
             response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
@@ -113,7 +105,6 @@ async def vip_area(request: Request):
                 if all_tip_ids:
                     meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
                     for sz_data in response.data:
-                        # ... (a szelvények feldolgozásának logikája változatlan)
                         sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                         if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                             m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
@@ -125,11 +116,11 @@ async def vip_area(request: Request):
                             if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
                             elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
             
-            # Ha nincsenek szelvények, de van státusz a DB-ben, azt használjuk
+            # MÓDOSÍTÁS: Pontosított üzenet
             if not todays_slips and not tomorrows_slips and status_response.data:
                 status = status_response.data[0].get('status')
                 if status == "Nincs megfelelő tipp":
-                    daily_status_message = "A mai napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap!"
+                    daily_status_message = "A mai napra (illetve a ma estére/éjszakára várt meccsekre) az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
 
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
@@ -137,15 +128,35 @@ async def vip_area(request: Request):
     return templates.TemplateResponse("vip_tippek.html", {
         "request": request, "user": user, "is_subscribed": is_subscribed, 
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
-        "daily_status_message": daily_status_message # Átadjuk a státuszüzenetet a sablonnak
+        "daily_status_message": daily_status_message
     })
 
 # --- A többi végpont (logout, profile, webhooks, stb.) változatlan marad ---
-# ...
-@api.get("/logout")
-async def logout(request: Request):
-    request.session.pop("user_id", None)
-    return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
+# ... (a fájl többi része változatlan)
+@api.get("/")
+async def read_root(request: Request):
+    return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
+@api.post("/register")
+async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
+    try:
+        existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
+        if existing_user.data:
+            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+        hashed_password = get_password_hash(password)
+        supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
+        return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
+    except Exception:
+        return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
+@api.post("/login")
+async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    try:
+        user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
+        if not user_res.data or not user_res.data.get('hashed_password') or not verify_password(password, user_res.data['hashed_password']):
+            return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+        request.session["user_id"] = user_res.data['id']
+        return RedirectResponse(url="/vip", status_code=303)
+    except Exception:
+        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
@@ -153,8 +164,6 @@ async def profile_page(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
-# ... etc. the rest of the file is unchanged.
-# I will include it for completeness in the final response.
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
