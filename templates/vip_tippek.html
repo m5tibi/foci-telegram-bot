@@ -20,13 +20,41 @@
         {% if todays_slips %}
             <h3>Mai Aktív Szelvények</h3>
             {% for szelveny in todays_slips %}
-                {% endfor %}
+                <div class="szelveny-card">
+                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                    {% for meccs in szelveny.meccsek %}
+                        <div class="meccs">
+                            <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
+                            <p>🏆 {{ meccs.liga_nev }}</p>
+                            <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                            <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        </div>
+                    {% endfor %}
+                    <p class="eredo-odds">
+                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
+                    </p>
+                </div>
+            {% endfor %}
         {% endif %}
 
         {% if tomorrows_slips %}
             <h3>Holnapi Szelvények</h3>
             {% for szelveny in tomorrows_slips %}
-                {% endfor %}
+                <div class="szelveny-card tomorrow">
+                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                     {% for meccs in szelveny.meccsek %}
+                        <div class="meccs">
+                           <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
+                           <p>🏆 {{ meccs.liga_nev }}</p>
+                           <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
+                           <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+                        </div>
+                    {% endfor %}
+                    <p class="eredo-odds">
+                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
+                    </p>
+                </div>
+            {% endfor %}
         {% endif %}
 
         {% if not todays_slips and not tomorrows_slips %}
@@ -40,5 +68,27 @@
         {% endif %}
 
     {% else %}
-        {% endif %}
+        <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
+        <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
+        <div class="pricing-grid" style="margin-top: 30px;">
+            <div class="price-card">
+                <h3>HETI CSOMAG</h3>
+                <div class="price">3,490 Ft</div>
+                <p>Ideális, ha kipróbálnád a szolgáltatást.</p>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="weekly">
+                    <button type="submit" class="button">Előfizetek</button>
+                </form>
+            </div>
+            <div class="price-card">
+                <h3>HAVI CSOMAG</h3>
+                <div class="price">9,999 Ft</div>
+                <p>A legjobb ár-érték arányú választás.</p>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="monthly">
+                    <button type="submit" class="button">Előfizetek</button>
+                </form>
+            </div>
+        </div>
+    {% endif %}
 {% endblock %}
