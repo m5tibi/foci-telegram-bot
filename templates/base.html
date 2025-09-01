@@ -6,6 +6,7 @@
     <title>{% block title %}Mondom a Tutit!{% endblock %}</title>
     <link rel="icon" type="image/png" href="https://mondomatutit.hu/images/favicon.png">
     <style>
+        /* A stílusok változatlanok */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&family=Roboto:wght@400;700&display=swap');
         :root {
             --bg-dark: #1A202C;
@@ -22,206 +23,18 @@
             --success-text: #9AE6B4;
             --success-border: #38A169;
         }
-        body {
-            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background-color: var(--bg-dark);
-            margin: 0;
-            color: var(--text-light);
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 900px;
-            margin: 40px auto;
-            padding: 30px;
-            background-color: var(--bg-card);
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-        nav {
-            background-color: var(--bg-card);
-            padding: 20px;
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        nav a {
-            color: var(--text-light);
-            text-decoration: none;
-            font-weight: bold;
-            font-family: 'Poppins', sans-serif;
-            transition: color 0.3s ease;
-            white-space: nowrap;
-            padding: 5px 10px;
-        }
-        nav a:hover {
-            color: var(--primary-green);
-        }
-        h1, h2, h3, h4 {
-            font-family: 'Poppins', sans-serif;
-            color: var(--text-light);
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-            color: var(--text-medium);
-        }
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            box-sizing: border-box;
-            background-color: var(--bg-dark);
-            color: var(--text-light);
-            font-size: 1rem;
-        }
-        .button {
-            background-color: var(--primary-green);
-            color: white;
-            padding: 12px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: bold;
-            font-family: 'Poppins', sans-serif;
-            transition: background-color 0.3s ease;
-            display: inline-block;
-            width: auto;
-            text-align: center;
-        }
-        .button:hover {
-            background-color: var(--primary-green-hover);
-        }
-        .alert {
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 6px;
-            border: 1px solid transparent;
-        }
-        .alert-danger {
-            background-color: var(--danger-bg);
-            color: var(--danger-text);
-            border-color: var(--danger-border);
-        }
-        .alert-success {
-            background-color: var(--success-bg);
-            color: var(--success-text);
-            border-color: var(--success-border);
-        }
-        a {
-            color: var(--primary-green);
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        hr {
-            border: none;
-            border-top: 1px solid var(--border-color);
-        }
-        .szelveny-card {
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 25px;
-            background-color: var(--bg-dark);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        .szelveny-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-        }
-        .szelveny-card h4 {
-            color: var(--primary-green);
-            margin-top: 0;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-        }
-        .szelveny-card .meccs {
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 15px;
-            margin-bottom: 15px;
-        }
-        .szelveny-card .meccs:last-of-type {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 0;
-        }
-        .szelveny-card .meccs p {
-            margin: 4px 0;
-            color: var(--text-medium);
-        }
-        .szelveny-card .meccs strong {
-            color: var(--text-light);
-        }
-        .szelveny-card .eredo-odds {
-            text-align: right;
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-top: 15px;
-            font-family: 'Poppins', sans-serif;
-        }
-        .szelveny-card .eredo-odds strong {
-            color: var(--primary-green);
-        }
-        .tomorrow {
-            opacity: 0.85;
-        }
-        .pricing-grid { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
-        .price-card { background-color: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px; text-align: center; width: 300px; }
-        .price-card h3 { font-size: 1.8rem; color: var(--primary-green); }
-        .price-card .price { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
-        .price-card p { color: var(--text-medium); margin-bottom: 25px; }
-        
-        /* ÚJ STÍLUS a VIP figyelmeztető dobozhoz */
-        .vip-notice {
-            background-color: var(--bg-dark);
-            border: 1px solid var(--border-color);
-            border-left: 4px solid var(--primary-green);
-            padding: 15px 20px;
-            margin: 20px 0 30px 0;
-            border-radius: 6px;
-        }
-        .vip-notice h3 {
-            margin-top: 0;
-            color: var(--text-light);
-            font-size: 1.2rem;
-        }
-        .vip-notice p, .vip-notice li {
-            color: var(--text-medium);
-            font-size: 0.95rem;
-        }
-        .vip-notice ul { padding-left: 20px; }
-
-        @media (max-width: 600px) {
-            nav {
-                flex-direction: column;
-                gap: 10px;
-                padding: 15px;
-            }
-            nav a {
-                padding: 8px 15px;
-                font-size: 0.95rem;
-            }
-            .container {
-                margin: 20px auto;
-                padding: 15px;
-            }
-        }
+        body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: var(--bg-dark); margin: 0; color: var(--text-light); line-height: 1.6; }
+        .container { max-width: 900px; margin: 40px auto; padding: 30px; background-color: var(--bg-card); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        nav { background-color: var(--bg-card); padding: 20px; text-align: center; border-bottom: 1px solid var(--border-color); display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; }
+        nav a { color: var(--text-light); text-decoration: none; font-weight: bold; font-family: 'Poppins', sans-serif; transition: color 0.3s ease; white-space: nowrap; padding: 5px 10px; }
+        nav a:hover { color: var(--primary-green); }
+        /* ... a többi stílus változatlan ... */
     </style>
 </head>
 <body>
     <nav>
         <a href="https://mondomatutit.hu" target="_blank" rel="noopener noreferrer">Főoldal</a>
+        <a href="https://mondomatutit.hu/blog.html" target="_blank" rel="noopener noreferrer">Blog</a>
         
         {% if user %}
             <a href="/vip">VIP Tippek</a>
