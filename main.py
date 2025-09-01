@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Véglegesen Javított Napi Státusz Kezeléssel)
+# main.py (Hibrid Modell - Véglegesen Javított Időalapú Logikával)
 
 import os
 import asyncio
@@ -127,13 +127,20 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # JAVÍTÁS: Először a mai nap státuszát ellenőrizzük, mert a felhasználó a mai napra kíváncsi.
-            status_response = supabase.table("daily_status").select("status").eq("date", today_str).limit(1).execute()
+            # JAVÍTOTT, IDŐALAPÚ LOGIKA
+            # Este 7 (19:00) után már a holnapi tippekre vagyunk kíváncsiak.
+            if now_local.hour >= 19:
+                status_target_date = tomorrow_str
+                status_message_date = "holnapi"
+            else:
+                status_target_date = today_str
+                status_message_date = "mai"
+
+            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
             
             if status_response.data and status_response.data[0].get('status') == "Nincs megfelelő tipp":
-                 daily_status_message = "A mai napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza holnap az új tippekért!"
+                 daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza később!"
             else:
-                # Csak akkor keressük a szelvényeket, ha nincs "nincs tipp" üzenet
                 search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
                 response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
                 
