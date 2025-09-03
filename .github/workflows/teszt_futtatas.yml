@@ -24,13 +24,10 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-        run: python tipp_generator.py
+        run: python tipp_generator.py --test
 
       - name: Admin összefoglaló küldése
-        # Ez a lépés mindig lefut, hogy tájékoztasson az eredményről
         if: always()
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: python send_admin_summary.py
