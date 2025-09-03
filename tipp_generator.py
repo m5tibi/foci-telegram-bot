@@ -1,4 +1,4 @@
-# tipp_generator.py (V4.1 - Egységes Formátum és Selejtezők)
+# tipp_generator.py (V4.2 - NoneType Hiba Javítása)
 
 import os
 import requests
@@ -44,7 +44,7 @@ LEAGUES = {
     # --- AMERIKAI BAJNOKSÁGOK ---
     253: "USA MLS", 262: "Mexikói Liga MX",
     71: "Brazil Serie A", 72: "Brazil Serie B",
-    128: "Argentin Liga Profesional", 239: "Kolumbiai Primera A",
+    128: "Argentin Liga Profesional", 239: "Kolumbiai Primera A", 241: "Copa Colombia",
     130: "Chilei Primera División", 265: "Paraguayi Division Profesional",
 
     # --- ÁZSIAI ÉS AUSZTRÁL BAJNOKSÁGOK ---
@@ -63,7 +63,7 @@ LEAGUES = {
     5: "UEFA Nemzetek Ligája", 25: "EB Selejtező",
     363: "VB Selejtező (UEFA)", 358: "VB Selejtező (AFC)", 359: "VB Selejtező (CAF)",
     360: "VB Selejtező (CONCACAF)", 361: "VB Selejtező (CONMEBOL)",
-    241: "Ázsia-kupa Selejtező", 228: "Afrika-kupa Selejtező",
+    228: "Afrika-kupa Selejtező",
     9: "Copa América", 6: "Afrika-kupa"
 }
 top_scorers_cache = {}
@@ -103,7 +103,8 @@ def get_injuries(fixture_id):
     return home_injuries, away_injuries
 def check_for_draw_risk(stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id):
     draw_signals = 0; reason = []
-    form_h, form_v = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
+    form_h_raw = stats_h.get('form'); form_v_raw = stats_v.get('form')
+    form_h, form_v = (form_h_raw or '')[-5:], (form_v_raw or '')[-5:]
     if form_h.count('D') + form_v.count('D') >= 2: draw_signals += 1; reason.append("Sok döntetlen a formában.")
     if h2h_stats:
         total_h2h = h2h_stats.get('wins1', 0) + h2h_stats.get('wins2', 0) + h2h_stats.get('draws', 0)
@@ -124,7 +125,14 @@ def calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, st
         for team_data in standings_data:
             if team_data['team']['id'] == home_team_id: pos_h = team_data['rank']
             if team_data['team']['id'] == away_team_id: pos_v = team_data['rank']
-    form_h, form_v = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
+    
+    # === JAVÍTÁS KEZDETE (NoneType Hiba) ===
+    form_h_raw = stats_h.get('form')
+    form_v_raw = stats_v.get('form')
+    form_h = (form_h_raw or '')[-5:]
+    form_v = (form_v_raw or '')[-5:]
+    # === JAVÍTÁS VÉGE ===
+
     wins_h, wins_v = form_h.count('W'), form_v.count('W')
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
@@ -297,7 +305,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V4.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V4.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     if not is_test_mode:
         print(f"Holnapi ({target_date_str}) 'napi_tuti' bejegyzések törlése...")
