@@ -1,4 +1,4 @@
-# tipp_generator.py (V29 - Bővített Ligákkal és Játékos-elemzéssel)
+# tipp_generator.py (V30 - Teszt Üzemmóddal)
 
 import os
 import requests
@@ -8,8 +8,11 @@ import time
 import pytz
 import math
 import itertools
+import sys # Új import
+import json # Új import
 
 # --- Konfiguráció ---
+# ... (a konfigurációs rész változatlan)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
@@ -17,28 +20,24 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- BŐVÍTETT LIGA LISTA ---
+# --- Bővített Liga Lista ---
+# ... (a liga lista változatlan)
 LEAGUES = {
-    # Top Európai Ligák
     39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 61: "Francia Ligue 1",
-    # Top Másodosztályú Ligák
     40: "Angol Championship", 141: "Spanyol La Liga 2", 136: "Olasz Serie B", 79: "Német 2. Bundesliga", 62: "Francia Ligue 2",
-    # További Európai Ligák
     88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 144: "Belga Jupiler Pro League", 203: "Török Süper Lig",
     119: "Svéd Allsvenskan", 103: "Norvég Eliteserien", 106: "Dán Superliga", 218: "Svájci Super League", 113: "Osztrák Bundesliga",
     179: "Skót Premiership", 41: "Angol League One", 197: "Görög Super League", 210: "Horvát HNL", 107: "Lengyel Ekstraklasa",
     207: "Cseh Fortuna Liga", 283: "Román Liga I",
-    # Nemzetközi Kupák
     2: "Bajnokok Ligája", 3: "Európa-liga", 848: "Európa-konferencialiga", 13: "Copa Libertadores", 11: "Copa Sudamericana",
-    # Amerikai Ligák
     253: "USA MLS", 262: "Mexikói Liga MX", 71: "Brazil Serie A", 128: "Argentin Liga Profesional", 239: "Kolumbiai Primera A",
     130: "Chilei Primera División", 265: "Paraguayi Division Profesional",
-    # Ázsiai Ligák
     98: "Japán J1 League", 188: "Ausztrál A-League", 292: "Dél-Koreai K League 1", 281: "Szaúdi Pro League"
 }
+top_scorers_cache = {}
 
-# --- API HÍVÓ FÜGGVÉNYEK ---
-top_scorers_cache = {} # Gyorsítótár a góllövőlistáknak
+# --- API és Elemző Függvények ---
+# ... (az összes elemző függvény változatlan marad)
 def get_api_data(endpoint, params):
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
@@ -73,8 +72,6 @@ def get_injuries(fixture_id):
                 if team_id == home_team_id: home_injuries.append(player_name)
                 else: away_injuries.append(player_name)
     return home_injuries, away_injuries
-
-# --- ELEMZŐ FÜGGVÉNYEK ---
 def check_for_draw_risk(stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id):
     draw_signals = 0; reason = []
     form_h, form_v = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
@@ -124,7 +121,7 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats,
         if tip_type in ["Away", "X2"] and len(home_top_scorers_injured) > 0: score += 15; reason.append("Hazai kulcsjátékos hiányzik.")
         if tip_type in ["Home", "Over 2.5", "BTTS"] and len(home_top_scorers_injured) > 0: score -= 20; reason.append(f"Hazai top csatár ({home_top_scorers_injured[0]}) sérült.")
         if tip_type in ["Away", "Over 2.5", "BTTS"] and len(away_top_scorers_injured) > 0: score -= 20; reason.append(f"Vendég top csatár ({away_top_scorers_injured[0]}) sérült.")
-    else: # Fallback to simpler injury check if top scorer list is not available
+    else:
         if tip_type == "Home" and len(injuries_v) >= 2: score -= (len(injuries_v) * 10); reason.append("Vendég hiányzók.")
         if tip_type == "Away" and len(injuries_h) >= 2: score -= (len(injuries_h) * 10); reason.append("Hazai hiányzók.")
     final_score = min(score, 95)
@@ -211,21 +208,21 @@ def analyze_and_generate_tips(fixtures, target_date_str):
 
 # --- FŐ PROGRAM ---
 def save_tips_to_supabase(tips):
-    if not tips: print("Nincsenek menthető tippek."); return False
+    if not tips: print("Nincsenek menthető tippek."); return []
     try:
         print("Régi, beragadt tippek törlése..."); three_days_ago_utc = datetime.utcnow().replace(tzinfo=pytz.utc) - timedelta(days=3)
         supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").lt("kezdes", str(three_days_ago_utc)).execute()
-        tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]; print(f"{len(tips_to_insert)} új tipp mentése..."); supabase.table("meccsek").insert(tips_to_insert).execute()
-        print("Tippek sikeresen elmentve."); return True
-    except Exception as e: print(f"!!! HIBA a tippek mentése során: {e}"); return False
-def create_ranked_daily_specials(date_str):
+        tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips]; print(f"{len(tips_to_insert)} új tipp mentése...");
+        # Az insert-nek vissza kell adnia a beillesztett sorokat az ID-vel együtt
+        response = supabase.table("meccsek").insert(tips_to_insert).execute()
+        print("Tippek sikeresen elmentve."); return response.data
+    except Exception as e: print(f"!!! HIBA a tippek mentése során: {e}"); return []
+def create_ranked_daily_specials(date_str, candidate_tips):
     print(f"--- Rangsorolt Napi Tuti szelvények készítése: {date_str} ---")
+    created_slips = []
     try:
         supabase.table("napi_tuti").delete().like("tipp_neve", f"%{date_str}%").execute()
-        start_of_day = date_str; end_date_obj = datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1); start_of_next_day = end_date_obj.strftime("%Y-%m-%d")
-        response = supabase.table("meccsek").select("*").gte("kezdes", start_of_day).lt("kezdes", start_of_next_day).execute()
-        if not response.data: print("Nincsenek meccsek a szelvénykészítéshez."); return
-        candidates = sorted(response.data, key=lambda x: x.get('confidence_score', 0), reverse=True)
+        candidates = sorted(candidate_tips, key=lambda x: x.get('confidence_score', 0), reverse=True)
         szelveny_count, MAX_SZELVENY = 1, 4
         while len(candidates) >= 2 and szelveny_count <= MAX_SZELVENY:
             best_combo_found, possible_combos = None, []
@@ -240,11 +237,14 @@ def create_ranked_daily_specials(date_str):
             if best_combo_found:
                 tipp_neve = f"Napi Tuti #{szelveny_count} - {date_str}"; combo = best_combo_found['combo']
                 tipp_id_k = [t['id'] for t in combo]; confidence_percent = min(int(best_combo_found['confidence']), 98); eredo_odds = best_combo_found['odds']
-                supabase.table("napi_tuti").insert({"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k, "confidence_percent": confidence_percent}).execute()
+                # Adatbázisba mentés helyett a listához adjuk
+                slip_data = {"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k, "confidence_percent": confidence_percent, "combo": combo}
+                created_slips.append(slip_data)
                 print(f"'{tipp_neve}' létrehozva (Megbízhatóság: {confidence_percent}%, Odds: {eredo_odds:.2f}).")
                 candidates = [c for c in candidates if c not in combo]; szelveny_count += 1
             else: print("Nem található több megfelelő szelvénykombináció."); break
     except Exception as e: print(f"!!! HIBA a Napi Tuti készítése során: {e}")
+    return created_slips
 def record_daily_status(date_str, status, reason=""):
     try:
         print(f"Napi státusz rögzítése: {date_str} - {status}")
@@ -252,25 +252,50 @@ def record_daily_status(date_str, status, reason=""):
         supabase.table("daily_status").insert({"date": date_str, "status": status, "reason": reason}).execute()
         print("Státusz sikeresen rögzítve.")
     except Exception as e: print(f"!!! HIBA a napi státusz rögzítése során: {e}")
+
 def main():
+    is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V29) indítása - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V30) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures = get_fixtures_from_api(start_time.strftime("%Y-%m-%d")) + get_fixtures_from_api(target_date_str)
+    
     tips_found = False
     if all_fixtures:
         final_tips = analyze_and_generate_tips(all_fixtures, target_date_str)
         if final_tips:
-            save_successful = save_tips_to_supabase(final_tips)
-            if save_successful:
+            if is_test_mode:
+                # Teszt módban nem mentünk a db-be, hanem szimuláljuk az egészet
+                # Hozzárendelünk ideiglenes ID-kat a tippekhez a szelvénykészítéshez
+                for i, tip in enumerate(final_tips): tip['id'] = i + 10000 
+                created_slips = create_ranked_daily_specials(target_date_str, final_tips)
+                with open('test_results.json', 'w', encoding='utf-8') as f:
+                    json.dump({'status': 'Tippek generálva', 'slips': created_slips}, f, ensure_ascii=False, indent=4)
                 tips_found = True
-                create_ranked_daily_specials(target_date_str)
-                record_daily_status(target_date_str, "Tippek generálva", f"{len(final_tips)} egyedi tipp alapján szelvények készültek.")
+            else:
+                # Éles módban mentünk az adatbázisba
+                saved_tips_with_ids = save_tips_to_supabase(final_tips)
+                if saved_tips_with_ids:
+                    tips_found = True
+                    created_slips = create_ranked_daily_specials(target_date_str, saved_tips_with_ids)
+                    # A szelvényeket ténylegesen elmentjük
+                    for slip in created_slips:
+                        supabase.table("napi_tuti").insert({"tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"], "tipp_id_k": slip["tipp_id_k"], "confidence_percent": slip["confidence_percent"]}).execute()
+                    record_daily_status(target_date_str, "Tippek generálva", f"{len(saved_tips_with_ids)} egyedi tipp alapján szelvények készültek.")
+    
     if not tips_found:
         print("Az elemzés után nem maradt megfelelő tipp.")
-        record_daily_status(target_date_str, "Nincs megfelelő tipp", "A holnapi kínálatból az algoritmus nem talált a minőségi kritériumoknak megfelelő, értékes tippet.")
-    if "GITHUB_OUTPUT" in os.environ:
+        reason = "A holnapi kínálatból az algoritmus nem talált a minőségi kritériumoknak megfelelő, értékes tippet."
+        if is_test_mode:
+            with open('test_results.json', 'w', encoding='utf-8') as f:
+                json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        else:
+            record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
+            
+    # Ez a rész a workflow számára ad kimenetet, változatlan marad.
+    if "GITHUB_OUTPUT" in os.environ and not is_test_mode:
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             print(f"TIPS_FOUND={str(tips_found).lower()}", file=f)
+
 if __name__ == "__main__":
     main()
