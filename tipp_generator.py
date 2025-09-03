@@ -1,4 +1,4 @@
-# tipp_generator.py (V31 - Biztonsági Háló Funkcióval)
+# tipp_generator.py (V32 - Finomhangolt Biztonsági Hálóval)
 
 import os
 import requests
@@ -124,12 +124,15 @@ def calculate_confidence_with_stats(tip_type, odds, stats_h, stats_v, h2h_stats,
     final_score = min(score, 95)
     if final_score >= min_score: return final_score, " ".join(list(dict.fromkeys(reason))) or "Statisztikai elemzés alapján."
     return 0, ""
-def calculate_confidence_fallback(tip_type, odds):
-    if tip_type in ["Home", "Away"] and 1.40 <= odds <= 2.40: return 60, "Odds-alapú tipp."
-    if tip_type == "Over 2.5" and 1.55 <= odds <= 2.20: return 60, "Odds-alapú tipp."
-    if tip_type == "Over 1.5" and 1.35 <= odds <= 1.55: return 60, "Odds-alapú tipp."
-    if tip_type == "BTTS" and 1.50 <= odds <= 2.10: return 60, "Odds-alapú tipp."
-    if tip_type in ["1X", "X2"] and 1.35 <= odds <= 1.60: return 60, "Odds-alapú tipp."
+def calculate_confidence_fallback(tip_type, odds, min_score): # Hozzáadtuk a min_score-t
+    base_score = 0
+    if tip_type in ["Home", "Away"] and 1.40 <= odds <= 2.40: base_score = 60
+    elif tip_type == "Over 2.5" and 1.55 <= odds <= 2.20: base_score = 60
+    elif tip_type == "Over 1.5" and 1.35 <= odds <= 1.55: base_score = 60
+    elif tip_type == "BTTS" and 1.50 <= odds <= 2.10: base_score = 60
+    elif tip_type in ["1X", "X2"] and 1.35 <= odds <= 1.60: base_score = 60
+    
+    if base_score >= min_score: return base_score, "Odds-alapú tipp."
     return 0, ""
 def analyze_and_generate_tips(fixtures, target_date_str, min_score=65):
     final_tips, standings_cache = [], {}
@@ -188,15 +191,11 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=65):
                     generated_match_tips.append({"tipp": "X2", "odds": available_odds["X2"], "confidence_score": score_a, "indoklas": f"Away helyett (döntetlen-veszély: {risk_reason})"})
                 elif "Away" in available_odds:
                     generated_match_tips.append({"tipp": "Away", "odds": available_odds["Away"], "confidence_score": score_a, "indoklas": reason_a})
-        if not generated_match_tips or min_score < 65: # Fallback logic only runs for safety net or if stats logic failed
-            for tip_type in ["Over 2.5", "BTTS"]:
+        if not generated_match_tips or min_score < 65: # Fallback logic
+            for tip_type in ["Over 2.5", "BTTS", "Over 1.5", "1X", "X2"]:
                 if tip_type in available_odds:
-                    score, reason = (calculate_confidence_with_stats(tip_type, available_odds[tip_type], stats_h, stats_v, h2h_stats, standings, home_team_id, away_team_id, api_prediction, injuries_h, injuries_v, top_scorers, min_score) if use_stats_logic else calculate_confidence_fallback(tip_type, available_odds[tip_type]))
+                    score, reason = calculate_confidence_fallback(tip_type, available_odds[tip_type], min_score)
                     if score > 0: generated_match_tips.append({"tipp": tip_type, "odds": available_odds[tip_type], "confidence_score": score, "indoklas": reason})
-            if not use_stats_logic:
-                for tip_type, odds in available_odds.items():
-                    score, reason = calculate_confidence_fallback(tip_type, odds)
-                    if score > 0: generated_match_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": score, "indoklas": reason})
         if generated_match_tips:
             best_tip = max(generated_match_tips, key=lambda x: x['confidence_score'])
             tip_info = tip_template.copy(); tip_info.update(best_tip)
@@ -205,6 +204,7 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=65):
     return final_tips
 
 # --- FŐ PROGRAM ---
+# ... (a többi függvény, mint a save_tips_to_supabase, create_ranked_daily_specials, stb. változatlan)
 def save_tips_to_supabase(tips):
     if not tips: print("Nincsenek menthető tippek."); return []
     try:
@@ -220,10 +220,8 @@ def create_ranked_daily_specials(date_str, candidate_tips, is_safety_net=False):
     try:
         if not is_safety_net: # Csak éles futáskor töröljük a meglévőket
             supabase.table("napi_tuti").delete().like("tipp_neve", f"%{date_str}%").execute()
-        
         candidates = sorted(candidate_tips, key=lambda x: x.get('confidence_score', 0), reverse=True)
         szelveny_count, MAX_SZELVENY = 1, (1 if is_safety_net else 4)
-        
         while len(candidates) >= 2 and szelveny_count <= MAX_SZELVENY:
             best_combo_found, possible_combos = None, []
             combo_sizes = [2] if is_safety_net else ([3, 2] if len(candidates) >= 3 else [2]) # Safety net csak 2-es kötést csinál
@@ -256,7 +254,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V31) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V32) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures = get_fixtures_from_api(start_time.strftime("%Y-%m-%d")) + get_fixtures_from_api(target_date_str)
     
@@ -264,25 +262,23 @@ def main():
     final_tips = []
     
     if all_fixtures:
-        # 1. Prémium keresés
         print("\n--- 1. KÖR: Prémium tippek keresése (min. 65 pont) ---")
         final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=65)
         
-        # 2. Biztonsági Háló, ha kell
+        is_safety_net_run = False
         if not final_tips:
-            print("\n--- 2. KÖR: Prémium tipp nem található, Biztonsági Háló aktiválva (min. 60 pont) ---")
-            final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=60)
+            print("\n--- 2. KÖR: Prémium tipp nem található, Biztonsági Háló aktiválva (min. 55 pont) ---")
+            is_safety_net_run = True
+            final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=55) # MÓDOSÍTÁS: A küszöb 55-re csökkentve
     
     if final_tips:
         if is_test_mode:
-            is_safety_net_run = min(tip['confidence_score'] for tip in final_tips) < 65
             for i, tip in enumerate(final_tips): tip['id'] = i + 10000 
             created_slips = create_ranked_daily_specials(target_date_str, final_tips, is_safety_net=is_safety_net_run)
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': created_slips}, f, ensure_ascii=False, indent=4)
             tips_found = True
         else: # Éles mód
-            is_safety_net_run = min(tip['confidence_score'] for tip in final_tips) < 65
             saved_tips_with_ids = save_tips_to_supabase(final_tips)
             if saved_tips_with_ids:
                 tips_found = True
