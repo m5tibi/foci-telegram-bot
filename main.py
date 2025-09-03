@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Véglegesen Javított Időalapú Logikával)
+# main.py (Hibrid Modell - Véglegesen Javított Időalapú Logikával és Standard Kínálat Jelzővel)
 
 import os
 import asyncio
@@ -120,6 +120,7 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
     daily_status_message = ""
+    is_standard_kinalat = False # Alapértelmezett érték
     
     if is_subscribed:
         try:
@@ -127,14 +128,10 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # JAVÍTOTT, IDŐALAPÚ LOGIKA
-            # Este 7 (19:00) után már a holnapi tippekre vagyunk kíváncsiak.
             if now_local.hour >= 19:
-                status_target_date = tomorrow_str
-                status_message_date = "holnapi"
+                status_target_date, status_message_date = tomorrow_str, "holnapi"
             else:
-                status_target_date = today_str
-                status_message_date = "mai"
+                status_target_date, status_message_date = today_str, "mai"
 
             status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
             
@@ -159,13 +156,27 @@ async def vip_area(request: Request):
                                 sz_data['meccsek'] = sz_meccsei
                                 if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
                                 elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
+            
+            # === IDE KERÜL AZ ÚJ LOGIKA ===
+            # Ellenőrizzük, hogy a megjelenített szelvények között van-e "(Standard)"
+            all_slips_for_check = todays_slips + tomorrows_slips
+            for szelveny in all_slips_for_check:
+                if "(Standard)" in szelveny.get("tipp_neve", ""):
+                    is_standard_kinalat = True
+                    break # Elég egyet találni
+
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
 
+    # === ÉS ITT ADJUK ÁT A VÁLTOZÓT A TEMPLATE-NEK ===
     return templates.TemplateResponse("vip_tippek.html", {
-        "request": request, "user": user, "is_subscribed": is_subscribed, 
-        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
-        "daily_status_message": daily_status_message
+        "request": request, 
+        "user": user, 
+        "is_subscribed": is_subscribed, 
+        "todays_slips": todays_slips, 
+        "tomorrows_slips": tomorrows_slips,
+        "daily_status_message": daily_status_message,
+        "is_standard_kinalat": is_standard_kinalat # ITT AZ ÚJ VÁLTOZÓ
     })
 
 @api.get("/profile", response_class=HTMLResponse)
