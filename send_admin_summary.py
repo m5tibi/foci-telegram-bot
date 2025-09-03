@@ -1,4 +1,4 @@
-# send_admin_summary.py (Admin Teszt Összefoglaló Küldő - Fájlból Olvasó)
+# send_admin_summary.py (Admin Teszt Összefoglaló Küldő - V4.1 Kompatibilis)
 import os
 import asyncio
 from supabase import create_client, Client
@@ -40,12 +40,44 @@ async def send_summary():
                 slips = results.get('slips', [])
                 if slips:
                     message_to_admin += "✅ *Sikeres generálás!* A következő szelvények jöttek volna létre:\n\n"
-                    for slip in slips:
-                        message_to_admin += f"*{slip['tipp_neve']}* (Conf: {slip['confidence_percent']}%, Odds: {slip['eredo_odds']:.2f})\n"
-                        for meccs in slip.get('combo', []):
-                            tipp_str = get_tip_details(meccs['tipp'])
-                            message_to_admin += f"  - `{meccs['csapat_H']} vs {meccs['csapat_V']}` ({tipp_str} @ {meccs['odds']})\n"
-                        message_to_admin += "\n"
+                    
+                    # === FORMÁZÁSI LOGIKA KIBŐVÍTÉSE ===
+                    for i, slip in enumerate(slips):
+                        
+                        # "A Nap Tippje" formázása
+                        if "A Nap Tippje" in slip['tipp_neve']:
+                            the_one_tip = slip.get('combo', [{}])[0]
+                            if not the_one_tip: continue
+
+                            local_time = datetime.fromisoformat(the_one_tip['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+                            kezdes_str = local_time.strftime('%b %d. %H:%M')
+                            tipp_str = get_tip_details(the_one_tip['tipp'])
+                            
+                            message_to_admin += f"*{slip['tipp_neve']}* (Megbízhatóság: {slip['confidence_percent']}%)\n\n"
+                            message_to_admin += f"⚽️ *{the_one_tip['csapat_H']} vs {the_one_tip['csapat_V']}*\n"
+                            message_to_admin += f"🏆 {the_one_tip['liga_nev']}\n"
+                            message_to_admin += f"⏰ Kezdés: {kezdes_str}\n"
+                            message_to_admin += f"💡 Tipp: {tipp_str} *@{'%.2f' % the_one_tip['odds']}*\n"
+
+                        # Normál "Napi Tuti" kombináció formázása
+                        else:
+                            message_to_admin += f"*{slip['tipp_neve']}* (Megbízhatóság: {slip['confidence_percent']}%)\n\n"
+                            for meccs in slip.get('combo', []):
+                                local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+                                kezdes_str = local_time.strftime('%b %d. %H:%M')
+                                tipp_str = get_tip_details(meccs['tipp'])
+                                
+                                message_to_admin += f"⚽️ *{meccs['csapat_H']} vs {meccs['csapat_V']}*\n"
+                                message_to_admin += f"🏆 {meccs['liga_nev']}\n"
+                                message_to_admin += f"⏰ Kezdés: {kezdes_str}\n"
+                                message_to_admin += f"💡 Tipp: {tipp_str} *@{'%.2f' % meccs['odds']}*\n\n"
+                            
+                            message_to_admin += f"🎯 Eredő odds: *{'%.2f' % slip['eredo_odds']}*\n"
+                        
+                        # Ne tegyen elválasztót az utolsó szelvény után
+                        if i < len(slips) - 1:
+                            message_to_admin += "\n-----------------------------------\n\n"
+                
                 else:
                     message_to_admin += "ℹ️ *Nincs szelvény.* Bár a rendszer talált tippeket, nem tudott belőlük a szabályoknak megfelelő szelvényt összeállítani.\n"
 
