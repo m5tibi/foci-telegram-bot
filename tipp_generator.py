@@ -1,4 +1,4 @@
-# tipp_generator.py (V3.5 - Maximális Liga Lefedettség, Javított Fallback Logika)
+# tipp_generator.py (V3.6 - Rugalmas Odds Lekérdezés)
 
 import os
 import requests
@@ -98,7 +98,6 @@ def get_league_top_scorers(league_id, season):
 def get_fixtures_from_api(date_str):
     all_fixtures = []; print(f"--- Meccsek keresése: {date_str} ---")
     for league_id, league_name in LEAGUES.items():
-        # A válogatott meccsekre az aktuális év kell, nem a szezon
         season_year = str(datetime.now(BUDAPEST_TZ).year)
         params = {"date": date_str, "league": str(league_id), "season": season_year}
         found_fixtures = get_api_data("fixtures", params)
@@ -124,7 +123,7 @@ def check_for_draw_risk(stats_h, stats_v, h2h_stats, standings_data, home_team_i
         total_h2h = h2h_stats.get('wins1', 0) + h2h_stats.get('wins2', 0) + h2h_stats.get('draws', 0)
         if total_h2h >= 3 and (h2h_stats.get('draws', 0) / total_h2h) >= 0.4: draw_signals += 1; reason.append("Gyakori döntetlen a H2H-ban.")
     pos_h, pos_v = None, None
-    if standings_data: # A tabellapozíció csak bajnokságoknál releváns
+    if standings_data: 
         for team_data in standings_data:
             if team_data['team']['id'] == home_team_id: pos_h = team_data['rank']
             if team_data['team']['id'] == away_team_id: pos_v = team_data['rank']
@@ -215,20 +214,31 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=65):
         if not all([fixture_id, league_id, season]): continue
         home_team_id, away_team_id = teams.get('home', {}).get('id'), teams.get('away', {}).get('id')
         print(f"Elemzés: {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')} ({league.get('name')})")
+        
+        # === MÓDOSÍTÁS KEZDETE ===
+        # Rugalmas odds lekérdezés: nem szűkítünk egyetlen bukmékerre
+        odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
+        # === MÓDOSÍTÁS VÉGE ===
+
+        if not odds_data or not odds_data[0].get('bookmakers'): 
+            print(" -> Odds adatok hiányoznak."); 
+            continue
+        
         injuries_h, injuries_v = get_injuries(fixture_id)
         standings = None
         if league_id not in standings_cache:
             standings_data = get_api_data("standings", {"league": str(league_id), "season": str(season)})
-            # Csak akkor cache-elünk, ha van 'standings' adat (nem minden torna tabella alapú)
             if standings_data and standings_data[0].get('league', {}).get('standings'):
                 standings_cache[league_id] = standings_data[0]['league']['standings'][0]
             else:
-                standings_cache[league_id] = None # Jelöljük, hogy itt nincs tabella
+                standings_cache[league_id] = None
         standings = standings_cache[league_id]
+        
         stats_h_data = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(home_team_id)})
         stats_v_data = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(away_team_id)})
         stats_h = stats_h_data if isinstance(stats_h_data, dict) else None; stats_v = stats_v_data if isinstance(stats_v_data, dict) else None
         use_stats_logic = stats_h and stats_v
+        
         h2h_data = get_api_data("fixtures/headtohead", {"h2h": f"{home_team_id}-{away_team_id}", "last": "5"})
         h2h_stats = {'wins1': 0, 'wins2': 0, 'draws': 0, 'overs': 0, 'btts': 0, 'total': 0} if h2h_data else None
         if h2h_data:
@@ -241,11 +251,11 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=65):
                 if goals_h == goals_a: h2h_stats['draws'] += 1
                 elif (match['teams']['home']['id'] == home_team_id and goals_h > goals_a) or (match['teams']['away']['id'] == home_team_id and goals_a > goals_h): h2h_stats['wins1'] += 1
                 else: h2h_stats['wins2'] += 1
+
         prediction_data = get_api_data("predictions", {"fixture": str(fixture_id)})
         api_prediction = prediction_data[0].get('predictions', {}).get('winner') if prediction_data else None
         top_scorers = get_league_top_scorers(league_id, season) if use_stats_logic else None
-        odds_data = get_api_data("odds", {"fixture": str(fixture_id), "bookmaker": "8"})
-        if not odds_data or not odds_data[0].get('bookmakers'): print(" -> Odds adatok hiányoznak."); continue
+        
         bets = odds_data[0]['bookmakers'][0].get('bets', [])
         tip_template = {"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['date'], "liga_nev": league['name'], "liga_orszag": league['country'], "league_id": league_id}
         tip_name_map = {"Match Winner.Home": "Home", "Match Winner.Away": "Away", "Goals Over/Under.Over 2.5": "Over 2.5", "Goals Over/Under.Over 1.5": "Over 1.5", "Both Teams to Score.Yes": "BTTS", "Double Chance.Home/Draw": "1X", "Double Chance.Draw/Away": "X2"}
@@ -299,13 +309,13 @@ def create_ranked_daily_specials(date_str, candidate_tips, is_safety_net=False):
     print(f"--- Rangsorolt Napi Tuti szelvények készítése: {date_str} ---")
     created_slips = []
     try:
-        if not is_safety_net: # Csak éles futáskor töröljük a meglévőket
+        if not is_safety_net:
             supabase.table("napi_tuti").delete().like("tipp_neve", f"%{date_str}%").execute()
         candidates = sorted(candidate_tips, key=lambda x: x.get('confidence_score', 0), reverse=True)
         szelveny_count, MAX_SZELVENY = 1, (1 if is_safety_net else 4)
         while len(candidates) >= 2 and szelveny_count <= MAX_SZELVENY:
             best_combo_found, possible_combos = None, []
-            combo_sizes = [2] if is_safety_net else ([3, 2] if len(candidates) >= 3 else [2]) # Safety net csak 2-es kötést csinál
+            combo_sizes = [2] if is_safety_net else ([3, 2] if len(candidates) >= 3 else [2])
             for size in combo_sizes:
                 for combo_tuple in itertools.combinations(candidates, size):
                     combo = list(combo_tuple); eredo_odds = math.prod(c['odds'] for c in combo)
@@ -334,7 +344,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V3.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V3.6) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures = get_fixtures_from_api(start_time.strftime("%Y-%m-%d")) + get_fixtures_from_api(target_date_str)
     
@@ -358,7 +368,7 @@ def main():
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': created_slips}, f, ensure_ascii=False, indent=4)
             tips_found = True
-        else: # Éles mód
+        else:
             saved_tips_with_ids = save_tips_to_supabase(final_tips)
             if saved_tips_with_ids:
                 tips_found = True
