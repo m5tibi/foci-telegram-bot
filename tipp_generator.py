@@ -1,4 +1,4 @@
-# tipp_generator.py (V4.6 - Agresszív Piac-Priorizálás)
+# tipp_generator.py (V4.7 - is_test_mode Bugfix)
 
 import os
 import requests
@@ -196,8 +196,8 @@ def calculate_confidence_fallback(tip_type, odds):
     elif tip_type in ["1X", "X2"] and 1.35 <= odds <= 1.60: return 58, "Odds-alapú tipp."
     return 0, ""
 
-# --- FŐ TIPPELEMZŐ FÜGGVÉNY (V4.6) ---
-def analyze_and_generate_tips(fixtures, target_date_str, min_score=55):
+# --- FŐ TIPPELEMZŐ FÜGGVÉNY (V4.7) ---
+def analyze_and_generate_tips(fixtures, target_date_str, min_score=55, is_test_mode=False):
     final_tips, standings_cache = [], {}
     for fixture_data in fixtures:
         fixture, teams, league = fixture_data.get('fixture', {}), fixture_data.get('teams', {}), fixture_data.get('league', {})
@@ -211,8 +211,10 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55):
         print(f"Elemzés: {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')} ({league.get('name')})")
         odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
         if not odds_data or not odds_data[0].get('bookmakers'): print(" -> Odds adatok hiányoznak."); continue
+        
         prediction_data = get_api_data("predictions", {"fixture": str(fixture_id)})
         api_prediction = prediction_data[0].get('predictions', {}) if prediction_data else {}
+
         injuries_h, injuries_v = get_injuries(fixture_id)
         standings = None
         if league_id not in standings_cache:
@@ -238,6 +240,7 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55):
                 if goals_h == goals_a: h2h_stats['draws'] += 1
                 elif (match['teams']['home']['id'] == home_team_id and goals_h > goals_a) or (match['teams']['away']['id'] == home_team_id and goals_a > goals_h): h2h_stats['wins1'] += 1
                 else: h2h_stats['wins2'] += 1
+
         top_scorers = get_league_top_scorers(league_id, season) if use_stats_logic else None
         bets = odds_data[0]['bookmakers'][0].get('bets', [])
         tip_template = {"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['date'], "liga_nev": league['name'], "liga_orszag": league['country'], "league_id": league_id}
@@ -247,7 +250,6 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55):
         if use_stats_logic:
             all_statistical_tips = calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, standings, home_team_id, away_team_id, api_prediction, injuries_h, injuries_v, top_scorers)
         
-        # === V4.6 ÚJ LOGOLÁS ===
         if is_test_mode and all_statistical_tips:
             print(f"  -> Nyers pontszámok: {[ (t['tipp'], t['confidence_score']) for t in all_statistical_tips ]}")
             
@@ -297,7 +299,7 @@ def create_ranked_daily_specials(date_str, candidate_tips, max_confidence):
     try:
         for tip in candidate_tips:
             priority_bonus = 0
-            if tip['tipp'] in ['Over 2.5', 'BTTS', 'Over 1.5']: priority_bonus = 15 # AGRESSZÍV BÓNUSZ
+            if tip['tipp'] in ['Over 2.5', 'BTTS', 'Over 1.5']: priority_bonus = 15
             tip['final_score'] = tip.get('confidence_score', 0) + priority_bonus
         
         candidates = sorted(candidate_tips, key=lambda x: x.get('final_score', 0), reverse=True)
@@ -333,11 +335,11 @@ def record_daily_status(date_str, status, reason=""):
         print("Státusz sikeresen rögzítve.")
     except Exception as e: print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ PROGRAM (V4.6) ---
+# --- FŐ PROGRAM (V4.7) ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V4.6) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V4.7) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     if not is_test_mode:
         print(f"Holnapi ({target_date_str}) 'napi_tuti' bejegyzések törlése...")
@@ -345,7 +347,7 @@ def main():
     all_fixtures = get_fixtures_from_api(start_time.strftime("%Y-%m-%d")) + get_fixtures_from_api(target_date_str)
     tips_found, final_tips = False, []
     if all_fixtures:
-        final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=55)
+        final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=55, is_test_mode=is_test_mode)
     if final_tips:
         max_confidence = max(tip.get('confidence_score', 0) for tip in final_tips) if final_tips else 0
         tips_found = True
