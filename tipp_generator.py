@@ -1,4 +1,4 @@
-# tipp_generator.py (V5.1 - Hibrid Stratégia Bugfix)
+# tipp_generator.py (V5.2 - Kombináció-készítő Javítás)
 
 import os
 import requests
@@ -94,7 +94,6 @@ def check_for_draw_risk(stats_h, stats_v, h2h_stats, standings_data, home_team_i
 # --- ÁTÉPÍTETT ELEMZŐ FÜGGVÉNY (V5.0 - HIBRID) ---
 def calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, standings_data, home_team_id, away_team_id, api_prediction, injuries_h, injuries_v, top_scorers):
     all_potential_tips = []
-    # Alap adatok
     form_h_raw = stats_h.get('form'); form_v_raw = stats_v.get('form'); form_h, form_v = (form_h_raw or '')[-5:], (form_v_raw or '')[-5:]
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
@@ -102,10 +101,8 @@ def calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, st
     goals_against_v = float(stats_v.get('goals', {}).get('against', {}).get('average', {}).get('away', "99"))
     api_advice = api_prediction.get('advice')
 
-    # --- Piacok elemzése ---
     for tip_type, odds in available_odds.items():
         score, reason = 0, []
-        
         odds_bonus = 0
         if 1.30 <= odds <= 1.80:
             odds_bonus = 20
@@ -219,7 +216,7 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55, is_test_m
             print(f"  -> TALÁLAT! Legjobb tipp: {best_tip['tipp']}, Pont: {best_tip['confidence_score']}, Indok: {best_tip['indoklas']}")
     return final_tips
 
-# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.1) ---
+# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.2 - JAVÍTOTT) ---
 def save_tips_to_supabase(tips_to_save):
     if not tips_to_save: print("Nincsenek menthető tippek."); return []
     try:
@@ -227,6 +224,7 @@ def save_tips_to_supabase(tips_to_save):
         response = supabase.table("meccsek").insert(tips_to_insert).execute()
         print("Tippek sikeresen elmentve."); return response.data
     except Exception as e: print(f"!!! HIBA a tippek mentése során: {e}"); return []
+
 def create_combo_slips(date_str, candidate_tips, max_confidence):
     print(f"--- 'Biztonságos Építkezős' szelvények készítése: {date_str} ---")
     created_slips = []
@@ -238,29 +236,54 @@ def create_combo_slips(date_str, candidate_tips, max_confidence):
 
     try:
         candidates = sorted(candidate_tips, key=lambda x: x.get('confidence_score', 0), reverse=True)
-        szelveny_count = 1
         
-        while len(candidates) >= 2 and szelveny_count <= MAX_SZELVENY:
-            best_combo_found, possible_combos = None, []
-            combo_sizes = [3, 2] if len(candidates) >= 3 else [2]
-            for size in combo_sizes:
-                for combo_tuple in itertools.combinations(candidates, size):
-                    combo = list(combo_tuple); eredo_odds = math.prod(c['odds'] for c in combo)
+        for i in range(MAX_SZELVENY):
+            if len(candidates) < 2: break
+
+            best_combo_this_iteration = None
+            possible_combos = []
+            
+            # Először 3-as kötéseket keresünk, ha lehetséges
+            if len(candidates) >= 3:
+                for combo_tuple in itertools.combinations(candidates, 3):
+                    combo = list(combo_tuple)
+                    eredo_odds = math.prod(c['odds'] for c in combo)
                     if 2.50 <= eredo_odds <= 5.00:
                         avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
                         possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
-            if possible_combos: best_combo_found = sorted(possible_combos, key=lambda x: x['confidence'], reverse=True)[0]
-            if best_combo_found:
+            
+            # Ha nem találtunk 3-ast, vagy már nincs elég jelölt, keresünk 2-eseket
+            if not possible_combos and len(candidates) >= 2:
+                for combo_tuple in itertools.combinations(candidates, 2):
+                    combo = list(combo_tuple)
+                    eredo_odds = math.prod(c['odds'] for c in combo)
+                    if 2.50 <= eredo_odds <= 5.00:
+                        avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
+                        possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
+
+            if possible_combos:
+                best_combo_this_iteration = max(possible_combos, key=lambda x: x['confidence'])
+                
                 tipp_neve_prefix = "Napi Tuti (Standard)" if max_confidence < 65 else "Napi Tuti"
-                tipp_neve = f"{tipp_neve_prefix} #{szelveny_count} - {date_str}"; combo = best_combo_found['combo']
-                tipp_id_k = [t['id'] for t in combo]; confidence_percent = min(int(best_combo_found['confidence']), 98); eredo_odds = best_combo_found['odds']
+                tipp_neve = f"{tipp_neve_prefix} #{i+1} - {date_str}"
+                combo = best_combo_this_iteration['combo']
+                tipp_id_k = [t['id'] for t in combo]
+                confidence_percent = min(int(best_combo_this_iteration['confidence']), 98)
+                eredo_odds = best_combo_this_iteration['odds']
+
                 slip_data = {"tipp_neve": tipp_neve, "eredo_odds": eredo_odds, "tipp_id_k": tipp_id_k, "confidence_percent": confidence_percent, "combo": combo, "type": "combo"}
                 created_slips.append(slip_data)
                 print(f"'{tipp_neve}' létrehozva (Megbízhatóság: {confidence_percent}%, Odds: {eredo_odds:.2f}).")
-                candidates = [c for c in candidates if c not in combo]; szelveny_count += 1
-            else: print("Nem található több megfelelő szelvénykombináció."); break
+                
+                # A felhasznált tippek eltávolítása a további kereséshez
+                candidates = [c for c in candidates if c not in combo]
+            else:
+                print("Nem található több megfelelő szelvénykombináció.")
+                break # Ha ebben a körben nem találtunk semmit, a többiben sem fogunk
+                
     except Exception as e: print(f"!!! HIBA a Napi Tuti készítése során: {e}")
     return created_slips
+
 def record_daily_status(date_str, status, reason=""):
     try:
         print(f"Napi státusz rögzítése: {date_str} - {status}")
@@ -269,11 +292,11 @@ def record_daily_status(date_str, status, reason=""):
         print("Státusz sikeresen rögzítve.")
     except Exception as e: print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ PROGRAM (V5.1 - HIBRID BUGFIX) ---
+# --- FŐ PROGRAM (V5.2 - HIBRID JAVÍTOTT) ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V5.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V5.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -290,12 +313,10 @@ def main():
         final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=55, is_test_mode=is_test_mode)
         
         if final_tips:
-            # === JAVÍTÁS (V5.1): Teszt ID-k hozzárendelése a szétválogatás ELŐTT ===
             if is_test_mode:
                 for i, tip in enumerate(final_tips):
                     tip['id'] = i + 10000
             
-            # === HIBRID STRATÉGIA SZÉTVÁLOGATÁSA ===
             value_singles_candidates = [t for t in final_tips if t['confidence_score'] >= 85 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']]
             combo_candidates = [t for t in final_tips if 1.30 <= t['odds'] <= 1.80 and t['tipp'] not in ['Home', 'Away', '1X', 'X2']]
             
@@ -303,13 +324,11 @@ def main():
             print(f"Value Single jelöltek (conf>=85, odds>=1.75): {len(value_singles_candidates)} db")
             print(f"Építkezős Kötés jelöltek (odds 1.30-1.80, gól-piac): {len(combo_candidates)} db")
 
-            # 1. TERMÉK: VALUE SINGLE TIPPEK LÉTREHOZÁSA
             value_singles_slips = []
             for i, tip in enumerate(value_singles_candidates):
                 slip_data = {"tipp_neve": f"Value Single #{i+1} - {target_date_str}", "eredo_odds": tip['odds'], "tipp_id_k": [tip['id']], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "type": "single"}
                 value_singles_slips.append(slip_data)
 
-            # 2. TERMÉK: KOMBINÁCIÓS SZELVÉNYEK LÉTREHOZÁSA
             max_confidence_combo = max(c.get('confidence_score', 0) for c in combo_candidates) if combo_candidates else 0
             combo_slips = []
             if len(combo_candidates) >= 2:
@@ -321,10 +340,9 @@ def main():
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
-        else: # Éles mód
+        else:
             tips_to_save = [tip for slip in all_slips for tip in slip['combo']]
             saved_tips_map = { (t['fixture_id'], t['tipp']): t for t in save_tips_to_supabase(tips_to_save) }
-
             for slip in all_slips:
                 slip_tip_ids = [saved_tips_map.get((tip['fixture_id'], tip['tipp']), {}).get('id') for tip in slip['combo']]
                 slip['tipp_id_k'] = [tid for tid in slip_tip_ids if tid is not None]
@@ -334,7 +352,6 @@ def main():
                         "tipp_id_k": slip["tipp_id_k"], "confidence_percent": slip["confidence_percent"]
                     }).execute()
             record_daily_status(target_date_str, "Tippek generálva", f"{len(all_slips)} szelvény készült.")
-
     else:
         print("Az elemzés után nem maradt megfelelő tipp vagy szelvény.")
         reason = "A holnapi kínálatból az algoritmus nem talált a kritériumoknak megfelelő tippeket."
