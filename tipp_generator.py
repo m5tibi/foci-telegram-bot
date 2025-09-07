@@ -1,4 +1,4 @@
-# tipp_generator.py (V5.0 - Hibrid Stratégia)
+# tipp_generator.py (V5.1 - Hibrid Stratégia Bugfix)
 
 import os
 import requests
@@ -106,15 +106,13 @@ def calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, st
     for tip_type, odds in available_odds.items():
         score, reason = 0, []
         
-        # V4.9 ÚJÍTÁS: "Biztonsági Odds Sáv" Bónusz
         odds_bonus = 0
         if 1.30 <= odds <= 1.80:
             odds_bonus = 20
             reason.append("Biztonsági odds.")
         
-        # GÓL-PIACOK
         if tip_type in ["Over 2.5", "Over 1.5", "BTTS", "Home Over 1.5", "Away Over 1.5", "First Half Over 0.5"]:
-            score = 40 # Magas alappont
+            score = 40
             if tip_type == "Over 2.5":
                 if goals_for_h + goals_for_v > 2.8: score += 20; reason.append("Jó gólátlag.")
                 if api_advice and "Over 2.5" in api_advice: score += 15; reason.append("API gól-jóslat.")
@@ -131,9 +129,8 @@ def calculate_statistical_scores(available_odds, stats_h, stats_v, h2h_stats, st
             elif tip_type == "Away Over 1.5":
                 if goals_for_v > 1.7: score += 25; reason.append("Vendég csapat gólerős.")
         
-        # 1X2 PIAC
         elif tip_type in ["Home", "Away"]:
-            score = -20 # Negatív alappont (Malus)
+            score = -20
             api_winner = api_prediction.get('winner')
             if tip_type == "Home":
                 if form_h.count('W') > form_v.count('W') + 1: score += 30; reason.append("Kiemelkedő forma.")
@@ -222,7 +219,7 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55, is_test_m
             print(f"  -> TALÁLAT! Legjobb tipp: {best_tip['tipp']}, Pont: {best_tip['confidence_score']}, Indok: {best_tip['indoklas']}")
     return final_tips
 
-# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.0) ---
+# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.1) ---
 def save_tips_to_supabase(tips_to_save):
     if not tips_to_save: print("Nincsenek menthető tippek."); return []
     try:
@@ -272,11 +269,11 @@ def record_daily_status(date_str, status, reason=""):
         print("Státusz sikeresen rögzítve.")
     except Exception as e: print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ PROGRAM (V5.0 - HIBRID) ---
+# --- FŐ PROGRAM (V5.1 - HIBRID BUGFIX) ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V5.0) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V5.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -293,13 +290,18 @@ def main():
         final_tips = analyze_and_generate_tips(all_fixtures, target_date_str, min_score=55, is_test_mode=is_test_mode)
         
         if final_tips:
+            # === JAVÍTÁS (V5.1): Teszt ID-k hozzárendelése a szétválogatás ELŐTT ===
+            if is_test_mode:
+                for i, tip in enumerate(final_tips):
+                    tip['id'] = i + 10000
+            
             # === HIBRID STRATÉGIA SZÉTVÁLOGATÁSA ===
             value_singles_candidates = [t for t in final_tips if t['confidence_score'] >= 85 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']]
-            combo_candidates = [t for t in final_tips if 1.30 <= t['odds'] <= 1.80 and t['tipp'] not in ['Home', 'Away']]
+            combo_candidates = [t for t in final_tips if 1.30 <= t['odds'] <= 1.80 and t['tipp'] not in ['Home', 'Away', '1X', 'X2']]
             
             print(f"\n--- Jelöltek szétválogatva ---")
             print(f"Value Single jelöltek (conf>=85, odds>=1.75): {len(value_singles_candidates)} db")
-            print(f"Építkezős Kötés jelöltek (odds 1.30-1.80): {len(combo_candidates)} db")
+            print(f"Építkezős Kötés jelöltek (odds 1.30-1.80, gól-piac): {len(combo_candidates)} db")
 
             # 1. TERMÉK: VALUE SINGLE TIPPEK LÉTREHOZÁSA
             value_singles_slips = []
@@ -317,14 +319,6 @@ def main():
     
     if all_slips:
         if is_test_mode:
-            # Teszt ID-k hozzárendelése minden tipphez a szelvényekben
-            tip_id_counter = 10000
-            for slip in all_slips:
-                for tip in slip['combo']:
-                    tip['id'] = tip_id_counter
-                    tip_id_counter += 1
-                slip['tipp_id_k'] = [t['id'] for t in slip['combo']]
-            
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
         else: # Éles mód
@@ -334,7 +328,7 @@ def main():
             for slip in all_slips:
                 slip_tip_ids = [saved_tips_map.get((tip['fixture_id'], tip['tipp']), {}).get('id') for tip in slip['combo']]
                 slip['tipp_id_k'] = [tid for tid in slip_tip_ids if tid is not None]
-                if slip.get('tipp_id_k'): # Csak akkor mentjük, ha vannak ID-k
+                if slip.get('tipp_id_k'):
                     supabase.table("napi_tuti").insert({
                         "tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"],
                         "tipp_id_k": slip["tipp_id_k"], "confidence_percent": slip["confidence_percent"]
