@@ -1,4 +1,4 @@
-# bot.py (V5.3 - Végleges Törlés Funkcióval)
+# bot.py (V5.4 - Markdown Javítás)
 
 import os
 import telegram
@@ -68,7 +68,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
-# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI (V5.3) ===
+# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI (V5.4) ===
 
 async def send_public_notification(bot: telegram.Bot, date_str: str):
     """Elküldi a publikus értesítést minden aktív előfizetőnek."""
@@ -110,7 +110,8 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
     await query.answer("Jóváhagyás folyamatban...")
     date_str = query.data.split("_")[-1]
 
-    await query.edit_message_text(text=query.message.text_markdown_v2 + "\n\n*Állapot: ✅ Jóváhagyva, küldés indul...*", parse_mode='MarkdownV2')
+    # JAVÍTÁS: MarkdownV2 helyett sima Markdown használata
+    await query.edit_message_text(text=query.message.text_markdown + "\n\n*Állapot: ✅ Jóváhagyva, küldés indul...*", parse_mode='Markdown')
 
     successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
     
@@ -145,7 +146,9 @@ async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
         return f"Sikeresen törölve {len(slips_to_delete)} szelvény és {len(tip_ids_to_delete)} tipp."
 
     delete_summary = await asyncio.to_thread(sync_delete_rejected_tips, date_str)
-    await query.edit_message_text(text=query.message.text_markdown_v2 + f"\n\n*Állapot: ❌ Elutasítva és Törölve!*\n_{delete_summary}_", parse_mode='MarkdownV2')
+    
+    # JAVÍTÁS: MarkdownV2 helyett sima Markdown használata
+    await query.edit_message_text(text=query.message.text_markdown + f"\n\n*Állapot: ❌ Elutasítva és Törölve!*\n_{delete_summary}_", parse_mode='Markdown')
 
 # --- ADMIN FUNKCIÓK ---
 
