@@ -356,7 +356,7 @@ def main():
                         "tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"],
                         "tipp_id_k": slip["tipp_id_k"], "confidence_percent": slip["confidence_percent"]
                     }).execute()
-            record_daily_status(target_date_str, "Tippek generálva", f"{len(all_slips)} szelvény készült.")
+           record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
         print("Az elemzés után nem maradt megfelelő tipp vagy szelvény.")
         reason = "A holnapi kínálatból az algoritmus nem talált a kritériumoknak megfelelő tippeket."
