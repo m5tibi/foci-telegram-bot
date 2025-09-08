@@ -1,4 +1,4 @@
-# tipp_generator.py (V5.3 - Éles Futtatás Javítás)
+# tipp_generator.py (V5.3 - Éles Mentés Javítás)
 
 import os
 import requests
@@ -216,14 +216,19 @@ def analyze_and_generate_tips(fixtures, target_date_str, min_score=55, is_test_m
             print(f"  -> TALÁLAT! Legjobb tipp: {best_tip['tipp']}, Pont: {best_tip['confidence_score']}, Indok: {best_tip['indoklas']}")
     return final_tips
 
-# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.2 - JAVÍTOTT) ---
+# --- SZELVÉNYKÉSZÍTŐ ÉS ADATBÁZIS MŰVELETEK (V5.3 - JAVÍTOTT) ---
 def save_tips_to_supabase(tips_to_save):
     if not tips_to_save: print("Nincsenek menthető tippek."); return []
     try:
-        tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips_to_save]; print(f"{len(tips_to_insert)} új tipp mentése...");
+        tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips_to_save]
+        print(f"{len(tips_to_insert)} új tipp mentése az adatbázisba...")
+        # A .select() biztosítja, hogy a visszatérési érték tartalmazza az új ID-kat
         response = supabase.table("meccsek").insert(tips_to_insert).execute()
-        print("Tippek sikeresen elmentve."); return response.data
-    except Exception as e: print(f"!!! HIBA a tippek mentése során: {e}"); return []
+        print("Tippek sikeresen elmentve.")
+        return response.data
+    except Exception as e: 
+        print(f"!!! HIBA a tippek mentése során: {e}")
+        return []
 
 def create_combo_slips(date_str, candidate_tips, max_confidence):
     print(f"--- 'Biztonságos Építkezős' szelvények készítése: {date_str} ---")
@@ -316,6 +321,7 @@ def main():
                     tip['id'] = i + 10000
                 tips_with_ids = final_tips
             else:
+                # ÉLESBEN ELŐSZÖR MINDENT MENTÜNK, HOGY LEGYENEK ID-K
                 tips_with_ids = save_tips_to_supabase(final_tips)
             
             if tips_with_ids:
@@ -343,6 +349,7 @@ def main():
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
         else:
+            # Élesben már csak a szelvényeket kell elmenteni, a tippek mentése korábban megtörtént
             for slip in all_slips:
                 if slip.get('tipp_id_k'):
                     supabase.table("napi_tuti").insert({
