@@ -1,4 +1,4 @@
-# send_daily_update.py (V5.3 - Admin Jóváhagyó Verzió)
+# send_daily_update.py (V5.5 - Admin Jóváhagyó Verzió)
 import os
 import asyncio
 from supabase import create_client
@@ -33,11 +33,10 @@ async def send_admin_review_notification():
         status_response = supabase.table("daily_status").select("status").eq("date", target_date_str).limit(1).execute()
         
         if not status_response.data or status_response.data[0].get('status') != "Jóváhagyásra vár":
-            print(f"Nincs jóváhagyásra váró tipp a(z) {target_date_str} napra. Státusz: {status_response.data[0].get('status') if status_response.data else 'Nincs adat'}")
+            print(f"Nincs jóváhagyásra váró tipp a(z) {target_date_str} napra.")
             return
 
-        # Szelvények lekérdezése a formázott üzenethez
-        slips_res = supabase.table("napi_tuti").select("*").like("tipp_neve", f"%{target_date_str}%").execute()
+        slips_res = supabase.table("napi_tuti").select("*, is_admin_only").like("tipp_neve", f"%{target_date_str}%").execute()
         if not slips_res.data:
             await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"⚠️ Hiba: A státusz 'Jóváhagyásra vár', de nem található szelvény a(z) {target_date_str} napra.")
             return
@@ -47,7 +46,8 @@ async def send_admin_review_notification():
 
         message_to_admin = f"🔔 *Jóváhagyásra Váró Tippek ({target_date_str})*\n\n"
         for slip in slips_res.data:
-            message_to_admin += f"*{slip['tipp_neve']}* (Conf: {slip['confidence_percent']}%, Odds: {slip['eredo_odds']:.2f})\n"
+            admin_label = "[CSAK ADMIN] 🤫 " if slip.get('is_admin_only') else ""
+            message_to_admin += f"*{admin_label}{slip['tipp_neve']}* (Conf: {slip['confidence_percent']}%, Odds: {slip['eredo_odds']:.2f})\n"
             for tip_id in slip.get('tipp_id_k', []):
                 meccs = meccsek_map.get(tip_id)
                 if meccs:
