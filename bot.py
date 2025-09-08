@@ -1,4 +1,4 @@
-# bot.py (V5.3 - Jóváhagyási Rendszerrel)
+# bot.py (V5.3 - Végleges Törlés Funkcióval)
 
 import os
 import telegram
@@ -68,7 +68,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
-# === ÚJ FUNKCIÓK A JÓVÁHAGYÁSI RENDSZERHEZ ===
+# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI (V5.3) ===
 
 async def send_public_notification(bot: telegram.Bot, date_str: str):
     """Elküldi a publikus értesítést minden aktív előfizetőnek."""
@@ -122,13 +122,30 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer("Tippek elutasítva.")
+    await query.answer("Elutasítás és törlés folyamatban...")
     date_str = query.data.split("_")[-1]
 
-    supabase = get_db_client()
-    supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_str).execute()
-    
-    await query.edit_message_text(text=query.message.text_markdown_v2 + "\n\n*Állapot: ❌ Elutasítva*", parse_mode='MarkdownV2')
+    def sync_delete_rejected_tips(date_to_delete):
+        supabase = get_db_client()
+        slips_to_delete = supabase.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
+        if not slips_to_delete:
+            supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
+            return "Nem találhatóak szelvények, a státusz frissítve."
+        
+        tip_ids_to_delete = {tid for slip in slips_to_delete for tid in slip.get('tipp_id_k', [])}
+        
+        if tip_ids_to_delete:
+            print(f"Törlésre kerül {len(tip_ids_to_delete)} tipp a 'meccsek' táblából...")
+            supabase.table("meccsek").delete().in_("id", list(tip_ids_to_delete)).execute()
+
+        print(f"Törlésre kerül {len(slips_to_delete)} szelvény a 'napi_tuti' táblából...")
+        supabase.table("napi_tuti").delete().like("tipp_neve", f"%{date_to_delete}%").execute()
+        
+        supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
+        return f"Sikeresen törölve {len(slips_to_delete)} szelvény és {len(tip_ids_to_delete)} tipp."
+
+    delete_summary = await asyncio.to_thread(sync_delete_rejected_tips, date_str)
+    await query.edit_message_text(text=query.message.text_markdown_v2 + f"\n\n*Állapot: ❌ Elutasítva és Törölve!*\n_{delete_summary}_", parse_mode='MarkdownV2')
 
 # --- ADMIN FUNKCIÓK ---
 
@@ -144,7 +161,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
-# ... a többi admin funkció (format_slip_for_telegram, admin_show_slips, stb.) változatlan marad ...
+# ... a többi admin funkció változatlan ...
 def format_slip_for_telegram(szelveny):
     message = f"*{szelveny['tipp_neve']}* (Megbízhatóság: *{szelveny['confidence_percent']}%*)\n\n"
     for meccs in szelveny['meccsek']:
@@ -365,7 +382,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
 def add_handlers(application: Application):
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_menu)); application.add_handler(broadcast_conv);
-    # ÚJ KEZELŐK A JÓVÁHAGYÁSHOZ
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
     application.add_handler(CallbackQueryHandler(button_handler))
