@@ -1,4 +1,4 @@
-# tipp_generator.py (V5.3 - Éles Mentés Javítás)
+# tipp_generator.py (V5.4 - Indentation Fix)
 
 import os
 import requests
@@ -222,8 +222,7 @@ def save_tips_to_supabase(tips_to_save):
     try:
         tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in tips_to_save]
         print(f"{len(tips_to_insert)} új tipp mentése az adatbázisba...")
-        # A .select() biztosítja, hogy a visszatérési érték tartalmazza az új ID-kat
-        response = supabase.table("meccsek").insert(tips_to_insert).execute()
+        response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
         print("Tippek sikeresen elmentve.")
         return response.data
     except Exception as e: 
@@ -294,11 +293,11 @@ def record_daily_status(date_str, status, reason=""):
         print("Státusz sikeresen rögzítve.")
     except Exception as e: print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ PROGRAM (V5.3 - HIBRID VÉGLEGES) ---
+# --- FŐ PROGRAM (V5.4 - HIBRID VÉGLEGES) ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V5.3) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+    print(f"Tipp Generátor (V5.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''} - {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -321,7 +320,6 @@ def main():
                     tip['id'] = i + 10000
                 tips_with_ids = final_tips
             else:
-                # ÉLESBEN ELŐSZÖR MINDENT MENTÜNK, HOGY LEGYENEK ID-K
                 tips_with_ids = save_tips_to_supabase(final_tips)
             
             if tips_with_ids:
@@ -349,14 +347,15 @@ def main():
             with open('test_results.json', 'w', encoding='utf-8') as f:
                 json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
         else:
-            # Élesben már csak a szelvényeket kell elmenteni, a tippek mentése korábban megtörtént
             for slip in all_slips:
+                # Élesben már rendelkeznek a tippek ID-val, de a szelvény még nincs elmentve
+                # Itt a tipp_id_k már a valós adatbázis ID-kat tartalmazza
                 if slip.get('tipp_id_k'):
                     supabase.table("napi_tuti").insert({
                         "tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"],
                         "tipp_id_k": slip["tipp_id_k"], "confidence_percent": slip["confidence_percent"]
                     }).execute()
-           record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
+            record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
         print("Az elemzés után nem maradt megfelelő tipp vagy szelvény.")
         reason = "A holnapi kínálatból az algoritmus nem talált a kritériumoknak megfelelő tippeket."
