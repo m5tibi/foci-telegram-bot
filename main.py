@@ -1,4 +1,4 @@
-# main.py (V5.5 - Elutasított Státusz Kezelése)
+# main.py (V5.5 - Admin Szelvények Szűrése)
 
 import os
 import asyncio
@@ -122,6 +122,8 @@ async def vip_area(request: Request):
     daily_status_message = ""
     is_standard_kinalat = False
     
+    user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
+
     if is_subscribed:
         try:
             now_local = datetime.now(HUNGARY_TZ)
@@ -135,14 +137,19 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
-                response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
+                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", (datetime.now() - timedelta(days=2)).isoformat()).order('tipp_neve', desc=False).execute()
                 
-                if response.data:
-                    all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
+                all_slips_from_db = response.data or []
+                slips_to_process = []
+                for slip in all_slips_from_db:
+                    if not slip.get('is_admin_only') or user_is_admin:
+                        slips_to_process.append(slip)
+
+                if slips_to_process:
+                    all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
                         meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
-                        for sz_data in response.data:
+                        for sz_data in slips_to_process:
                             if "(Standard)" in sz_data.get("tipp_neve", ""): is_standard_kinalat = True
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
@@ -154,6 +161,7 @@ async def vip_area(request: Request):
                                 sz_data['meccsek'] = sz_meccsei
                                 if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
                                 elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
+            
             elif status == "Nincs megfelelő tipp":
                  daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
             elif status == "Jóváhagyásra vár":
