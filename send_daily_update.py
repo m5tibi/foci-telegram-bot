@@ -52,7 +52,7 @@ async def send_admin_review_notification():
                 meccs = meccsek_map.get(tip_id)
                 if meccs:
                     tipp_str = get_tip_details(meccs['tipp'])
-                    message_to_admin += f"  - `{meccs['csapat_H']} vs {meccs['csapat_V']}` ({tipp_str} @ {meccs['odds']})\n"
+                    message_to_admin += f"  - `{meccs['csapat_H']} vs {meccs['csapat_V']}` ({tipp_str} @ {meccs['odds']:.2f})\n"
             message_to_admin += "\n"
         
         keyboard = [
