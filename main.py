@@ -1,4 +1,4 @@
-# main.py (Hibrid Modell - Véglegesen Javított Időalapú Logikával és Standard Kínálat Jelzővel)
+# main.py (V5.5 - Elutasított Státusz Kezelése)
 
 import os
 import asyncio
@@ -120,7 +120,7 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
     daily_status_message = ""
-    is_standard_kinalat = False # Alapértelmezett érték
+    is_standard_kinalat = False
     
     if is_subscribed:
         try:
@@ -128,16 +128,13 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            if now_local.hour >= 19:
-                status_target_date, status_message_date = tomorrow_str, "holnapi"
-            else:
-                status_target_date, status_message_date = today_str, "mai"
+            target_date = tomorrow_str if now_local.hour >= 19 else today_str
+            status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
 
-            status_response = supabase.table("daily_status").select("status").eq("date", status_target_date).limit(1).execute()
+            status_response = supabase.table("daily_status").select("status").eq("date", target_date).limit(1).execute()
+            status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
-            if status_response.data and status_response.data[0].get('status') == "Nincs megfelelő tipp":
-                 daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Néha a legjobb tipp az, ha nem adunk tippet. Kérünk, nézz vissza később!"
-            else:
+            if status == "Kiküldve":
                 search_start_utc = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
                 response = supabase.table("napi_tuti").select("*, confidence_percent").gte("created_at", str(search_start_utc)).order('tipp_neve', desc=False).execute()
                 
@@ -146,6 +143,7 @@ async def vip_area(request: Request):
                     if all_tip_ids:
                         meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
                         for sz_data in response.data:
+                            if "(Standard)" in sz_data.get("tipp_neve", ""): is_standard_kinalat = True
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
@@ -156,27 +154,24 @@ async def vip_area(request: Request):
                                 sz_data['meccsek'] = sz_meccsei
                                 if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
                                 elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
-            
-            # === IDE KERÜL AZ ÚJ LOGIKA ===
-            # Ellenőrizzük, hogy a megjelenített szelvények között van-e "(Standard)"
-            all_slips_for_check = todays_slips + tomorrows_slips
-            for szelveny in all_slips_for_check:
-                if "(Standard)" in szelveny.get("tipp_neve", ""):
-                    is_standard_kinalat = True
-                    break # Elég egyet találni
+            elif status == "Nincs megfelelő tipp":
+                 daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
+            elif status == "Jóváhagyásra vár":
+                daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak. Kérünk, nézz vissza kicsit később!"
+            elif status == "Admin által elutasítva":
+                daily_status_message = f"A {status_message_date} tippeket az adminisztrátor minőségi ellenőrzés után elutasította. Ma már nem kerülnek kiadásra további szelvények. Kérünk, nézz vissza holnap!"
+            else:
+                daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
+            daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
 
-    # === ÉS ITT ADJUK ÁT A VÁLTOZÓT A TEMPLATE-NEK ===
     return templates.TemplateResponse("vip_tippek.html", {
-        "request": request, 
-        "user": user, 
-        "is_subscribed": is_subscribed, 
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips,
+        "request": request, "user": user, "is_subscribed": is_subscribed, 
+        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
         "daily_status_message": daily_status_message,
-        "is_standard_kinalat": is_standard_kinalat # ITT AZ ÚJ VÁLTOZÓ
+        "is_standard_kinalat": is_standard_kinalat
     })
 
 @api.get("/profile", response_class=HTMLResponse)
