@@ -1,4 +1,4 @@
-# bot.py (Hibrid Modell - Javított Statisztika Funkcióval)
+# bot.py (V5.3 - Jóváhagyási Rendszerrel)
 
 import os
 import telegram
@@ -19,7 +19,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-ADMIN_CHAT_ID = 1326707238 # A te Telegram User ID-d
+ADMIN_CHAT_ID = 1326707238
 AWAITING_BROADCAST = 0
 
 # --- Segédfüggvények ---
@@ -29,7 +29,7 @@ def get_db_client():
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
-    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2" }
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "First Half Over 0.5": "Félidő 0.5 gól felett", "Home Over 0.5": "Hazai 0.5 gól felett", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 0.5": "Vendég 0.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"}
     return tip_map.get(tip_text, tip_text)
 
 # --- Dekorátorok ---
@@ -68,6 +68,68 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
+# === ÚJ FUNKCIÓK A JÓVÁHAGYÁSI RENDSZERHEZ ===
+
+async def send_public_notification(bot: telegram.Bot, date_str: str):
+    """Elküldi a publikus értesítést minden aktív előfizetőnek."""
+    supabase = get_db_client()
+    print(f"Publikus értesítés küldése a(z) {date_str} napra...")
+    
+    try:
+        response = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
+        if not response.data:
+            print("Nincsenek értesítendő előfizetők.")
+            return 0, 0
+
+        chat_ids_to_notify = {user['chat_id'] for user in response.data}
+        
+        message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények!"
+        vip_url = "https://foci-telegram-bot.onrender.com/vip"
+        keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése", url=vip_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        successful_sends, failed_sends = 0, 0
+        for chat_id in chat_ids_to_notify:
+            try:
+                await bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup)
+                successful_sends += 1
+            except Exception as e:
+                print(f"Hiba a(z) {chat_id} felhasználónak küldés során: {e}")
+                failed_sends += 1
+            await asyncio.sleep(0.1)
+        
+        print(f"Publikus értesítés befejezve. Sikeres: {successful_sends}, Sikertelen: {failed_sends}")
+        return successful_sends, failed_sends
+    except Exception as e:
+        print(f"Hiba a publikus értesítés küldése során: {e}")
+        return 0, len(chat_ids_to_notify) if 'chat_ids_to_notify' in locals() else 0
+
+@admin_only
+async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer("Jóváhagyás folyamatban...")
+    date_str = query.data.split("_")[-1]
+
+    await query.edit_message_text(text=query.message.text_markdown_v2 + "\n\n*Állapot: ✅ Jóváhagyva, küldés indul...*", parse_mode='MarkdownV2')
+
+    successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
+    
+    supabase = get_db_client()
+    supabase.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
+
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"A(z) {date_str} napi tippek kiküldve.\nSikeres: {successful_sends} | Sikertelen: {failed_sends}")
+
+@admin_only
+async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer("Tippek elutasítva.")
+    date_str = query.data.split("_")[-1]
+
+    supabase = get_db_client()
+    supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_str).execute()
+    
+    await query.edit_message_text(text=query.message.text_markdown_v2 + "\n\n*Állapot: ❌ Elutasítva*", parse_mode='MarkdownV2')
+
 # --- ADMIN FUNKCIÓK ---
 
 @admin_only
@@ -82,6 +144,7 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
+# ... a többi admin funkció (format_slip_for_telegram, admin_show_slips, stb.) változatlan marad ...
 def format_slip_for_telegram(szelveny):
     message = f"*{szelveny['tipp_neve']}* (Megbízhatóság: *{szelveny['confidence_percent']}%*)\n\n"
     for meccs in szelveny['meccsek']:
@@ -96,7 +159,6 @@ def format_slip_for_telegram(szelveny):
     message += "_www.mondomatutit.hu_\n"
     message += "-----------------------------------\n"
     return message
-
 @admin_only
 async def admin_show_slips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
@@ -143,38 +205,24 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
 
     except Exception as e:
         print(f"Hiba a Napi Tutik lekérésekor (admin): {e}"); await message_to_edit.edit_text(f"Hiba történt: {e}")
-
 def format_slip_with_results(slip_data, meccsek_map):
     slip_results = [meccsek_map.get(mid, {}).get('eredmeny') for mid in slip_data.get('tipp_id_k', [])]
     overall_status = ""
-    if 'Veszített' in slip_results:
-        overall_status = "❌ Veszített"
-    elif 'Tipp leadva' in slip_results or None in slip_results:
-        overall_status = "⏳ Folyamatban"
-    else:
-        overall_status = "✅ Nyert"
-
+    if 'Veszített' in slip_results: overall_status = "❌ Veszített"
+    elif 'Tipp leadva' in slip_results or None in slip_results: overall_status = "⏳ Folyamatban"
+    else: overall_status = "✅ Nyert"
     message = f"{slip_data['tipp_neve']}\nStátusz: *{overall_status}*\n\n"
-    
     for meccs_id in slip_data.get('tipp_id_k', []):
         meccs = meccsek_map.get(meccs_id)
         if not meccs: continue
-        
         local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
         icon = "✅" if meccs['eredmeny'] == 'Nyert' else "❌" if meccs['eredmeny'] == 'Veszített' else "⚪️" if meccs['eredmeny'] == 'Érvénytelen' else "⏳"
-        
-        message += f"⚽️ {meccs['csapat_H']} vs {meccs['csapat_V']}\n"
-        message += f"🏆 Bajnokság: {meccs['liga_nev']}\n"
-        message += f"⏰ Kezdés: {local_time.strftime('%H:%M')}\n"
-        
+        message += f"⚽️ {meccs['csapat_H']} vs {meccs['csapat_V']}\n🏆 Bajnokság: {meccs['liga_nev']}\n⏰ Kezdés: {local_time.strftime('%H:%M')}\n"
         if meccs.get('veg_eredmeny') and meccs['eredmeny'] != 'Tipp leadva': message += f"🏁 Végeredmény: {meccs['veg_eredmeny']}\n"
-        
         tipp_str = get_tip_details(meccs['tipp'])
         indoklas_str = f" ({meccs['indoklas']})" if meccs.get('indoklas') and 'döntetlen-veszély' not in meccs.get('indoklas') else ""
         message += f"💡 Tipp: {tipp_str}{indoklas_str} {icon}\n\n"
-        
     return message
-
 @admin_only
 async def eredmenyek(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
@@ -182,62 +230,41 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
     try:
         def sync_task():
             supabase = get_db_client()
-            now_local = datetime.now(HUNGARY_TZ)
-            today_str = now_local.strftime("%Y-%m-%d")
-            yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
-            
+            now_local = datetime.now(HUNGARY_TZ); today_str = now_local.strftime("%Y-%m-%d"); yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
             filter_value = f"tipp_neve.ilike.*{today_str}*,tipp_neve.ilike.*{yesterday_str}*"
             response_tuti = supabase.table("napi_tuti").select("*").or_(filter_value).order('created_at', desc=True).execute()
-            
             if not response_tuti.data: return None, None
-            
             all_tip_ids = [tid for sz in response_tuti.data for tid in sz.get('tipp_id_k', [])]
             if not all_tip_ids: return response_tuti.data, {}
-            
             meccsek_res = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
             meccsek_map = {meccs['id']: meccs for meccs in meccsek_res.data}
             return response_tuti.data, meccsek_map
 
         slips_to_show, meccsek_map = await asyncio.to_thread(sync_task)
         await initial_message.delete()
-
-        if not slips_to_show:
-            await context.bot.send_message(chat_id=query.message.chat_id, text="Nem találhatóak szelvények a megadott időszakban.")
-            return
-
+        if not slips_to_show: await context.bot.send_message(chat_id=query.message.chat_id, text="Nem találhatóak szelvények a megadott időszakban."); return
         for slip in slips_to_show:
             formatted_message = format_slip_with_results(slip, meccsek_map)
             await context.bot.send_message(chat_id=query.message.chat_id, text=formatted_message, parse_mode='Markdown')
             await asyncio.sleep(0.5)
-
-    except Exception as e: 
-        print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
-
-# JAVÍTOTT STATISZTIKA FUNKCIÓ
+    except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése..."); await query.answer()
     try:
         def sync_task_stat():
             supabase = get_db_client(); now = datetime.now(HUNGARY_TZ); header = ""
-            
             if period == "all":
                 header = "*Összesített (All-Time) Statisztika*"
-                # Teljes lekérdezés, szűrés nélkül a névre
                 response_tuti = supabase.table("napi_tuti").select("*, confidence_percent").order('created_at', desc=True).execute()
-            else: # Havi nézet
+            else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 month_str = target_month_start.strftime("%Y-%m")
                 header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
-                # JAVÍTÁS: Szűrés a tipp nevében szereplő hónapra
                 response_tuti = supabase.table("napi_tuti").select("*, confidence_percent").like("tipp_neve", f"%{month_str}%").order('created_at', desc=True).execute()
-
             return response_tuti, header
-
         response_tuti, header = await asyncio.to_thread(sync_task_stat)
-        
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0; evaluated_singles_count, won_singles_count, total_return_singles = 0, 0, 0.0
-        
         if response_tuti.data:
             all_tip_ids_stat = [tid for sz in response_tuti.data for tid in sz.get('tipp_id_k', [])]
             if all_tip_ids_stat:
@@ -264,7 +291,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                             if meccs['eredmeny'] in ['Nyert', 'Veszített']:
                                 evaluated_singles_count += 1
                                 if meccs['eredmeny'] == 'Nyert': won_singles_count += 1; total_return_singles += float(meccs['odds'])
-        
         stat_message = f"🔥 *{header}*\n\n*--- Napi Tuti Statisztika (Kötésben) ---*\n"
         if evaluated_tuti_count > 0:
             lost_tuti_count = evaluated_tuti_count - won_tuti_count; tuti_win_rate = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0; total_staked_tuti = evaluated_tuti_count * 1.0; net_profit_tuti = total_return_tuti - total_staked_tuti; roi_tuti = (net_profit_tuti / total_staked_tuti * 100) if total_staked_tuti > 0 else 0
@@ -275,12 +301,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             lost_singles_count = evaluated_singles_count - won_singles_count; single_win_rate = (won_singles_count / evaluated_singles_count * 100) if evaluated_singles_count > 0 else 0; total_staked_singles = evaluated_singles_count * 1.0; net_profit_singles = total_return_singles - total_staked_singles; roi_singles = (net_profit_singles / total_staked_singles * 100) if total_staked_singles > 0 else 0
             stat_message += f"Összes tipp: *{evaluated_singles_count}* db\n✅ Nyert: *{won_singles_count}* db | ❌ Veszített: *{lost_singles_count}* db\n📈 Találati arány: *{single_win_rate:.2f}%*\n💰 Nettó Profit: *{net_profit_singles:+.2f}* egység {'✅' if net_profit_singles >= 0 else '❌'}\n📈 *ROI: {roi_singles:+.2f}%*"
         else: stat_message += "Nincsenek még kiértékelt single tippek."
-        
         keyboard = [[InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"admin_show_stat_month_{month_offset + 1}"), InlineKeyboardButton("Következő Hónap ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")], [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]]
         if period != "current_month" or month_offset > 0: keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
         reply_markup = InlineKeyboardMarkup(keyboard); await message_to_edit.edit_text(stat_message, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e: print(f"Hiba a statisztika készítésekor: {e}"); await message_to_edit.edit_text(f"Hiba: {e}")
-
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
@@ -288,7 +312,6 @@ async def admin_show_users(update: telegram.Update, context: CallbackContext):
         def sync_task(): return get_db_client().table("felhasznalok").select('id', count='exact').execute()
         response = await asyncio.to_thread(sync_task); await query.message.reply_text(f"👥 Regisztrált felhasználók a weboldalon: {response.count}")
     except Exception as e: await query.message.reply_text(f"Hiba: {e}")
-
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Ellenőrzés indítása...", cache_time=5); await query.message.edit_text("❤️ Rendszer ellenőrzése...")
@@ -304,15 +327,12 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         except Exception as e: status_text += f"❌ *RapidAPI*: Hiba!\n`{e}`"
         return status_text
     status_text = await asyncio.to_thread(sync_task_check); await query.message.edit_text(status_text, parse_mode='Markdown')
-
 async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
     if 'awaiting_broadcast' in context.user_data: del context.user_data['awaiting_broadcast']
     await update.message.reply_text('Művelet megszakítva.'); return ConversationHandler.END
-
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; context.user_data['awaiting_broadcast'] = True; await query.message.edit_text("Add meg a körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_BROADCAST
-
 async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
     if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return
     del context.user_data['awaiting_broadcast']; message_to_send = update.message.text
@@ -330,7 +350,6 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
         await update.message.reply_text(f"✅ Körüzenet kiküldve!\nSikeres: {sent_count} | Sikertelen: {failed_count}")
     except Exception as e: await update.message.reply_text(f"❌ Hiba a küldés közben: {e}")
     return ConversationHandler.END
-
 @admin_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; command = query.data
@@ -342,9 +361,13 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_slips": await admin_show_slips(update, context)
     elif command == "admin_close": await query.answer(); await query.message.delete()
 
-# --- HANDLER REGISZTRÁCIÓ ---
+# --- HANDLER REGISZTRÁCIÓ (JÓVÁHAGYÁSSAL KIEGÉSZÍTVE) ---
 def add_handlers(application: Application):
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
-    application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_menu)); application.add_handler(broadcast_conv); application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_menu)); application.add_handler(broadcast_conv);
+    # ÚJ KEZELŐK A JÓVÁHAGYÁSHOZ
+    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
+    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
+    application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
