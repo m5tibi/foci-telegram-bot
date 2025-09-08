@@ -1,7 +1,7 @@
-# send_daily_update.py (Intelligens Napi Értesítő - Javított Dátumkezeléssel)
+# send_daily_update.py (V5.3 - Admin Jóváhagyó Verzió)
 import os
 import asyncio
-from supabase import create_client, Client
+from supabase import create_client
 import telegram
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime, timedelta
@@ -14,62 +14,60 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-async def send_daily_update():
-    if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN]):
+def get_tip_details(tip_text):
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "First Half Over 0.5": "Félidő 0.5 gól felett", "Home Over 0.5": "Hazai 0.5 gól felett", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 0.5": "Vendég 0.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"}
+    return tip_map.get(tip_text, tip_text)
+
+async def send_admin_review_notification():
+    if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN, ADMIN_CHAT_ID]):
         print("Hiba: Környezeti változók hiányoznak.")
         return
 
-    print("Intelligens napi értesítő indítása...")
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("Admin jóváhagyási értesítő indítása...")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    
+    target_date_str = (datetime.now(HUNGARY_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
-        response = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
-        
-        chat_ids_to_notify = {user['chat_id'] for user in response.data} if response.data else set()
-        if ADMIN_CHAT_ID: chat_ids_to_notify.add(ADMIN_CHAT_ID)
-
-        if not chat_ids_to_notify:
-            print("Nincsenek értesítendő felhasználók.")
-            return
-        
-        # JAVÍTÁS: A státuszt a holnapi napra kérdezzük le, mert a generátor is arra dolgozik
-        target_date_str = (datetime.now(HUNGARY_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
         status_response = supabase.table("daily_status").select("status").eq("date", target_date_str).limit(1).execute()
         
-        status = "Nincs adat"
-        if status_response.data:
-            status = status_response.data[0].get('status')
-
-        message_text = ""
-        reply_markup = None
-
-        if status == "Tippek generálva":
-            message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények!"
-            vip_url = "https://foci-telegram-bot.onrender.com/vip"
-            keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése", url=vip_url)]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-        elif status == "Nincs megfelelő tipp":
-            message_text = "Szia! ℹ️ A holnapi napra az algoritmusunk nem talált a minőségi kritériumoknak megfelelő tippet. Néha a legjobb tipp az, ha nem adunk tippet. Nézz vissza holnap!"
-        else:
-            print(f"Ismeretlen vagy hiányzó státusz a(z) {target_date_str} napra. Nem küldünk értesítést.")
+        if not status_response.data or status_response.data[0].get('status') != "Jóváhagyásra vár":
+            print(f"Nincs jóváhagyásra váró tipp a(z) {target_date_str} napra. Státusz: {status_response.data[0].get('status') if status_response.data else 'Nincs adat'}")
             return
 
-        print(f"Értesítés küldése {len(chat_ids_to_notify)} felhasználónak... Üzenet: '{message_text[:30]}...'")
+        # Szelvények lekérdezése a formázott üzenethez
+        slips_res = supabase.table("napi_tuti").select("*").like("tipp_neve", f"%{target_date_str}%").execute()
+        if not slips_res.data:
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"⚠️ Hiba: A státusz 'Jóváhagyásra vár', de nem található szelvény a(z) {target_date_str} napra.")
+            return
+
+        all_tip_ids = [tid for sz in slips_res.data for tid in sz.get('tipp_id_k', [])]
+        meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
+
+        message_to_admin = f"🔔 *Jóváhagyásra Váró Tippek ({target_date_str})*\n\n"
+        for slip in slips_res.data:
+            message_to_admin += f"*{slip['tipp_neve']}* (Conf: {slip['confidence_percent']}%, Odds: {slip['eredo_odds']:.2f})\n"
+            for tip_id in slip.get('tipp_id_k', []):
+                meccs = meccsek_map.get(tip_id)
+                if meccs:
+                    tipp_str = get_tip_details(meccs['tipp'])
+                    message_to_admin += f"  - `{meccs['csapat_H']} vs {meccs['csapat_V']}` ({tipp_str} @ {meccs['odds']})\n"
+            message_to_admin += "\n"
         
-        successful_sends = 0
-        for chat_id in chat_ids_to_notify:
-            try:
-                await bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup)
-                successful_sends += 1
-            except Exception as e:
-                print(f"Hiba a(z) {chat_id} felhasználónak küldés során: {e}")
-            await asyncio.sleep(0.1) 
-        
-        print(f"Értesítések kiküldése befejezve. Sikeresen elküldve {successful_sends} felhasználónak.")
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Jóváhagyás és Küldés", callback_data=f"approve_tips_{target_date_str}"),
+                InlineKeyboardButton("❌ Elutasítás", callback_data=f"reject_tips_{target_date_str}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message_to_admin, parse_mode='Markdown', reply_markup=reply_markup)
+        print("Jóváhagyási értesítő sikeresen elküldve az adminnak.")
 
     except Exception as e:
-        print(f"Hiba történt az értesítő futása során: {e}")
+        print(f"Hiba történt az admin értesítő küldése során: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(send_daily_update())
+    asyncio.run(send_admin_review_notification())
