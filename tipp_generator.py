@@ -132,8 +132,8 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
     potential_tips = []
     for tip_type, odds in available_odds.items():
         # --- LOGIKA 1: ÉRTÉK ALAPÚ (VALUE) PONTSZÁMÍTÁS ---
-        value_score, value_reasons = 0, []
-        if 1.70 <= odds <= 2.50: # Value-t magasabb oddson keresünk
+        value_score = 0
+        if 1.70 <= odds <= 2.50: 
             if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1): value_score -= 20
             if tip_type == "Home":
                 if form_h_overall.count('W') > form_v_overall.count('W'): value_score += 15
@@ -152,18 +152,18 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
                     potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": value_score, "type": "value"})
 
         # --- LOGIKA 2: NAGY ESÉLYŰ, STANDARD ÉPÍTKEZŐS (1.5-1.8 ODDS) ---
-        standard_score, standard_reasons = 0, []
+        standard_score = 0
         if 1.50 <= odds <= 1.80:
             if tip_type == "Over 2.5":
-                if goals_for_h + goals_for_v > 3.0: standard_score += 30; standard_reasons.append("Magas gólátlagok.")
+                if goals_for_h + goals_for_v > 3.0: standard_score += 30
             if tip_type == "BTTS":
-                if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8: standard_score += 35; standard_reasons.append("Gólerős és gólt is kapó csapatok.")
+                if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8: standard_score += 35
             
             if standard_score > 0:
                  potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": standard_score, "type": "standard"})
         
         # --- LOGIKA 3: ALACSONY ODDS-Ú "BIZTOS" (PROBABILITY) ---
-        prob_score, prob_reasons = 0, []
+        prob_score = 0
         if tip_type in ["Home", "Away"] and 1.15 <= odds <= 1.49:
             base_confidence = 0
             if tip_type == "Home":
@@ -196,7 +196,6 @@ def create_slips(date_str, all_tips):
     prob_tips = sorted([t for t in all_tips if t['type'] == 'prob'], key=lambda x: x['confidence_score'], reverse=True)
     standard_tips = sorted([t for t in all_tips if t['type'] == 'standard'], key=lambda x: x['confidence_score'], reverse=True)
     
-    # Termék #1: "Napi Biztos"
     if len(prob_tips) >= 2:
         best_prob_combo = None
         combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(prob_tips, 2) if 1.50 <= math.prod(i['odds'] for i in c) <= 2.20]
@@ -204,7 +203,6 @@ def create_slips(date_str, all_tips):
             best_prob_combo = max(combos, key=lambda x: x['confidence'])
             created_slips.append({"tipp_neve": f"Napi Biztos - {date_str}", "eredo_odds": best_prob_combo['odds'], "confidence_percent": min(int(best_prob_combo['confidence']), 98), "combo": best_prob_combo['combo'], "is_admin_only": False})
 
-    # Termék #2: "Napi Standard"
     if len(standard_tips) >= 2:
         best_standard_combo = None
         combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(standard_tips, 2) if 2.40 <= math.prod(i['odds'] for i in c) <= 4.0]
@@ -212,10 +210,17 @@ def create_slips(date_str, all_tips):
             best_standard_combo = max(combos, key=lambda x: x['confidence'])
             created_slips.append({"tipp_neve": f"Napi Standard - {date_str}", "eredo_odds": best_standard_combo['odds'], "confidence_percent": min(int(best_standard_combo['confidence']), 98), "combo": best_standard_combo['combo'], "is_admin_only": False})
 
-    # Termék #3: "Value Single"
-    value_singles = [t for t in value_tips if t['confidence_score'] >= 45][:1] # Csak a legjobb
+    value_singles = [t for t in value_tips if t['confidence_score'] >= 45][:1]
     for i, tip in enumerate(value_singles):
         created_slips.append({"tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False})
+
+    lotto_candidates = sorted([t for t in value_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 55], key=lambda x: x['confidence_score'], reverse=True)
+    if len(lotto_candidates) >= 3:
+        combo = lotto_candidates[:3]
+        eredo_odds = math.prod(c['odds'] for c in combo)
+        if eredo_odds >= 10.0:
+            avg_conf = sum(c['confidence_score'] for c in combo) / len(combo)
+            created_slips.append({"tipp_neve": f"Kockázati Extra [CSAK ADMIN] - {date_str}", "eredo_odds": eredo_odds, "confidence_percent": min(int(avg_conf), 98), "combo": combo, "is_admin_only": True})
 
     return created_slips
 
