@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.6 - Dinamikus Küszöb & Napi Menti Tipp)
+# tipp_generator.py (V6.6 - Végső Finomhangolás)
 
 import os
 import requests
@@ -247,7 +247,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V6.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V6.6) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -271,13 +271,12 @@ def main():
     prefetch_data_for_fixtures(relevant_fixtures)
     
     # *** DINAMIKUS KÜSZÖB MEGHATÁROZÁSA ***
-    avg_score_proxy = len(relevant_fixtures) * 2 # Heurisztika: több meccs = erősebb nap
-    if avg_score_proxy > 50:
+    if len(relevant_fixtures) > 25:
         min_score_for_the_day = 45
-    elif avg_score_proxy > 20:
+    elif len(relevant_fixtures) > 10:
         min_score_for_the_day = 42
     else:
-        min_score_for_the_day = 38
+        min_score_for_the_day = 37 # Enyhítve
     print(f"Dinamikus küszöb erre a napra: {min_score_for_the_day} pont.")
 
     all_potential_tips = []
@@ -317,7 +316,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.5 algoritmus (dinamikus küszöbbel) sem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.6 algoritmus (dinamikus küszöbbel) sem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
