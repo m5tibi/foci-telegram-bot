@@ -1,4 +1,4 @@
-# main.py (V5.5 - Admin Szelvények Szűrése)
+# main.py (V5.6 - Manuális Feltöltő Modullal)
 
 import os
 import asyncio
@@ -7,9 +7,10 @@ import requests
 import telegram
 import secrets
 import pytz
+import time
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Request, Form, Depends, Header
+from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -119,6 +120,7 @@ async def vip_area(request: Request):
     
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
+    manual_slips_today, manual_slips_tomorrow = [], []
     daily_status_message = ""
     is_standard_kinalat = False
     
@@ -171,6 +173,14 @@ async def vip_area(request: Request):
             else:
                 daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
+            # Manuális szelvények lekérdezése
+            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
+            if manual_res.data:
+                for m_slip in manual_res.data:
+                    if m_slip['target_date'] == today_str:
+                        manual_slips_today.append(m_slip)
+                    else:
+                        manual_slips_tomorrow.append(m_slip)
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
@@ -178,6 +188,8 @@ async def vip_area(request: Request):
     return templates.TemplateResponse("vip_tippek.html", {
         "request": request, "user": user, "is_subscribed": is_subscribed, 
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
+        "manual_slips_today": manual_slips_today,
+        "manual_slips_tomorrow": manual_slips_tomorrow,
         "daily_status_message": daily_status_message,
         "is_standard_kinalat": is_standard_kinalat
     })
@@ -220,6 +232,35 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
         checkout_session = stripe.checkout.Session.create(**params)
         return RedirectResponse(checkout_session.url, status_code=303)
     except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
+
+# === ÚJ ADMIN FELTÖLTŐ VÉGPONTOK ===
+@api.get("/admin/upload", response_class=HTMLResponse)
+async def upload_form(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
+        return RedirectResponse(url="/vip", status_code=303)
+    return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
+
+@api.post("/admin/upload")
+async def handle_upload(request: Request, target_date: str = Form(...), slip_image: UploadFile = File(...)):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
+        return RedirectResponse(url="/vip", status_code=303)
+    try:
+        file_extension = slip_image.filename.split('.')[-1]
+        file_name = f"{target_date}_{int(time.time())}.{file_extension}"
+        
+        supabase.storage.from_("slips").upload(file_name, slip_image.file.read(), {"content-type": slip_image.content_type})
+        public_url = supabase.storage.from_("slips").get_public_url(file_name)
+        
+        supabase.table("manual_slips").insert({
+            "target_date": target_date,
+            "image_url": public_url
+        }).execute()
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+    except Exception as e:
+        print(f"Hiba a fájlfeltöltés során: {e}")
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {e}"})
 
 @api.on_event("startup")
 async def startup():
