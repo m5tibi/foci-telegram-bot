@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Manuális Szelvény Feltöltése{% endblock %}
+
+{% block content %}
+    <h1>Manuális Szelvény Feltöltése</h1>
+    <p>Itt tudsz új, saját készítésű szelvényképet feltölteni a VIP zónába.</p>
+
+    {% if message %}
+        <div class="alert alert-success">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form action="/admin/upload" method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="target_date">Melyik napra szól a szelvény?</label>
+            <input type="date" id="target_date" name="target_date" required>
+        </div>
+        <div class="form-group">
+            <label for="slip_image">Szelvénykép kiválasztása</label>
+            <input type="file" id="slip_image" name="slip_image" accept="image/png, image/jpeg, image/jpg" required>
+        </div>
+        <button type="submit" class="button">Feltöltés</button>
+    </form>
+{% endblock %}
