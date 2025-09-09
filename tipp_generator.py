@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.4 - Finomhangolt Küszöb & Verbose Test Logging)
+# tipp_generator.py (V6.5 - Finomhangolt Küszöb & Bónuszok)
 
 import os
 import requests
@@ -134,7 +134,7 @@ def analyze_fixture(fixture, is_test_mode=False):
     for tip_type, odds in available_odds.items():
         score, reasons = 0, []
         if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1):
-            score -= 20; reasons.append(f"Kulcsjátékos hiányzik ({'H' if tip_type == 'Home' else 'V'}).") # Enyhítve
+            score -= 20; reasons.append(f"Kulcsjátékos hiányzik ({'H' if tip_type == 'Home' else 'V'}).")
         if tip_type == "Home":
             if form_h_overall.count('W') > form_v_overall.count('W'): score += 15; reasons.append("Jobb forma.")
             if goals_for_h > 1.5 and goals_against_v > 1.0: score += 20; reasons.append("Jó támadósor vs. gyenge védelem.")
@@ -152,18 +152,22 @@ def analyze_fixture(fixture, is_test_mode=False):
             if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8:
                 score += 25; reasons.append("Gólerős és gólt is kapó csapatok.")
             if clean_sheets_h < 1 and clean_sheets_v < 1: score += 15; reasons.append("Ritkán hoznak le kapott gól nélküli meccset.")
+        
         if score > 0:
             confidence = min(score, 100)
             value_score = (1 / odds) * (confidence / 100)
-            if value_score > 0.65: score += 15; reasons.append("Jó érték (value).")
-            if 1.30 <= odds <= 1.95: score += 10; reasons.append("Ideális odds sáv.") # Tágítva
+            if value_score > 0.60: # Value küszöb enyhítve
+                score += 18; reasons.append("Jó érték (value).")
+            if 1.30 <= odds <= 2.00: # Odds sáv tágítva
+                score += 12; reasons.append("Ideális odds sáv.")
+        
         if score > 0:
             potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": score, "indoklas": " ".join(reasons)})
 
     if not potential_tips: return []
     best_tip = max(potential_tips, key=lambda x: x['confidence_score'])
     
-    MIN_SCORE = 40 # *** KÜSZÖB CSÖKKENTVE ***
+    MIN_SCORE = 38 # *** VÉGSŐ KÜSZÖB CSÖKKENTVE ***
     if best_tip['confidence_score'] < MIN_SCORE:
         if is_test_mode:
             print(f"  -> MECCS ELDOBVA: {teams['home']['name']} vs {teams['away']['name']}. Legjobb tipp: '{best_tip['tipp']}' ({best_tip['confidence_score']:.0f} pont), ami nem érte el a {MIN_SCORE} pontos küszöböt.")
@@ -202,10 +206,10 @@ def create_combo_slips(date_str, candidate_tips):
 def create_value_and_lotto_slips(date_str, candidate_tips):
     print("--- 'Value Single' és 'Kockázati Extra' szelvények keresése ---")
     slips = []
-    value_singles = sorted([t for t in candidate_tips if t['confidence_score'] >= 75 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']], key=lambda x: x['confidence_score'], reverse=True)[:2] # Küszöb enyhítve
+    value_singles = sorted([t for t in candidate_tips if t['confidence_score'] >= 75 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']], key=lambda x: x['confidence_score'], reverse=True)[:2]
     for i, tip in enumerate(value_singles):
         slips.append({"tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False})
-    lotto_candidates = sorted([t for t in candidate_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 55], key=lambda x: x['confidence_score'], reverse=True) # Küszöb enyhítve
+    lotto_candidates = sorted([t for t in candidate_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 55], key=lambda x: x['confidence_score'], reverse=True)
     if len(lotto_candidates) >= 3:
         for size in range(min(4, len(lotto_candidates)), 2, -1):
             combo_tuple = tuple(lotto_candidates[:size])
@@ -246,7 +250,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V6.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V6.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -293,7 +297,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.4 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.5 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
