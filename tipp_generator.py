@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.8 - Intelligens Finomhangolás & Napi Menti)
+# tipp_generator.py (V6.9 - Produkciós Verzió)
 
 import os
 import requests
@@ -280,7 +280,7 @@ def main():
     
     if len(relevant_fixtures) > 25: min_score_for_the_day = 45
     elif len(relevant_fixtures) > 10: min_score_for_the_day = 42
-    else: min_score_for_the_day = 38
+    else: min_score_for_the_day = 37 # *** VÉGSŐ FINOMHANGOLÁS ***
     print(f"Dinamikus küszöb erre a napra: {min_score_for_the_day} pont.")
 
     all_potential_tips = []
