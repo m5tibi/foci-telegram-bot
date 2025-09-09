@@ -1,4 +1,4 @@
-# tipp_generator.py (V7.0 - Új Generációs Hibrid Modell)
+# tipp_generator.py (V7.1 - Éles, Finomhangolt Hibrid Modell)
 
 import os
 import requests
@@ -133,30 +133,30 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
     for tip_type, odds in available_odds.items():
         # --- LOGIKA 1: ÉRTÉK ALAPÚ (VALUE) ---
         value_score = 0
-        if 1.75 <= odds <= 2.80: 
-            if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1): value_score -= 20
+        if 1.80 <= odds <= 3.0: 
+            if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1): value_score -= 15
             if tip_type == "Home" and form_h_overall.count('W') > form_v_overall.count('W'): value_score += 20
             if tip_type == "Away" and form_v_overall.count('W') > form_h_overall.count('W'): value_score += 20
-            if tip_type == "Over 2.5" and goals_for_h + goals_for_v > 3.2: value_score += 25
+            if tip_type == "Over 2.5" and goals_for_h + goals_for_v > 3.3: value_score += 25
             
             if value_score > 0:
                 confidence = min(value_score, 100)
                 value_metric = (1 / odds) * (confidence / 100)
-                if value_metric > 0.50:
-                    value_score += 25
+                if value_metric > 0.45:
+                    value_score += 30
                     potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": value_score, "type": "value"})
 
         # --- LOGIKA 2: NAGY ESÉLYŰ, NEM-VALUE (HIGH CHANCE) ---
         chance_score = 0
         if 1.40 <= odds <= 1.90:
             if tip_type == "Over 1.5":
-                if goals_for_h + goals_for_v > 2.8: chance_score += 40
+                if goals_for_h + goals_for_v > 2.8: chance_score += 45
             if tip_type == "Home":
-                if form_h_overall.count('W') >= 3 and form_v_overall.count('L') >= 2: chance_score += 45
-                if goals_for_h > 1.8: chance_score += 20
+                if form_h_overall.count('W') >= 3 and form_v_overall.count('L') >= 2: chance_score += 50
+                if goals_for_h > 1.8 and goals_against_h > 1.0: chance_score += 25
             if tip_type == "Away":
-                 if form_v_overall.count('W') >= 3 and form_h_overall.count('L') >= 2: chance_score += 45
-                 if goals_for_v > 1.6: chance_score += 20
+                 if form_v_overall.count('W') >= 3 and form_h_overall.count('L') >= 2: chance_score += 50
+                 if goals_for_v > 1.7 and goals_against_h > 1.0: chance_score += 25
             
             if chance_score > 0:
                  potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": chance_score, "type": "high_chance"})
@@ -206,7 +206,7 @@ def create_slips(date_str, all_tips):
             "combo": combo, "is_admin_only": False
         })
 
-    value_singles = [t for t in value_tips if t['confidence_score'] >= 45][:1]
+    value_singles = [t for t in value_tips if t['confidence_score'] >= 50][:1]
     for i, tip in enumerate(value_singles):
         created_slips.append({"tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False})
 
@@ -264,7 +264,7 @@ def main():
 
     prefetch_data_for_fixtures(relevant_fixtures)
     
-    if len(relevant_fixtures) > 25: min_score_for_the_day = 40
+    if len(relevant_fixtures) > 25: min_score_for_the_day = 42
     elif len(relevant_fixtures) > 10: min_score_for_the_day = 38
     else: min_score_for_the_day = 35
     print(f"Dinamikus küszöb erre a napra: {min_score_for_the_day} pont.")
