@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.7 - Hibrid Stratégia: Value + High Probability)
+# tipp_generator.py (V6.8 - Intelligens Finomhangolás & Napi Menti)
 
 import os
 import requests
@@ -132,7 +132,6 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
 
     potential_tips = []
     for tip_type, odds in available_odds.items():
-        # --- LOGIKA 1: ÉRTÉK ALAPÚ (VALUE) PONTSZÁMÍTÁS ---
         value_score, value_reasons = 0, []
         if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1):
             value_score -= 20; value_reasons.append(f"Kulcsjátékos hiányzik ({'H' if tip_type == 'Home' else 'V'}).")
@@ -155,14 +154,13 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
             value_metric = (1 / odds) * (confidence / 100)
             if value_metric > 0.60:
                 value_score += 18; value_reasons.append("Jó érték (value).")
-            if 1.40 <= odds <= 2.20: # Értéket magasabb oddson keresünk
+            if 1.40 <= odds <= 2.20:
                 value_score += 12; value_reasons.append("Ideális value odds sáv.")
             if value_score > 0:
                 potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": value_score, "indoklas": " ".join(value_reasons), "type": "value"})
 
-        # --- LOGIKA 2: MAGAS VALÓSZÍNŰSÉGŰ (HIGH PROBABILITY) PONTSZÁMÍTÁS ---
         prob_score, prob_reasons = 0, []
-        if tip_type in ["Home", "Away"] and 1.15 <= odds <= 1.45: # Csak alacsony oddsos favoritokra
+        if tip_type in ["Home", "Away"] and 1.15 <= odds <= 1.45:
             base_confidence = 0
             if tip_type == "Home":
                 if form_h_overall.count('W') >= form_v_overall.count('W') + 2: base_confidence += 30; prob_reasons.append("Domináns forma.")
@@ -172,8 +170,8 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
                  if form_v_overall.count('W') >= form_h_overall.count('W') + 2: base_confidence += 30; prob_reasons.append("Domináns forma.")
                  if goals_for_v > 1.8 and goals_against_h > 1.5: base_confidence += 25; prob_reasons.append("Gólerős vendég.")
             
-            if base_confidence >= 40: # Itt a tiszta statisztikai fölény számít
-                prob_score = base_confidence + 30 # Bónusz a "banker" jellegért
+            if base_confidence >= 40:
+                prob_score = base_confidence + 30
                 potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": prob_score, "indoklas": " ".join(prob_reasons), "type": "prob"})
 
     if not potential_tips: return []
@@ -191,11 +189,9 @@ def create_slips(date_str, all_tips):
     print("--- Szelvények összeállítása a Hibrid Stratégia alapján ---")
     created_slips = []
 
-    # Tippek szétválogatása típus szerint
     value_tips = sorted([t for t in all_tips if t['type'] == 'value'], key=lambda x: x['confidence_score'], reverse=True)
     prob_tips = sorted([t for t in all_tips if t['type'] == 'prob'], key=lambda x: x['confidence_score'], reverse=True)
     
-    # --- Termék #1: "Napi Biztos" - Magas valószínűségű tippekből ---
     if len(prob_tips) >= 2:
         best_prob_combo = None
         combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(prob_tips, 2) if 1.50 <= math.prod(i['odds'] for i in c) <= 2.20]
@@ -206,7 +202,6 @@ def create_slips(date_str, all_tips):
                 "confidence_percent": min(int(best_prob_combo['confidence']), 98), "combo": best_prob_combo['combo'], "is_admin_only": False
             })
 
-    # --- Termék #2: "Napi Tuti" - Érték alapú tippekből ---
     if len(value_tips) >= 2:
         best_value_combo = None
         combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(value_tips, 2) if 2.20 <= math.prod(i['odds'] for i in c) <= 5.00]
@@ -217,12 +212,10 @@ def create_slips(date_str, all_tips):
                 "confidence_percent": min(int(best_value_combo['confidence']), 98), "combo": best_value_combo['combo'], "is_admin_only": False
             })
 
-    # --- Termék #3: "Value Single" ---
     value_singles = [t for t in value_tips if t['confidence_score'] >= 75 and t['odds'] >= 1.75][:2]
     for i, tip in enumerate(value_singles):
         created_slips.append({"tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False})
 
-    # --- Termék #4: "Kockázati Extra" (Admin) ---
     lotto_candidates = sorted([t for t in value_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 55], key=lambda x: x['confidence_score'], reverse=True)
     if len(lotto_candidates) >= 3:
         combo = lotto_candidates[:3]
@@ -262,7 +255,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V6.7) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V6.8) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -303,6 +296,18 @@ def main():
     if all_potential_tips:
         all_slips = create_slips(target_date_str, all_potential_tips)
 
+        if not all_slips and all_potential_tips:
+            print("Nem sikerült kombit készíteni, 'Napi Menti' tipp keresése...")
+            best_single_tip = max(all_potential_tips, key=lambda x: x['confidence_score'])
+            if best_single_tip:
+                 all_slips.append({
+                    "tipp_neve": f"A Nap Tippje - {target_date_str}", 
+                    "eredo_odds": best_single_tip['odds'], 
+                    "confidence_percent": min(int(best_single_tip['confidence_score']), 98), 
+                    "combo": [best_single_tip], 
+                    "is_admin_only": False
+                })
+
     if all_slips:
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
@@ -311,7 +316,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.7 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.8 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
