@@ -7,13 +7,29 @@
 
     {% if is_subscribed %}
 
-        {% if is_standard_kinalat %}
-            <div class="alert alert-success" style="border-left: 4px solid #F6E05E; background-color: #322f27; color: #F6E05E;">
-                <h4 style="color: #F6E05E; margin-top:0;">Fontos Tájékoztató a Jelenlegi Tippekről</h4>
-                <p style="margin-bottom: 1rem;">A jelenlegi, szűkebb sportfogadási kínálat még a legszigorúbb 'Prémium' szűrőnknek sem kínált elegendő lehetőséget.</p>
-                <p style="margin-bottom: 1rem;">Azonban, hogy ne maradjatok tipp nélkül, a rendszer aktiválta a 'Biztonsági Háló' funkciót. Az alábbi, '(Standard)' jelzésű szelvények egy enyhébb, de még mindig alapos statisztikai elemzésen alapulnak.</p>
-                <p style="margin-bottom: 0;">Kérünk, vedd figyelembe, hogy ezek a tippek a szokásosnál alacsonyabb megbízhatósági pontszámmal rendelkezhetnek, így érdemes lehet megfontolni a szokásosnál óvatosabb tétkezelést. Sok sikert!</p>
+        {% if manual_slips_today or manual_slips_tomorrow %}
+            <div class="manual-slips-section">
+                <h3>Szerkesztői Tippek</h3>
+                
+                {% if manual_slips_today %}
+                    <h4>Mai Manuális Szelvények</h4>
+                    <div class="manual-slips-grid">
+                    {% for slip in manual_slips_today %}
+                        <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="Manuális szelvény" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+
+                {% if manual_slips_tomorrow %}
+                    <h4>Holnapi Manuális Szelvények</h4>
+                     <div class="manual-slips-grid">
+                    {% for slip in manual_slips_tomorrow %}
+                         <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="Manuális szelvény" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                    {% endfor %}
+                    </div>
+                {% endif %}
             </div>
+            <hr style="margin: 30px 0;">
         {% endif %}
 
         <div class="vip-notice">
@@ -27,7 +43,7 @@
         </div>
         
         {% if todays_slips %}
-            <h3>Mai Aktív Szelvények</h3>
+            <h3>Mai Aktív Szelvények (Bot által generált)</h3>
             {% for szelveny in todays_slips %}
                 <div class="szelveny-card">
                     <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
@@ -47,7 +63,7 @@
         {% endif %}
 
         {% if tomorrows_slips %}
-            <h3>Holnapi Szelvények</h3>
+            <h3>Holnapi Szelvények (Bot által generált)</h3>
             {% for szelveny in tomorrows_slips %}
                 <div class="szelveny-card tomorrow">
                     <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
@@ -66,7 +82,7 @@
             {% endfor %}
         {% endif %}
 
-        {% if not todays_slips and not tomorrows_slips %}
+        {% if not todays_slips and not tomorrows_slips and not manual_slips_today and not manual_slips_tomorrow %}
              {% if daily_status_message %}
                 <div class="alert alert-success" style="text-align: center;">
                     <strong>{{ daily_status_message }}</strong>
