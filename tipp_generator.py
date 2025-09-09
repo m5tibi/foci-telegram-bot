@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.5 - Finomhangolt Küszöb & Bónuszok)
+# tipp_generator.py (V6.6 - Dinamikus Küszöb & Napi Menti Tipp)
 
 import os
 import requests
@@ -92,7 +92,7 @@ def prefetch_data_for_fixtures(fixtures):
     print("Adatok előtöltése befejezve.")
 
 
-def analyze_fixture(fixture, is_test_mode=False):
+def analyze_fixture(fixture, min_score, is_test_mode=False):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     
     stats_h = TEAM_STATS_CACHE.get(f"{teams['home']['id']}_{league['id']}")
@@ -152,25 +152,22 @@ def analyze_fixture(fixture, is_test_mode=False):
             if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8:
                 score += 25; reasons.append("Gólerős és gólt is kapó csapatok.")
             if clean_sheets_h < 1 and clean_sheets_v < 1: score += 15; reasons.append("Ritkán hoznak le kapott gól nélküli meccset.")
-        
         if score > 0:
             confidence = min(score, 100)
             value_score = (1 / odds) * (confidence / 100)
-            if value_score > 0.60: # Value küszöb enyhítve
+            if value_score > 0.60:
                 score += 18; reasons.append("Jó érték (value).")
-            if 1.30 <= odds <= 2.00: # Odds sáv tágítva
+            if 1.30 <= odds <= 2.00:
                 score += 12; reasons.append("Ideális odds sáv.")
-        
         if score > 0:
             potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": score, "indoklas": " ".join(reasons)})
 
     if not potential_tips: return []
     best_tip = max(potential_tips, key=lambda x: x['confidence_score'])
     
-    MIN_SCORE = 38 # *** VÉGSŐ KÜSZÖB CSÖKKENTVE ***
-    if best_tip['confidence_score'] < MIN_SCORE:
+    if best_tip['confidence_score'] < min_score:
         if is_test_mode:
-            print(f"  -> MECCS ELDOBVA: {teams['home']['name']} vs {teams['away']['name']}. Legjobb tipp: '{best_tip['tipp']}' ({best_tip['confidence_score']:.0f} pont), ami nem érte el a {MIN_SCORE} pontos küszöböt.")
+            print(f"  -> MECCS ELDOBVA: {teams['home']['name']} vs {teams['away']['name']}. Legjobb tipp: '{best_tip['tipp']}' ({best_tip['confidence_score']:.0f} pont), ami nem érte el a {min_score} pontos küszöböt.")
         return []
         
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], **best_tip}]
@@ -273,10 +270,20 @@ def main():
 
     prefetch_data_for_fixtures(relevant_fixtures)
     
+    # *** DINAMIKUS KÜSZÖB MEGHATÁROZÁSA ***
+    avg_score_proxy = len(relevant_fixtures) * 2 # Heurisztika: több meccs = erősebb nap
+    if avg_score_proxy > 50:
+        min_score_for_the_day = 45
+    elif avg_score_proxy > 20:
+        min_score_for_the_day = 42
+    else:
+        min_score_for_the_day = 38
+    print(f"Dinamikus küszöb erre a napra: {min_score_for_the_day} pont.")
+
     all_potential_tips = []
     print("\n--- Meccsek elemzése ---")
     for fixture in relevant_fixtures:
-        analyzed_tips = analyze_fixture(fixture, is_test_mode)
+        analyzed_tips = analyze_fixture(fixture, min_score_for_the_day, is_test_mode)
         if analyzed_tips:
             all_potential_tips.extend(analyzed_tips)
     
@@ -289,6 +296,19 @@ def main():
         other_slips = create_value_and_lotto_slips(target_date_str, all_potential_tips)
         all_slips = combo_slips + other_slips
 
+        # *** "NAPI MENTI" GARANCIA ***
+        if not all_slips and all_potential_tips:
+            print("Nem sikerült kombit készíteni, 'Napi Menti' tipp keresése...")
+            best_single_tip = max(all_potential_tips, key=lambda x: x['confidence_score'])
+            if best_single_tip:
+                 all_slips.append({
+                    "tipp_neve": f"A Nap Tippje - {target_date_str}", 
+                    "eredo_odds": best_single_tip['odds'], 
+                    "confidence_percent": min(int(best_single_tip['confidence_score']), 98), 
+                    "combo": [best_single_tip], 
+                    "is_admin_only": False
+                })
+
     if all_slips:
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
@@ -297,7 +317,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.5 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.5 algoritmus (dinamikus küszöbbel) sem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
