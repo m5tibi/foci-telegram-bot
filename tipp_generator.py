@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.1 - Javított API Híváskezelés)
+# tipp_generator.py (V6.2 - Helyes Szűrés és Célzott Adatgyűjtés)
 
 import os
 import requests
@@ -65,20 +65,13 @@ def get_api_data(endpoint, params, retries=3, delay=5):
 
 # --- OPTIMALIZÁLT ADATGYŰJTŐ ÉS ELEMZŐ FÜGGVÉNYEK ---
 
-def get_fixtures_and_prefetch_data(date_str):
-    all_fixtures = get_api_data("fixtures", {"date": date_str})
-    if not all_fixtures:
-        return []
-
-    print(f"Összesen {len(all_fixtures)} meccs található a(z) {date_str} napra. Adatok előtöltése...")
-    
+def prefetch_data_for_fixtures(fixtures):
+    if not fixtures:
+        return
+    print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     season = str(datetime.now(BUDAPEST_TZ).year)
 
-    # A releváns meccsek adatainak hatékony összegyűjtése
-    for fixture in all_fixtures:
-        if fixture['league']['id'] not in LEAGUES:
-            continue
-
+    for fixture in fixtures:
         league_id = fixture['league']['id']
         home_team_id = fixture['teams']['home']['id']
         away_team_id = fixture['teams']['away']['id']
@@ -89,7 +82,7 @@ def get_fixtures_and_prefetch_data(date_str):
             if league_data:
                 LEAGUE_DATA_CACHE[league_id] = league_data[0]
 
-        # Csapat statisztikák gyorsítótárazása (CSAK a releváns ligára!)
+        # Csapat statisztikák gyorsítótárazása
         home_cache_key = f"{home_team_id}_{league_id}"
         if home_cache_key not in TEAM_STATS_CACHE:
             stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(home_team_id)})
@@ -101,25 +94,19 @@ def get_fixtures_and_prefetch_data(date_str):
             stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(away_team_id)})
             if stats:
                 TEAM_STATS_CACHE[away_cache_key] = stats
-
     print("Adatok előtöltése befejezve.")
-    return all_fixtures
 
 
 def analyze_fixture(fixture):
-    teams = fixture['teams']
-    league = fixture['league']
-    fixture_id = fixture['fixture']['id']
+    teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     
     stats_h = TEAM_STATS_CACHE.get(f"{teams['home']['id']}_{league['id']}")
     stats_v = TEAM_STATS_CACHE.get(f"{teams['away']['id']}_{league['id']}")
 
-    if not stats_h or not stats_v:
-        return []
+    if not stats_h or not stats_v: return []
 
     odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
-    if not odds_data or not odds_data[0].get('bookmakers'):
-        return []
+    if not odds_data or not odds_data[0].get('bookmakers'): return []
     
     bets = odds_data[0]['bookmakers'][0].get('bets', [])
     tip_name_map = {"Match Winner.Home": "Home", "Match Winner.Away": "Away", "Double Chance.Home/Draw": "1X", "Double Chance.Draw/Away": "X2", "Goals Over/Under.Over 2.5": "Over 2.5", "Goals Over/Under.Over 1.5": "Over 1.5", "Both Teams to Score.Yes": "BTTS"}
@@ -138,16 +125,11 @@ def analyze_fixture(fixture):
     if injuries_data:
         for p in injuries_data:
             if p['player']['id'] in top_scorers_ids:
-                if p['team']['id'] == teams['home']['id']:
-                    key_players_missing_h += 1
-                else:
-                    key_players_missing_v += 1
+                if p['team']['id'] == teams['home']['id']: key_players_missing_h += 1
+                else: key_players_missing_v += 1
     
-    form_h_overall = stats_h.get('form', '')[-5:]
-    form_v_overall = stats_v.get('form', '')[-5:]
-    clean_sheets_h = stats_h.get('clean_sheet', {}).get('home', 0)
-    clean_sheets_v = stats_v.get('clean_sheet', {}).get('away', 0)
-    
+    form_h_overall, form_v_overall = stats_h.get('form', '')[-5:], stats_v.get('form', '')[-5:]
+    clean_sheets_h, clean_sheets_v = stats_h.get('clean_sheet', {}).get('home', 0), stats_v.get('clean_sheet', {}).get('away', 0)
     goals_for_h = float(stats_h.get('goals', {}).get('for', {}).get('average', {}).get('home', "0"))
     goals_for_v = float(stats_v.get('goals', {}).get('for', {}).get('average', {}).get('away', "0"))
     goals_against_h = float(stats_h.get('goals', {}).get('against', {}).get('average', {}).get('home', "99"))
@@ -156,201 +138,99 @@ def analyze_fixture(fixture):
     potential_tips = []
     for tip_type, odds in available_odds.items():
         score, reasons = 0, []
-
-        if (tip_type == "Home" and key_players_missing_h >= 1) or \
-           (tip_type == "Away" and key_players_missing_v >= 1):
-            score -= 25
-            reasons.append(f"Kulcsjátékos hiányzik ({'H' if tip_type == 'Home' else 'V'}).")
-
+        if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1):
+            score -= 25; reasons.append(f"Kulcsjátékos hiányzik ({'H' if tip_type == 'Home' else 'V'}).")
         if tip_type == "Home":
-            if form_h_overall.count('W') > form_v_overall.count('W'):
-                score += 15
-                reasons.append("Jobb forma.")
-            if goals_for_h > 1.5 and goals_against_v > 1.0:
-                score += 20
-                reasons.append("Jó támadósor vs. gyenge védelem.")
-        
+            if form_h_overall.count('W') > form_v_overall.count('W'): score += 15; reasons.append("Jobb forma.")
+            if goals_for_h > 1.5 and goals_against_v > 1.0: score += 20; reasons.append("Jó támadósor vs. gyenge védelem.")
         if tip_type == "Away":
-            if form_v_overall.count('W') > form_h_overall.count('W'):
-                score += 15
-                reasons.append("Jobb forma.")
-            if goals_for_v > 1.3 and goals_against_h > 1.2:
-                score += 20
-                reasons.append("Jó támadósor vs. gyenge védelem.")
-
+            if form_v_overall.count('W') > form_h_overall.count('W'): score += 15; reasons.append("Jobb forma.")
+            if goals_for_v > 1.3 and goals_against_h > 1.2: score += 20; reasons.append("Jó támadósor vs. gyenge védelem.")
         if tip_type == "Over 2.5":
-            if goals_for_h + goals_for_v > 3.0:
-                score += 25
-                reasons.append("Magas gólátlagok.")
+            if goals_for_h + goals_for_v > 3.0: score += 25; reasons.append("Magas gólátlagok.")
             league_stats = LEAGUE_DATA_CACHE.get(league['id'])
             if league_stats and 'statistics' in league_stats and league_stats['statistics']['goals']['for']['average']['total'] > 2.8:
-                score += 10
-                reasons.append("Gólerős bajnokság.")
-        
+                score += 10; reasons.append("Gólerős bajnokság.")
         if tip_type == "Over 1.5":
-            if goals_for_h + goals_for_v > 2.5:
-                score += 20
-                reasons.append("Gólerős csapatok.")
-        
+            if goals_for_h + goals_for_v > 2.5: score += 20; reasons.append("Gólerős csapatok.")
         if tip_type == "BTTS":
             if goals_for_h > 1.2 and goals_for_v > 1.0 and goals_against_h > 0.8 and goals_against_v > 0.8:
-                score += 25
-                reasons.append("Gólerős és gólt is kapó csapatok.")
-            if clean_sheets_h < 1 and clean_sheets_v < 1:
-                score += 15
-                reasons.append("Ritkán hoznak le kapott gól nélküli meccset.")
-
+                score += 25; reasons.append("Gólerős és gólt is kapó csapatok.")
+            if clean_sheets_h < 1 and clean_sheets_v < 1: score += 15; reasons.append("Ritkán hoznak le kapott gól nélküli meccset.")
         if score > 0:
             confidence = min(score, 100)
             value_score = (1 / odds) * (confidence / 100)
-            
-            if value_score > 0.65:
-                score += 15
-                reasons.append("Jó érték (value).")
-            if 1.30 <= odds <= 1.90:
-                score += 10
-                reasons.append("Ideális odds sáv.")
-        
+            if value_score > 0.65: score += 15; reasons.append("Jó érték (value).")
+            if 1.30 <= odds <= 1.90: score += 10; reasons.append("Ideális odds sáv.")
         if score > 0:
-            potential_tips.append({
-                "tipp": tip_type, "odds": odds, "confidence_score": score, "indoklas": " ".join(reasons)
-            })
+            potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": score, "indoklas": " ".join(reasons)})
 
-    if not potential_tips:
-        return []
-
+    if not potential_tips: return []
     best_tip = max(potential_tips, key=lambda x: x['confidence_score'])
-    
-    MIN_SCORE = 45
-    if best_tip['confidence_score'] < MIN_SCORE:
-        return []
-
-    tip_info = {
-        "fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'],
-        "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], **best_tip
-    }
-    return [tip_info]
+    if best_tip['confidence_score'] < 45: return []
+    return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], **best_tip}]
 
 
 # --- SZELVÉNY KÉSZÍTŐ ÉS MENTŐ FÜGGVÉNYEK ---
 def create_combo_slips(date_str, candidate_tips):
     print("--- 'Biztonságos Építkezős' szelvények készítése ---")
     created_slips = []
-    
     high_confidence_tips = [t for t in candidate_tips if t['confidence_score'] >= 65]
     MAX_SZELVENY = 3 if len(high_confidence_tips) >= 6 else 2 if len(candidate_tips) >= 4 else 1 if len(candidate_tips) >= 2 else 0
-
     print(f"Nap típusa: {len(candidate_tips)} jelölt. Maximum szelvények száma: {MAX_SZELVENY}")
-
     candidates = sorted(candidate_tips, key=lambda x: x['confidence_score'], reverse=True)
-    
     for i in range(MAX_SZELVENY):
         if len(candidates) < 2: break
-        
-        best_combo_this_iteration = None
-        
+        best_combo = None
         if len(candidates) >= 3:
-            possible_combos = []
-            for combo_tuple in itertools.combinations(candidates, 3):
-                combo = list(combo_tuple)
-                eredo_odds = math.prod(c['odds'] for c in combo)
-                if 2.50 <= eredo_odds <= 6.00:
-                    avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
-                    possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
-            if possible_combos:
-                best_combo_this_iteration = max(possible_combos, key=lambda x: x['confidence'])
-        
-        if not best_combo_this_iteration and len(candidates) >= 2:
-            possible_combos = []
-            for combo_tuple in itertools.combinations(candidates, 2):
-                combo = list(combo_tuple)
-                eredo_odds = math.prod(c['odds'] for c in combo)
-                if 2.20 <= eredo_odds <= 5.00:
-                    avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
-                    possible_combos.append({'combo': combo, 'odds': eredo_odds, 'confidence': avg_confidence})
-            if possible_combos:
-                best_combo_this_iteration = max(possible_combos, key=lambda x: x['confidence'])
-
-        if best_combo_this_iteration:
-            combo = best_combo_this_iteration['combo']
-            confidence_percent = min(int(best_combo_this_iteration['confidence']), 98)
-            
-            slip_data = {
-                "tipp_neve": f"Napi Tuti #{i+1} - {date_str}", "eredo_odds": best_combo_this_iteration['odds'],
-                "confidence_percent": confidence_percent, "combo": combo, "is_admin_only": False
-            }
+            combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(candidates, 3) if 2.50 <= math.prod(i['odds'] for i in c) <= 6.00]
+            if combos: best_combo = max(combos, key=lambda x: x['confidence'])
+        if not best_combo and len(candidates) >= 2:
+            combos = [{'combo': list(c), 'odds': math.prod(i['odds'] for i in c), 'confidence': sum(i['confidence_score'] for i in c)/len(c)} for c in itertools.combinations(candidates, 2) if 2.20 <= math.prod(i['odds'] for i in c) <= 5.00]
+            if combos: best_combo = max(combos, key=lambda x: x['confidence'])
+        if best_combo:
+            combo = best_combo['combo']
+            confidence = min(int(best_combo['confidence']), 98)
+            slip_data = {"tipp_neve": f"Napi Tuti #{i+1} - {date_str}", "eredo_odds": best_combo['odds'], "confidence_percent": confidence, "combo": combo, "is_admin_only": False}
             created_slips.append(slip_data)
-            print(f"'{slip_data['tipp_neve']}' létrehozva (Megbízhatóság: {confidence_percent}%, Odds: {slip_data['eredo_odds']:.2f}).")
-            
+            print(f"'{slip_data['tipp_neve']}' létrehozva (Megbízhatóság: {confidence}%, Odds: {slip_data['eredo_odds']:.2f}).")
             candidates = [c for c in candidates if c not in combo]
-        else:
-            break
-            
+        else: break
     return created_slips
 
 def create_value_and_lotto_slips(date_str, candidate_tips):
     print("--- 'Value Single' és 'Kockázati Extra' szelvények keresése ---")
-    created_slips = []
-    
-    value_singles = sorted(
-        [t for t in candidate_tips if t['confidence_score'] >= 80 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']],
-        key=lambda x: x['confidence_score'],
-        reverse=True
-    )[:2]
-
+    slips = []
+    value_singles = sorted([t for t in candidate_tips if t['confidence_score'] >= 80 and t['odds'] >= 1.75 and t['tipp'] in ['Home', 'Away']], key=lambda x: x['confidence_score'], reverse=True)[:2]
     for i, tip in enumerate(value_singles):
-        created_slips.append({
-            "tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'],
-            "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False
-        })
-
-    lotto_candidates = sorted(
-        [t for t in candidate_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 60],
-        key=lambda x: x['confidence_score'],
-        reverse=True
-    )
-    
+        slips.append({"tipp_neve": f"Value Single #{i+1} - {date_str}", "eredo_odds": tip['odds'], "confidence_percent": min(int(tip['confidence_score']), 98), "combo": [tip], "is_admin_only": False})
+    lotto_candidates = sorted([t for t in candidate_tips if 1.85 <= t['odds'] <= 3.0 and t['confidence_score'] >= 60], key=lambda x: x['confidence_score'], reverse=True)
     if len(lotto_candidates) >= 3:
         for size in range(min(4, len(lotto_candidates)), 2, -1):
             combo_tuple = tuple(lotto_candidates[:size])
             eredo_odds = math.prod(c['odds'] for c in combo_tuple)
             if eredo_odds >= 10.0:
                 combo = list(combo_tuple)
-                avg_confidence = sum(c['confidence_score'] for c in combo) / len(combo)
-                created_slips.append({
-                    "tipp_neve": f"Kockázati Extra [CSAK ADMIN] - {date_str}", "eredo_odds": eredo_odds,
-                    "confidence_percent": min(int(avg_confidence), 98), "combo": combo, "is_admin_only": True
-                })
+                avg_conf = sum(c['confidence_score'] for c in combo) / len(combo)
+                slips.append({"tipp_neve": f"Kockázati Extra [CSAK ADMIN] - {date_str}", "eredo_odds": eredo_odds, "confidence_percent": min(int(avg_conf), 98), "combo": combo, "is_admin_only": True})
                 break
-    
-    return created_slips
+    return slips
 
 def save_tips_to_supabase(all_slips):
-    if not all_slips:
-        return
-        
+    if not all_slips: return
     unique_tips = {t['fixture_id']: t for slip in all_slips for t in slip['combo']}.values()
-    
     try:
         tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in unique_tips]
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
-        
         saved_tips_map = {t['fixture_id']: t['id'] for t in response.data}
-        
         slips_to_insert = []
         for slip in all_slips:
             tipp_id_k = [saved_tips_map.get(t['fixture_id']) for t in slip['combo'] if saved_tips_map.get(t['fixture_id'])]
-            
             if len(tipp_id_k) == len(slip['combo']):
-                slips_to_insert.append({
-                    "tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"], "tipp_id_k": tipp_id_k,
-                    "confidence_percent": slip["confidence_percent"], "is_admin_only": slip.get("is_admin_only", False)
-                })
-        
+                slips_to_insert.append({"tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"], "tipp_id_k": tipp_id_k, "confidence_percent": slip["confidence_percent"], "is_admin_only": slip.get("is_admin_only", False)})
         if slips_to_insert:
             supabase.table("napi_tuti").insert(slips_to_insert).execute()
             print(f"Sikeresen elmentve {len(slips_to_insert)} szelvény.")
-        
     except Exception as e:
         print(f"!!! HIBA a tippek Supabase-be mentése során: {e}")
 
@@ -365,7 +245,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V6.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V6.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -373,26 +253,33 @@ def main():
         three_days_ago_utc = datetime.utcnow().replace(tzinfo=pytz.utc) - timedelta(days=3)
         supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").lt("kezdes", str(three_days_ago_utc)).execute()
 
-    all_fixtures = get_fixtures_and_prefetch_data(target_date_str)
-    
-    if not all_fixtures:
+    all_fixtures_raw = get_api_data("fixtures", {"date": date_str})
+    if not all_fixtures_raw:
         print("Nem találhatóak meccsek a holnapi napra.")
         record_daily_status(target_date_str, "Nincs megfelelő tipp", "Az API nem adott vissza meccseket a holnapi napra.")
         return
 
+    # Csak a figyelt ligák meccseivel dolgozunk tovább
+    relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in LEAGUES]
+    print(f"Összesen {len(all_fixtures_raw)} meccs van a napon, ebből {len(relevant_fixtures)} releváns a számunkra.")
+
+    if not relevant_fixtures:
+        record_daily_status(target_date_str, "Nincs megfelelő tipp", "A holnapi kínálatban nincs meccs a figyelt ligákból.")
+        return
+
+    prefetch_data_for_fixtures(relevant_fixtures)
+    
     all_potential_tips = []
-    for fixture in all_fixtures:
-        if fixture['league']['id'] in LEAGUES:
-            analyzed_tips = analyze_fixture(fixture)
-            if analyzed_tips:
-                all_potential_tips.extend(analyzed_tips)
+    for fixture in relevant_fixtures:
+        analyzed_tips = analyze_fixture(fixture)
+        if analyzed_tips:
+            all_potential_tips.extend(analyzed_tips)
     
     print(f"\nAz elemzés után {len(all_potential_tips)} db potenciális tipp maradt.")
 
     all_slips = []
     if all_potential_tips:
         combo_candidates = [t for t in all_potential_tips if t['tipp'] in ['Over 2.5', 'Over 1.5', 'BTTS'] and 1.30 <= t['odds'] <= 1.95]
-        
         combo_slips = create_combo_slips(target_date_str, combo_candidates)
         other_slips = create_value_and_lotto_slips(target_date_str, all_potential_tips)
         all_slips = combo_slips + other_slips
@@ -406,7 +293,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.1 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.2 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f:
