@@ -1,4 +1,4 @@
-# tipp_generator.py (V6.2 - Helyes Szűrés és Célzott Adatgyűjtés)
+# tipp_generator.py (V6.3 - NameError javítva)
 
 import os
 import requests
@@ -245,7 +245,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V6.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V6.3) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -253,7 +253,7 @@ def main():
         three_days_ago_utc = datetime.utcnow().replace(tzinfo=pytz.utc) - timedelta(days=3)
         supabase.table("meccsek").delete().eq("eredmeny", "Tipp leadva").lt("kezdes", str(three_days_ago_utc)).execute()
 
-    all_fixtures_raw = get_api_data("fixtures", {"date": date_str})
+    all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
         print("Nem találhatóak meccsek a holnapi napra.")
         record_daily_status(target_date_str, "Nincs megfelelő tipp", "Az API nem adott vissza meccseket a holnapi napra.")
@@ -293,7 +293,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V6.2 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V6.3 algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f:
