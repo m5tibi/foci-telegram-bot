@@ -1,4 +1,4 @@
-# bot.py (V5.7 - Manuális Szelvények Statisztikája)
+# bot.py (V5.8 - VIP Körüzenet Funkcióval)
 
 import os
 import telegram
@@ -21,6 +21,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 ADMIN_CHAT_ID = 1326707238
 AWAITING_BROADCAST = 0
+AWAITING_VIP_BROADCAST = 1
 
 # --- Segédfüggvények ---
 def get_db_client():
@@ -67,7 +68,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
-# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI (V5.5) ===
+# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI ===
 
 async def send_public_notification(bot: telegram.Bot, date_str: str):
     supabase = get_db_client()
@@ -137,7 +138,8 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Statisztikák", callback_data="admin_show_stat_current_month_0")],
         [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips"), InlineKeyboardButton("📝 Szerk. Tippek Kezelése", callback_data="admin_manage_manual")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
-        [InlineKeyboardButton("📣 Körüzenet", callback_data="admin_broadcast_start")],
+        [InlineKeyboardButton("📣 Körüzenet (Mindenki)", callback_data="admin_broadcast_start")],
+        [InlineKeyboardButton("💎 VIP Körüzenet (Előfizetők)", callback_data="admin_vip_broadcast_start")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -297,7 +299,6 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             await asyncio.sleep(0.5)
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
 
-# === MÓDOSÍTOTT STATISZTIKA FUNKCIÓ ===
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése..."); await query.answer()
@@ -348,7 +349,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                                 evaluated_singles_count += 1
                                 if meccs['eredmeny'] == 'Nyert': won_singles_count += 1; total_return_singles += float(meccs['odds'])
         
-        # Manuális szelvények statisztikájának számítása
         evaluated_manual_count = len(response_manual.data) if response_manual.data else 0
         won_manual_count = sum(1 for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0
         total_return_manual = sum(float(slip['eredo_odds']) for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0.0
@@ -400,18 +400,21 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
     status_text = await asyncio.to_thread(sync_task_check); await query.message.edit_text(status_text, parse_mode='Markdown')
 
 async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
-    if 'awaiting_broadcast' in context.user_data: del context.user_data['awaiting_broadcast']
+    for key in ['awaiting_broadcast', 'awaiting_vip_broadcast']:
+        if key in context.user_data:
+            del context.user_data[key]
     await update.message.reply_text('Művelet megszakítva.'); return ConversationHandler.END
 
+# === Körüzenet Mindenkinek ===
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; context.user_data['awaiting_broadcast'] = True; await query.message.edit_text("Add meg a körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_BROADCAST
+    query = update.callback_query; context.user_data['awaiting_broadcast'] = True; await query.message.edit_text("Add meg a KÖZÖS körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_BROADCAST
 
 async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
     if not context.user_data.get('awaiting_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return
     del context.user_data['awaiting_broadcast']; message_to_send = update.message.text
     if message_to_send.lower() == "/cancel": await update.message.reply_text("Körüzenet küldése megszakítva."); return ConversationHandler.END
-    await update.message.reply_text("Körüzenet küldése...")
+    await update.message.reply_text("Körüzenet küldése MINDENKINEK...")
     try:
         def sync_task_broadcast(): return get_db_client().table("felhasznalok").select("chat_id").not_.is_("chat_id", "null").execute()
         response = await asyncio.to_thread(sync_task_broadcast)
@@ -425,6 +428,31 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     except Exception as e: await update.message.reply_text(f"❌ Hiba a küldés közben: {e}")
     return ConversationHandler.END
 
+# === Körüzenet CSAK VIP Tagoknak ===
+@admin_only
+async def admin_vip_broadcast_start(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query; context.user_data['awaiting_vip_broadcast'] = True; await query.message.edit_text("Add meg a VIP körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_VIP_BROADCAST
+
+async def admin_vip_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
+    if not context.user_data.get('awaiting_vip_broadcast') or update.effective_user.id != ADMIN_CHAT_ID: return
+    del context.user_data['awaiting_vip_broadcast']; message_to_send = update.message.text
+    if message_to_send.lower() == "/cancel": await update.message.reply_text("VIP Körüzenet küldése megszakítva."); return ConversationHandler.END
+    await update.message.reply_text("Körüzenet küldése CSAK AZ ELŐFIZETŐKNEK...")
+    try:
+        def sync_task_vip_broadcast():
+            return get_db_client().table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
+        response = await asyncio.to_thread(sync_task_vip_broadcast)
+        if not response.data: await update.message.reply_text("Nincsenek aktív előfizetők összekötött Telegram fiókkal."); return ConversationHandler.END
+        chat_ids = [user['chat_id'] for user in response.data]; sent_count, failed_count = 0, 0
+        for chat_id in chat_ids:
+            try: await context.bot.send_message(chat_id=chat_id, text=message_to_send); sent_count += 1
+            except Exception: failed_count += 1
+            await asyncio.sleep(0.1)
+        await update.message.reply_text(f"✅ VIP Körüzenet kiküldve!\nSikeres: {sent_count} | Sikertelen: {failed_count}")
+    except Exception as e: await update.message.reply_text(f"❌ Hiba a küldés közben: {e}")
+    return ConversationHandler.END
+
+
 @admin_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; command = query.data
@@ -433,16 +461,22 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
+    elif command == "admin_vip_broadcast_start": await admin_vip_broadcast_start(update, context)
     elif command == "admin_show_slips": await admin_show_slips(update, context)
     elif command == "admin_manage_manual": await admin_manage_manual_slips(update, context)
     elif command.startswith("manual_result_"): await handle_manual_slip_action(update, context)
-    elif command.startswith("noop_"): await query.answer() # No operation for the title buttons
+    elif command.startswith("noop_"): await query.answer()
     elif command == "admin_close": await query.answer(); await query.message.delete()
 
-# --- HANDLER REGISZTRÁCIÓ (JÓVÁHAGYÁSSAL KIEGÉSZÍTVE) ---
+# --- HANDLER REGISZTRÁCIÓ ---
 def add_handlers(application: Application):
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
-    application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_menu)); application.add_handler(broadcast_conv);
+    vip_broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')], states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
+    
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin_menu))
+    application.add_handler(broadcast_conv)
+    application.add_handler(vip_broadcast_conv)
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
     application.add_handler(CallbackQueryHandler(button_handler))
