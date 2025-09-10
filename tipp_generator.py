@@ -241,7 +241,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V7.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V7.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -302,7 +302,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V7.1 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V7.2 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
