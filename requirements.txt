@@ -10,5 +10,6 @@ stripe
 # Build frissítés kényszerítése: 2025.08.26
 jinja2
 python-multipart
-passlib[bcrypt]
+passlib
+bcrypt==3.2.0
 itsdangerous
