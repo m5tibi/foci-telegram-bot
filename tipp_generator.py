@@ -1,4 +1,4 @@
-# tipp_generator.py (V7.1 - Éles, Finomhangolt Hibrid Modell)
+# tipp_generator.py (V7.2 - Új Generációs Hibrid Modell)
 
 import os
 import requests
