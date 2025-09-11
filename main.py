@@ -1,4 +1,4 @@
-# main.py (V6.7 - Végleges, kombinált javítással)
+# main.py (V6.8 - Végleges, egységesített megjelenítési logika)
 
 import os
 import asyncio
@@ -141,12 +141,13 @@ async def vip_area(request: Request):
         try:
             now_local = datetime.now(HUNGARY_TZ)
             
-            # --- ITT A VÉGLEGES JAVÍTÁS ---
-            # 1. NAPTÁRI napok definiálása a manuális szelvényekhez
+            # === ITT A VÉGLEGES, EGYSÉGESÍTETT LOGIKA ===
+            
+            # 1. NAPTÁRI napok definiálása, ami MINDIG a valós naptárt követi
             calendar_today_str = now_local.strftime("%Y-%m-%d")
             calendar_tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # 2. Manuális szelvények lekérdezése a NAPTÁRI napok alapján (ez a rész volt elromolva)
+            # 2. Manuális szelvények lekérdezése a NAPTÁRI napok alapján
             manual_res = supabase.table("manual_slips").select("*").in_("target_date", [calendar_today_str, calendar_tomorrow_str]).execute()
             if manual_res.data:
                 for m_slip in manual_res.data:
@@ -155,7 +156,7 @@ async def vip_area(request: Request):
                     elif m_slip['target_date'] == calendar_tomorrow_str:
                         manual_slips_tomorrow.append(m_slip)
             
-            # 3. A bot által generált tippek státuszának lekérdezése
+            # 3. Bot státuszának lekérdezése (ez is a naptári nap alapján működik)
             target_date_for_status = calendar_tomorrow_str if now_local.hour >= 19 else calendar_today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
             
@@ -174,7 +175,6 @@ async def vip_area(request: Request):
                     if all_tip_ids:
                         meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
                         for sz_data in slips_to_process:
-                            if "(Standard)" in sz_data.get("tipp_neve", ""): is_standard_kinalat = True
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
@@ -184,7 +184,7 @@ async def vip_area(request: Request):
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
-                                # 4. Bot tippek szétválogatása az új, felhasználó-központú logikával
+                                # 4. Bot tippek szétválogatása a felhasználó-központú logikával
                                 is_for_calendar_today = calendar_today_str in sz_data['tipp_neve']
                                 is_for_calendar_tomorrow = calendar_tomorrow_str in sz_data['tipp_neve']
                                 
@@ -194,10 +194,9 @@ async def vip_area(request: Request):
                                     elif is_for_calendar_tomorrow:
                                         tomorrows_slips.append(sz_data)
                                 else: # Este 7 után
-                                    if is_for_calendar_today:
-                                        todays_slips.append(sz_data) # A mai napra szólókat még mutatjuk
-                                    elif is_for_calendar_tomorrow:
-                                        todays_slips.append(sz_data) # A holnapiakat áttesszük a maiakhoz
+                                    # A mai napra szólókat (ha van még futó) és a holnapiakat is a "mai" listába tesszük.
+                                    if is_for_calendar_today or is_for_calendar_tomorrow:
+                                        todays_slips.append(sz_data)
             
             elif status == "Nincs megfelelő tipp":
                  daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
