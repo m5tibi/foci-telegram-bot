@@ -1,4 +1,4 @@
-# main.py (V6.4 - Időzóna lekérdezés javítással)
+# main.py (V6.5 - Végleges tipp-megjelenítési javítás)
 
 import os
 import asyncio
@@ -159,11 +159,8 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                # --- ITT A JAVÍTÁS ---
-                # A 'datetime.now()' helyett 'datetime.now(pytz.utc)'-t használunk a helyes időzóna-kezeléshez.
                 two_days_ago_utc = (datetime.now(pytz.utc) - timedelta(days=2)).isoformat()
                 response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", two_days_ago_utc).order('tipp_neve', desc=False).execute()
-                # ---------------------
                 
                 all_slips_from_db = response.data or []
                 slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
@@ -182,8 +179,14 @@ async def vip_area(request: Request):
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
-                                if sz_data['tipp_neve'].endswith(today_str): todays_slips.append(sz_data)
-                                elif sz_data['tipp_neve'].endswith(tomorrow_str): tomorrows_slips.append(sz_data)
+                                
+                                # --- ITT A VÉGLEGES JAVÍTÁS ---
+                                # Az '.endswith()' helyett a megbízhatóbb 'in'-t használjuk a dátum ellenőrzésére.
+                                if today_str in sz_data['tipp_neve']:
+                                    todays_slips.append(sz_data)
+                                elif tomorrow_str in sz_data['tipp_neve']:
+                                    tomorrows_slips.append(sz_data)
+                                # ----------------------------
             
             elif status == "Nincs megfelelő tipp":
                  daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
