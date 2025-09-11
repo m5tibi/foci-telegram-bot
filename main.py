@@ -1,4 +1,4 @@
-# main.py (V5.6 - DIAGNOSZTIKAI VERZIÓ)
+# main.py (V5.7 - Manuális Feltöltés Javítva)
 
 import os
 import asyncio
@@ -147,9 +147,6 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         print(f"!!! KRITIKUS HIBA A BEJELENTKEZÉS SORÁN: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
-
-# ... a többi kód változatlan ...
-
 @api.get("/logout")
 async def logout(request: Request):
     request.session.pop("user_id", None)
@@ -281,26 +278,58 @@ async def upload_form(request: Request):
         return RedirectResponse(url="/vip", status_code=303)
     return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
 
+
+# JAVÍTVA: A handle_upload függvény most már minden form mezőt fogad és helyesen ment az adatbázisba.
 @api.post("/admin/upload")
-async def handle_upload(request: Request, target_date: str = Form(...), slip_image: UploadFile = File(...)):
+async def handle_upload(
+    request: Request, 
+    tipp_neve: str = Form(...),
+    eredo_odds: float = Form(...),
+    target_date: str = Form(...), 
+    slip_image: UploadFile = File(...)
+):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
     try:
+        # 1. Kép feltöltése a Storage-be
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
         
-        supabase.storage.from_("slips").upload(file_name, slip_image.file.read(), {"content-type": slip_image.content_type})
+        # A read() itt még rendben van, mert a képek általában nem túl nagyok,
+        # de egy production rendszerben érdemes streamelni a feltöltést.
+        file_content = slip_image.file.read()
+        
+        supabase.storage.from_("slips").upload(
+            file_name, 
+            file_content, 
+            {"content-type": slip_image.content_type}
+        )
         public_url = supabase.storage.from_("slips").get_public_url(file_name)
         
-        supabase.table("manual_slips").insert({
+        # 2. Adatok mentése a 'manual_slips' táblába
+        slip_data_to_insert = {
+            "tipp_neve": tipp_neve,
+            "eredo_odds": eredo_odds,
             "target_date": target_date,
-            "image_url": public_url
-        }).execute()
+            "image_url": public_url,
+            "status": "Folyamatban"  # Alapértelmezett státusz beállítása
+        }
+        
+        response = supabase.table("manual_slips").insert(slip_data_to_insert).execute()
+
+        # Hibakezelés, ha az adatbázisba írás sikertelen
+        if not response.data:
+            # Ha hiba van, próbáljuk törölni a feltöltött képet, hogy ne maradjon szemét
+            supabase.storage.from_("slips").remove([file_name])
+            raise Exception("Adatbázisba írás sikertelen, a válasz üres.")
+
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {e}"})
+
 
 @api.on_event("startup")
 async def startup():
