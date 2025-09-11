@@ -1,4 +1,4 @@
-# bot.py (V5.8 - VIP Körüzenet Funkcióval)
+# bot.py (V5.9 - Hibajavításokkal)
 
 import os
 import telegram
@@ -181,8 +181,9 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
 @admin_only
 async def handle_manual_slip_action(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    _, slip_id, result = query.data.split("_")
-    slip_id = int(slip_id)
+    # JAVÍTÁS: A callback_data helyes feldolgozása. A 'manual_result_1_Nyert' formátum miatt 4 részre bomlik.
+    _, _, slip_id_str, result = query.data.split("_")
+    slip_id = int(slip_id_str)
     
     await query.answer(f"Státusz frissítése: {result}")
     
@@ -311,10 +312,16 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 response_manual = supabase.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
             else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
+                next_month_start = target_month_start + relativedelta(months=1)
                 month_str = target_month_start.strftime("%Y-%m")
                 header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").like("tipp_neve", f"%{month_str}%").order('created_at', desc=True).execute()
-                response_manual = supabase.table("manual_slips").select("*").like("target_date", f"%{month_str}%").in_("status", ["Nyert", "Veszített"]).execute()
+                # JAVÍTÁS: .like() helyett .gte() és .lt() a DATE típusú oszlopon
+                response_manual = supabase.table("manual_slips").select("*") \
+                    .gte("target_date", target_month_start.strftime('%Y-%m-%d')) \
+                    .lt("target_date", next_month_start.strftime('%Y-%m-%d')) \
+                    .in_("status", ["Nyert", "Veszített"]).execute()
+
             return response_tuti, response_manual, header
 
         response_tuti, response_manual, header = await asyncio.to_thread(sync_task_stat)
