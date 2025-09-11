@@ -1,4 +1,4 @@
-# main.py (V7.2 - Kombinált javítás a VIP zóna logikájában)
+# main.py (V7.3 - Robusztus VIP zóna logika)
 
 import os
 import asyncio
@@ -133,8 +133,6 @@ async def vip_area(request: Request):
     todays_slips, tomorrows_slips = [], []
     manual_slips_today, manual_slips_tomorrow = [], []
     daily_status_message = ""
-    is_standard_kinalat = False
-    
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
 
     if is_subscribed:
@@ -142,56 +140,39 @@ async def vip_area(request: Request):
             now_local = datetime.now(HUNGARY_TZ)
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
-            status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
 
-            status_response = supabase.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
-            status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
-            
-            if status == "Kiküldve":
-                # JAVÍTÁS 1: A lekérdezés most már a 'tipp_neve' mezőben szereplő dátumra szűr, nem a létrehozási időre.
-                filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{tomorrow_str}%"
-                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
+            # 1. KÖZVETLEN LEKÉRDEZÉS: Mindig lekérjük a mai és holnapi szelvényeket.
+            filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{tomorrow_str}%"
+            response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
 
-                all_slips_from_db = response.data or []
-                slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
+            all_slips_from_db = response.data or []
+            slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
 
-                if slips_to_process:
-                    all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
-                    if all_tip_ids:
-                        meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
-                        for sz_data in slips_to_process:
-                            sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+            if slips_to_process:
+                all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
+                if all_tip_ids:
+                    meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
+                    for sz_data in slips_to_process:
+                        sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+                        
+                        if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
+                            m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
                             
-                            if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
-                                m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
-                                
-                                # JAVÍTÁS 2: Csak akkor rejtjük el a szelvényt, ha van benne 'Veszített' tipp. A nyerteseket mutatjuk.
-                                if 'Veszített' in m_eredmenyek:
-                                    continue
+                            # Csak a vesztes szelvényeket rejtjük el. A nyertes és folyamatban lévő látszik.
+                            if 'Veszített' in m_eredmenyek:
+                                continue
 
-                                for m in sz_meccsei:
-                                    m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
-                                    m['tipp_str'] = get_tip_details(m['tipp'])
-                                sz_data['meccsek'] = sz_meccsei
-                                
-                                # A szelvények szétválogatása a 'tipp_neve' alapján
-                                if today_str in sz_data['tipp_neve']:
-                                    todays_slips.append(sz_data)
-                                elif tomorrow_str in sz_data['tipp_neve']:
-                                    tomorrows_slips.append(sz_data)
-            
-            elif status == "Nincs megfelelő tipp":
-                 daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
-            elif status == "Jóváhagyásra vár":
-                daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak. Kérünk, nézz vissza kicsit később!"
-            elif status == "Admin által elutasítva":
-                daily_status_message = f"A {status_message_date} tippeket az adminisztrátor minőségi ellenőrzés után elutasította. Ma már nem kerülnek kiadásra további szelvények. Kérünk, nézz vissza holnap!"
-            else:
-                daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
+                            for m in sz_meccsei:
+                                m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
+                                m['tipp_str'] = get_tip_details(m['tipp'])
+                            sz_data['meccsek'] = sz_meccsei
+                            
+                            if today_str in sz_data['tipp_neve']:
+                                todays_slips.append(sz_data)
+                            elif tomorrow_str in sz_data['tipp_neve']:
+                                tomorrows_slips.append(sz_data)
 
-            # Manuális szelvények lekérdezése külön
+            # 2. Manuális szelvények lekérdezése (ez a logika eddig is jó volt).
             manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
             if manual_res.data:
                 for m_slip in manual_res.data:
@@ -199,6 +180,23 @@ async def vip_area(request: Request):
                         manual_slips_today.append(m_slip)
                     elif m_slip['target_date'] == tomorrow_str:
                         manual_slips_tomorrow.append(m_slip)
+
+            # 3. STÁTUSZ ELLENŐRZÉSE: Csak akkor, ha semmilyen szelvényt nem találtunk.
+            if not todays_slips and not tomorrows_slips and not manual_slips_today and not manual_slips_tomorrow:
+                target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
+                status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
+                status_response = supabase.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
+                status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
+
+                if status == "Nincs megfelelő tipp":
+                    daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
+                elif status == "Jóváhagyásra vár":
+                    daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak. Kérünk, nézz vissza kicsit később!"
+                elif status == "Admin által elutasítva":
+                    daily_status_message = f"A {status_message_date} tippeket az adminisztrátor minőségi ellenőrzés után elutasította. Ma már nem kerülnek kiadásra további szelvények. Kérünk, nézz vissza holnap!"
+                else:
+                    daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
+
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
@@ -208,8 +206,7 @@ async def vip_area(request: Request):
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
         "manual_slips_today": manual_slips_today,
         "manual_slips_tomorrow": manual_slips_tomorrow,
-        "daily_status_message": daily_status_message,
-        "is_standard_kinalat": is_standard_kinalat
+        "daily_status_message": daily_status_message
     })
 
 @api.get("/profile", response_class=HTMLResponse)
