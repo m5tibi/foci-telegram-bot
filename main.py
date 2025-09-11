@@ -1,4 +1,4 @@
-# main.py (V6.8 - Végleges, egységesített megjelenítési logika)
+# main.py (V6.9 - Végleges, a felhasználó által biztosított logika alapján)
 
 import os
 import asyncio
@@ -140,26 +140,12 @@ async def vip_area(request: Request):
     if is_subscribed:
         try:
             now_local = datetime.now(HUNGARY_TZ)
+            today_str = now_local.strftime("%Y-%m-%d")
+            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # === ITT A VÉGLEGES, EGYSÉGESÍTETT LOGIKA ===
-            
-            # 1. NAPTÁRI napok definiálása, ami MINDIG a valós naptárt követi
-            calendar_today_str = now_local.strftime("%Y-%m-%d")
-            calendar_tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            # 2. Manuális szelvények lekérdezése a NAPTÁRI napok alapján
-            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [calendar_today_str, calendar_tomorrow_str]).execute()
-            if manual_res.data:
-                for m_slip in manual_res.data:
-                    if m_slip['target_date'] == calendar_today_str:
-                        manual_slips_today.append(m_slip)
-                    elif m_slip['target_date'] == calendar_tomorrow_str:
-                        manual_slips_tomorrow.append(m_slip)
-            
-            # 3. Bot státuszának lekérdezése (ez is a naptári nap alapján működik)
-            target_date_for_status = calendar_tomorrow_str if now_local.hour >= 19 else calendar_today_str
+            target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
-            
+
             status_response = supabase.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
@@ -184,19 +170,11 @@ async def vip_area(request: Request):
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
-                                # 4. Bot tippek szétválogatása a felhasználó-központú logikával
-                                is_for_calendar_today = calendar_today_str in sz_data['tipp_neve']
-                                is_for_calendar_tomorrow = calendar_tomorrow_str in sz_data['tipp_neve']
-                                
-                                if now_local.hour < 19:
-                                    if is_for_calendar_today:
-                                        todays_slips.append(sz_data)
-                                    elif is_for_calendar_tomorrow:
-                                        tomorrows_slips.append(sz_data)
-                                else: # Este 7 után
-                                    # A mai napra szólókat (ha van még futó) és a holnapiakat is a "mai" listába tesszük.
-                                    if is_for_calendar_today or is_for_calendar_tomorrow:
-                                        todays_slips.append(sz_data)
+                                # A VISSZAÁLLÍTOTT, EGYSZERŰ LOGIKA
+                                if today_str in sz_data['tipp_neve']:
+                                    todays_slips.append(sz_data)
+                                elif tomorrow_str in sz_data['tipp_neve']:
+                                    tomorrows_slips.append(sz_data)
             
             elif status == "Nincs megfelelő tipp":
                  daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
@@ -207,6 +185,14 @@ async def vip_area(request: Request):
             else:
                 daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
+            # A manuális szelvények lekérdezése külön, a bot tippjei után
+            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
+            if manual_res.data:
+                for m_slip in manual_res.data:
+                    if m_slip['target_date'] == today_str:
+                        manual_slips_today.append(m_slip)
+                    elif m_slip['target_date'] == tomorrow_str:
+                        manual_slips_tomorrow.append(m_slip)
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
