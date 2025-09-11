@@ -1,4 +1,4 @@
-# main.py (V6.0 - Időzóna hibajavítással)
+# main.py (V6.1 - Végleges időzóna javítás)
 
 import os
 import asyncio
@@ -174,26 +174,18 @@ async def vip_area(request: Request):
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
             # === ITT A VÉGLEGES JAVÍTÁS ===
-            # A manuális szelvények lekérdezését módosítjuk, hogy az időzóna-problémákat kiküszöböljük.
-            # A lekérdezés mostantól a magyar idő szerinti mai nap 00:00-tól a holnapi nap végéig keres.
-            start_of_today_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-            end_of_tomorrow_utc = (now_local + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc)
-
-            manual_res = supabase.table("manual_slips").select("*") \
-                .gte("target_date", start_of_today_utc.strftime('%Y-%m-%d')) \
-                .lte("target_date", end_of_tomorrow_utc.strftime('%Y-%m-%d')) \
-                .execute()
+            # Visszaállunk az egyszerű, de helyes lekérdezésre, ami a magyar idő szerint generált
+            # mai és holnapi dátum-sztringekkel keres a 'target_date' oszlopban.
+            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
             
-            # A többi kód változatlan, mert a szétválogatás már a helyes `today_str` alapján történik.
             if manual_res.data:
                 for m_slip in manual_res.data:
-                    # A 'target_date' összehasonlítása a magyar idő szerinti `today_str`-rel
                     if m_slip['target_date'] == today_str:
                         manual_slips_today.append(m_slip)
-                    # Mivel a lekérdezés csak a mai és holnapi napot adja vissza, minden más a holnapi listába kerül.
                     elif m_slip['target_date'] == tomorrow_str:
                         manual_slips_tomorrow.append(m_slip)
-
+            
+            # A bot által generált tippek lekérdezése változatlan marad
             target_date = tomorrow_str if now_local.hour >= 19 else today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
 
