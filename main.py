@@ -1,4 +1,4 @@
-# main.py (V6.1 - Végleges)
+# main.py (V6.3 - Perzisztencia javítással)
 
 import os
 import asyncio
@@ -15,7 +15,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
-from telegram.ext import Application
+# --- JAVÍTÁS 1. LÉPÉS: A PicklePersistence importálása ---
+from telegram.ext import Application, PicklePersistence
 
 from passlib.context import CryptContext
 from supabase import create_client, Client
@@ -297,7 +298,10 @@ async def handle_upload(
 @api.on_event("startup")
 async def startup():
     global application
-    application = Application.builder().token(TOKEN).build()
+    # --- JAVÍTÁS 2. LÉPÉS: A perzisztencia beállítása az Application indításakor ---
+    persistence = PicklePersistence(filepath="bot_data.pickle")
+    application = Application.builder().token(TOKEN).persistence(persistence).build()
+    
     await application.initialize()
     add_handlers(application)
     if RENDER_APP_URL:
