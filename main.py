@@ -1,4 +1,4 @@
-# main.py (V7.1 - Javított VIP zóna logika)
+# main.py (V7.2 - Kombinált javítás a VIP zóna logikájában)
 
 import os
 import asyncio
@@ -150,7 +150,7 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                # JAVÍTÁS: A lekérdezés most már a 'tipp_neve' mezőben szereplő dátumra szűr, nem a létrehozási időre.
+                # JAVÍTÁS 1: A lekérdezés most már a 'tipp_neve' mezőben szereplő dátumra szűr, nem a létrehozási időre.
                 filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{tomorrow_str}%"
                 response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
 
@@ -163,15 +163,20 @@ async def vip_area(request: Request):
                         meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
                         for sz_data in slips_to_process:
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+                            
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
-                                # Csak azokat a szelvényeket mutatjuk, amik még nem Veszítettek vagy már teljesen lezárultak (Nyert/Érvénytelen)
-                                if 'Veszített' in m_eredmenyek or all(r in ['Nyert', 'Érvénytelen'] for r in m_eredmenyek): continue
+                                
+                                # JAVÍTÁS 2: Csak akkor rejtjük el a szelvényt, ha van benne 'Veszített' tipp. A nyerteseket mutatjuk.
+                                if 'Veszített' in m_eredmenyek:
+                                    continue
+
                                 for m in sz_meccsei:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
+                                # A szelvények szétválogatása a 'tipp_neve' alapján
                                 if today_str in sz_data['tipp_neve']:
                                     todays_slips.append(sz_data)
                                 elif tomorrow_str in sz_data['tipp_neve']:
