@@ -1,4 +1,4 @@
-# main.py (V6.0 - Adatbázis Funkció Hívás Javítás)
+# main.py (V6.0 - Időzóna hibajavítással)
 
 import os
 import asyncio
@@ -173,6 +173,27 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
+            # === ITT A VÉGLEGES JAVÍTÁS ===
+            # A manuális szelvények lekérdezését módosítjuk, hogy az időzóna-problémákat kiküszöböljük.
+            # A lekérdezés mostantól a magyar idő szerinti mai nap 00:00-tól a holnapi nap végéig keres.
+            start_of_today_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+            end_of_tomorrow_utc = (now_local + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc)
+
+            manual_res = supabase.table("manual_slips").select("*") \
+                .gte("target_date", start_of_today_utc.strftime('%Y-%m-%d')) \
+                .lte("target_date", end_of_tomorrow_utc.strftime('%Y-%m-%d')) \
+                .execute()
+            
+            # A többi kód változatlan, mert a szétválogatás már a helyes `today_str` alapján történik.
+            if manual_res.data:
+                for m_slip in manual_res.data:
+                    # A 'target_date' összehasonlítása a magyar idő szerinti `today_str`-rel
+                    if m_slip['target_date'] == today_str:
+                        manual_slips_today.append(m_slip)
+                    # Mivel a lekérdezés csak a mai és holnapi napot adja vissza, minden más a holnapi listába kerül.
+                    elif m_slip['target_date'] == tomorrow_str:
+                        manual_slips_tomorrow.append(m_slip)
+
             target_date = tomorrow_str if now_local.hour >= 19 else today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
 
@@ -214,13 +235,6 @@ async def vip_area(request: Request):
             else:
                 daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
-            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
-            if manual_res.data:
-                for m_slip in manual_res.data:
-                    if m_slip['target_date'] == today_str:
-                        manual_slips_today.append(m_slip)
-                    else:
-                        manual_slips_tomorrow.append(m_slip)
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
@@ -300,7 +314,6 @@ async def handle_upload(
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-        # 1. Kép feltöltése
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
         file_content = await slip_image.read()
@@ -311,11 +324,9 @@ async def handle_upload(
             {"content-type": slip_image.content_type}
         )
         
-        # URL manuális, garantáltan helyes összeállítása
         base_url = SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')
         public_url = f"{base_url}/slips/{file_name}"
 
-        # 2. Adatbázis művelet a helyes URL-lel
         params = {
             'tipp_neve_in': tipp_neve,
             'eredo_odds_in': eredo_odds,
