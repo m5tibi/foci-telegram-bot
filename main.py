@@ -31,6 +31,8 @@ STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# --- JAVÍTÁS 1. LÉPÉS: Az új, titkos service role kulcs betöltése ---
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
@@ -47,6 +49,7 @@ api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True
 api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Ez a kliens a normál, alacsony jogosultságú 'anon' kulcsot használja a felhasználói műveletekhez
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
@@ -279,6 +282,7 @@ async def upload_form(request: Request):
         return RedirectResponse(url="/vip", status_code=303)
     return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
 
+# --- JAVÍTÁS 2. LÉPÉS: A TELJES EREDETI /admin/upload FUNKCIÓ CSERÉJE ERRE A VERZIÓRA ---
 @api.post("/admin/upload")
 async def handle_upload(
     request: Request,
@@ -291,23 +295,29 @@ async def handle_upload(
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
 
-    # A globális supabase klienst használjuk, mivel az a service_role kulccsal van inicializálva
-    admin_supabase_client = supabase
+    # Ellenőrizzük, hogy a service kulcs be van-e töltve
+    if not SUPABASE_SERVICE_KEY:
+        error_msg = "Kritikus hiba: A SUPABASE_SERVICE_KEY nincs beállítva a szerver oldalon!"
+        print(f"!!! {error_msg}")
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": error_msg})
 
     try:
-        # 1. Kép feltöltése
+        # Létrehozunk egy új, ideiglenes, admin jogú klienst, ami a service_role kulcsot használja
+        admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        # 1. Kép feltöltése az admin klienssel
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
-        file_content = slip_image.file.read()
-        
+        file_content = await slip_image.read()
+
         admin_supabase_client.storage.from_("slips").upload(
             file_name,
             file_content,
             {"content-type": slip_image.content_type}
         )
         public_url = admin_supabase_client.storage.from_("slips").get_public_url(file_name)
-        
-        # 2. Adatbázis művelet a biztonságos funkcióval
+
+        # 2. Adatbázis művelet az admin klienssel (ez már megkerüli az RLS-t)
         params = {
             'tipp_neve_in': tipp_neve,
             'eredo_odds_in': eredo_odds,
