@@ -1,4 +1,4 @@
-# tipp_generator.py (V7.3 - API NoneType Hiba Javítva)
+# tipp_generator.py (V7.4 - Adatbázis 'type' oszlop hiba javítva)
 
 import os
 import requests
@@ -123,7 +123,6 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
                 if p['team']['id'] == teams['home']['id']: key_players_missing_h += 1
                 else: key_players_missing_v += 1
     
-    # JAVÍTÁS: Robusztusabb `form` kezelés, ami elkerüli a hibát, ha az API `None`-t ad vissza
     form_h_raw = stats_h.get('form')
     form_v_raw = stats_v.get('form')
     form_h_overall = form_h_raw[-5:] if form_h_raw else ""
@@ -136,7 +135,6 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
 
     potential_tips = []
     for tip_type, odds in available_odds.items():
-        # --- LOGIKA 1: ÉRTÉK ALAPÚ (VALUE) ---
         value_score = 0
         if 1.80 <= odds <= 3.0: 
             if (tip_type == "Home" and key_players_missing_h >= 1) or (tip_type == "Away" and key_players_missing_v >= 1): value_score -= 15
@@ -151,7 +149,6 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
                     value_score += 30
                     potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": value_score, "type": "value"})
 
-        # --- LOGIKA 2: NAGY ESÉLYŰ, NEM-VALUE (HIGH CHANCE) ---
         chance_score = 0
         if 1.40 <= odds <= 1.90:
             if tip_type == "Over 1.5":
@@ -166,7 +163,6 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
             if chance_score > 0:
                  potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": chance_score, "type": "high_chance"})
         
-        # --- LOGIKA 3: ALACSONY ODDS-Ú "BIZTOS" (PROBABILITY) ---
         prob_score = 0
         if tip_type in ["Home", "Away"] and 1.15 <= odds <= 1.39:
             base_confidence = 0
@@ -221,7 +217,15 @@ def save_tips_to_supabase(all_slips):
     if not all_slips: return
     unique_tips = {t['fixture_id']: t for slip in all_slips for t in slip['combo']}.values()
     try:
-        tips_to_insert = [{**tip, "eredmeny": "Tipp leadva"} for tip in unique_tips]
+        tips_to_insert = []
+        for tip in unique_tips:
+            # --- ITT A JAVÍTÁS: A 'type' kulcs eltávolítása mentés előtt ---
+            tip_copy = tip.copy()
+            tip_copy.pop('type', None) # Biztonságosan eltávolítja a 'type' kulcsot
+            tip_copy["eredmeny"] = "Tipp leadva"
+            tips_to_insert.append(tip_copy)
+        # -----------------------------------------------------------------
+
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
         saved_tips_map = {t['fixture_id']: t['id'] for t in response.data}
         slips_to_insert = []
@@ -246,7 +250,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V7.3) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V7.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -307,7 +311,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V7.3 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V7.4 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
