@@ -1,4 +1,4 @@
-# main.py (V6.9 - Végleges, a felhasználó által biztosított logika alapján)
+# main.py (V7.0 - Végleges, a felhasználó által biztosított, működő logika alapján)
 
 import os
 import asyncio
@@ -170,10 +170,10 @@ async def vip_area(request: Request):
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
-                                # A VISSZAÁLLÍTOTT, EGYSZERŰ LOGIKA
-                                if today_str in sz_data['tipp_neve']:
+                                # VISSZAÁLLÍTVA A TE MŰKÖDŐ LOGIKÁDRA
+                                if sz_data['tipp_neve'].endswith(today_str):
                                     todays_slips.append(sz_data)
-                                elif tomorrow_str in sz_data['tipp_neve']:
+                                elif sz_data['tipp_neve'].endswith(tomorrow_str):
                                     tomorrows_slips.append(sz_data)
             
             elif status == "Nincs megfelelő tipp":
@@ -185,7 +185,7 @@ async def vip_area(request: Request):
             else:
                 daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
-            # A manuális szelvények lekérdezése külön, a bot tippjei után
+            # Manuális szelvények lekérdezése külön
             manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
             if manual_res.data:
                 for m_slip in manual_res.data:
