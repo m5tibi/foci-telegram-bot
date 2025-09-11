@@ -8,7 +8,8 @@ import stripe
 import requests
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
+# --- JAVÍTÁS: A PicklePersistence importálása a típus-ellenőrzésekhez ---
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, PicklePersistence
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -181,7 +182,6 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
 @admin_only
 async def handle_manual_slip_action(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
-    # JAVÍTÁS: A callback_data helyes feldolgozása. A 'manual_result_1_Nyert' formátum miatt 4 részre bomlik.
     _, _, slip_id_str, result = query.data.split("_")
     slip_id = int(slip_id_str)
     
@@ -316,7 +316,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 month_str = target_month_start.strftime("%Y-%m")
                 header = f"*{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}*"
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").like("tipp_neve", f"%{month_str}%").order('created_at', desc=True).execute()
-                # JAVÍTÁS: .like() helyett .gte() és .lt() a DATE típusú oszlopon
                 response_manual = supabase.table("manual_slips").select("*") \
                     .gte("target_date", target_month_start.strftime('%Y-%m-%d')) \
                     .lt("target_date", next_month_start.strftime('%Y-%m-%d')) \
