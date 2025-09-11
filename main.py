@@ -1,4 +1,4 @@
-# main.py (V6.6 - Végleges, felhasználó-központú dátumkezeléssel)
+# main.py (V6.7 - Végleges, kombinált javítással)
 
 import os
 import asyncio
@@ -142,34 +142,24 @@ async def vip_area(request: Request):
             now_local = datetime.now(HUNGARY_TZ)
             
             # --- ITT A VÉGLEGES JAVÍTÁS ---
-            # A megjelenítés logikáját a felhasználói elváráshoz igazítjuk.
-            # Este 19:00 után a holnapi nap tippjeit tekintjük "mainak".
-            if now_local.hour < 19:
-                display_today_str = now_local.strftime("%Y-%m-%d")
-                display_tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            else:
-                # Este 19:00 után a "mai" nap valójában a holnapi naptári nap.
-                display_today_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-                display_tomorrow_str = (now_local + timedelta(days=2)).strftime("%Y-%m-%d")
-            # --------------------------------
-
-            # A manuális szelvények lekérdezése már a helyes, megjelenítési dátumokat használja
-            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [display_today_str, display_tomorrow_str]).execute()
-            
-            if manual_res.data:
-                for m_slip in manual_res.data:
-                    if m_slip['target_date'] == display_today_str:
-                        manual_slips_today.append(m_slip)
-                    elif m_slip['target_date'] == display_tomorrow_str:
-                        manual_slips_tomorrow.append(m_slip)
-
-            # A státusz lekérdezése továbbra is a naptári nap alapján történik
+            # 1. NAPTÁRI napok definiálása a manuális szelvényekhez
             calendar_today_str = now_local.strftime("%Y-%m-%d")
             calendar_tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            target_date = calendar_tomorrow_str if now_local.hour >= 19 else calendar_today_str
+            
+            # 2. Manuális szelvények lekérdezése a NAPTÁRI napok alapján (ez a rész volt elromolva)
+            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [calendar_today_str, calendar_tomorrow_str]).execute()
+            if manual_res.data:
+                for m_slip in manual_res.data:
+                    if m_slip['target_date'] == calendar_today_str:
+                        manual_slips_today.append(m_slip)
+                    elif m_slip['target_date'] == calendar_tomorrow_str:
+                        manual_slips_tomorrow.append(m_slip)
+            
+            # 3. A bot által generált tippek státuszának lekérdezése
+            target_date_for_status = calendar_tomorrow_str if now_local.hour >= 19 else calendar_today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
-
-            status_response = supabase.table("daily_status").select("status").eq("date", target_date).limit(1).execute()
+            
+            status_response = supabase.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
@@ -194,11 +184,20 @@ async def vip_area(request: Request):
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
-                                # A szétválogatás már a javított, felhasználó-központú dátumokat használja
-                                if display_today_str in sz_data['tipp_neve']:
-                                    todays_slips.append(sz_data)
-                                elif display_tomorrow_str in sz_data['tipp_neve']:
-                                    tomorrows_slips.append(sz_data)
+                                # 4. Bot tippek szétválogatása az új, felhasználó-központú logikával
+                                is_for_calendar_today = calendar_today_str in sz_data['tipp_neve']
+                                is_for_calendar_tomorrow = calendar_tomorrow_str in sz_data['tipp_neve']
+                                
+                                if now_local.hour < 19:
+                                    if is_for_calendar_today:
+                                        todays_slips.append(sz_data)
+                                    elif is_for_calendar_tomorrow:
+                                        tomorrows_slips.append(sz_data)
+                                else: # Este 7 után
+                                    if is_for_calendar_today:
+                                        todays_slips.append(sz_data) # A mai napra szólókat még mutatjuk
+                                    elif is_for_calendar_tomorrow:
+                                        todays_slips.append(sz_data) # A holnapiakat áttesszük a maiakhoz
             
             elif status == "Nincs megfelelő tipp":
                  daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet. Kérünk, nézz vissza később!"
