@@ -1,4 +1,4 @@
-# main.py (V6.2 - HIBKERESŐ VERZIÓ)
+# main.py (V6.1 - Végleges)
 
 import os
 import asyncio
@@ -88,15 +88,14 @@ async def read_root(request: Request):
 
 @api.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
-    # ... (ez a rész változatlan)
-    print("\n--- REGISZTRÁCIÓS KÍSÉRLET INDULT ---")
     try:
-        print(f"1. Kérés beérkezett a következő email címmel: {email}")
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
             return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+        
         hashed_password = get_password_hash(password)
         insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
+        
         if insert_response.data:
             return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
         else:
@@ -107,19 +106,18 @@ async def handle_registration(request: Request, email: str = Form(...), password
 
 @api.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
-    # ... (ez a rész változatlan)
-    print("\n--- BEJELENTKEZÉSI KÍSÉRLET INDULT ---")
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
-        if not user_res.data:
+        
+        if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
-        if not verify_password(password, user_res.data.get('hashed_password')):
-            return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+        
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
     except Exception as e:
         print(f"!!! KRITIKUS HIBA A BEJELENTKEZÉS SORÁN: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+
 
 @api.get("/logout")
 async def logout(request: Request):
@@ -131,8 +129,6 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
-    print("\n--- [DEBUG] Kezdődik a VIP oldal generálása ---")
-
     is_subscribed = is_web_user_subscribed(user)
     todays_slips, tomorrows_slips = [], []
     manual_slips_today, manual_slips_tomorrow = [], []
@@ -147,30 +143,14 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            print(f"[DEBUG] Helyi idő (Magyarország): {now_local}")
-            print(f"[DEBUG] Keresett mai dátum (today_str): '{today_str}'")
-            print(f"[DEBUG] Keresett holnapi dátum (tomorrow_str): '{tomorrow_str}'")
-
             manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
             
-            print(f"[DEBUG] Adatbázis válasz (manual_res): {manual_res}")
-
             if manual_res.data:
-                print(f"[DEBUG] Találatok száma a 'manual_slips' táblában: {len(manual_res.data)}")
-                for i, m_slip in enumerate(manual_res.data):
-                    print(f"[DEBUG] Feldolgozás alatt a(z) {i+1}. szelvény: {m_slip}")
-                    slip_date = m_slip.get('target_date')
-                    print(f"[DEBUG] Szelvény dátuma az adatbázisból: '{slip_date}' (típus: {type(slip_date)})")
-                    if slip_date == today_str:
-                        print("[DEBUG] -> A szelvény a MAI listába került.")
+                for m_slip in manual_res.data:
+                    if m_slip['target_date'] == today_str:
                         manual_slips_today.append(m_slip)
-                    elif slip_date == tomorrow_str:
-                        print("[DEBUG] -> A szelvény a HOLNAPI listába került.")
+                    elif m_slip['target_date'] == tomorrow_str:
                         manual_slips_tomorrow.append(m_slip)
-                    else:
-                        print(f"[DEBUG] -> FIGYELMEZTETÉS: A szelvény dátuma ('{slip_date}') nem egyezik sem a maival, sem a holnapival.")
-            else:
-                print("[DEBUG] Nem található egyetlen manuális szelvény sem a mai vagy holnapi napra a lekérdezés alapján.")
 
             target_date = tomorrow_str if now_local.hour >= 19 else today_str
             status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
@@ -179,10 +159,11 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                # ... (ez a rész változatlan)
                 response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", (datetime.now() - timedelta(days=2)).isoformat()).order('tipp_neve', desc=False).execute()
+                
                 all_slips_from_db = response.data or []
                 slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
+
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
@@ -210,12 +191,8 @@ async def vip_area(request: Request):
                 daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
 
         except Exception as e:
-            print(f"[DEBUG] KRITIKUS HIBA a VIP oldalon: {e}")
+            print(f"Hiba a tippek lekérdezésekor a VIP oldalon: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben. Kérjük, próbálja meg később."
-
-    print(f"[DEBUG] Sablonnak átadott 'manual_slips_today' lista mérete: {len(manual_slips_today)}")
-    print(f"[DEBUG] Sablonnak átadott 'manual_slips_tomorrow' lista mérete: {len(manual_slips_tomorrow)}")
-    print("--- [DEBUG] VIP oldal generálása befejeződött ---\n")
 
     return templates.TemplateResponse("vip_tippek.html", {
         "request": request, "user": user, "is_subscribed": is_subscribed, 
@@ -225,8 +202,6 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message,
         "is_standard_kinalat": is_standard_kinalat
     })
-
-# ... (a fájl többi része, pl. /profile, /admin/upload, stb. változatlan) ...
 
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
@@ -285,21 +260,27 @@ async def handle_upload(
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
+    
     if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
         error_msg = "Kritikus hiba: A SUPABASE_SERVICE_KEY vagy a SUPABASE_URL nincs beállítva!"
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": error_msg})
+    
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
         file_content = await slip_image.read()
+
         admin_supabase_client.storage.from_("slips").upload(
             file_name,
             file_content,
             {"content-type": slip_image.content_type}
         )
+        
         base_url = SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')
         public_url = f"{base_url}/slips/{file_name}"
+
         params = {
             'tipp_neve_in': tipp_neve,
             'eredo_odds_in': eredo_odds,
@@ -307,6 +288,7 @@ async def handle_upload(
             'image_url_in': public_url
         }
         admin_supabase_client.rpc('add_manual_slip', params).execute()
+
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
