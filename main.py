@@ -1,4 +1,4 @@
-# main.py (V6.3 - Perzisztencia javítással)
+# main.py (V6.4 - Időzóna lekérdezés javítással)
 
 import os
 import asyncio
@@ -15,7 +15,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
-# --- JAVÍTÁS 1. LÉPÉS: A PicklePersistence importálása ---
 from telegram.ext import Application, PicklePersistence
 
 from passlib.context import CryptContext
@@ -160,7 +159,11 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", (datetime.now() - timedelta(days=2)).isoformat()).order('tipp_neve', desc=False).execute()
+                # --- ITT A JAVÍTÁS ---
+                # A 'datetime.now()' helyett 'datetime.now(pytz.utc)'-t használunk a helyes időzóna-kezeléshez.
+                two_days_ago_utc = (datetime.now(pytz.utc) - timedelta(days=2)).isoformat()
+                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", two_days_ago_utc).order('tipp_neve', desc=False).execute()
+                # ---------------------
                 
                 all_slips_from_db = response.data or []
                 slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
@@ -298,7 +301,6 @@ async def handle_upload(
 @api.on_event("startup")
 async def startup():
     global application
-    # --- JAVÍTÁS 2. LÉPÉS: A perzisztencia beállítása az Application indításakor ---
     persistence = PicklePersistence(filepath="bot_data.pickle")
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     
