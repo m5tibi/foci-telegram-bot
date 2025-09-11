@@ -1,4 +1,4 @@
-# main.py (V7.0 - Végleges, a felhasználó által biztosított, működő logika alapján)
+# main.py (V7.1 - Javított VIP zóna logika)
 
 import os
 import asyncio
@@ -150,9 +150,10 @@ async def vip_area(request: Request):
             status = status_response.data[0].get('status') if status_response.data else "Nincs adat"
             
             if status == "Kiküldve":
-                two_days_ago_utc = (datetime.now(pytz.utc) - timedelta(days=2)).isoformat()
-                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").gte("created_at", two_days_ago_utc).order('tipp_neve', desc=False).execute()
-                
+                # JAVÍTÁS: A lekérdezés most már a 'tipp_neve' mezőben szereplő dátumra szűr, nem a létrehozási időre.
+                filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{tomorrow_str}%"
+                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
+
                 all_slips_from_db = response.data or []
                 slips_to_process = [s for s in all_slips_from_db if not s.get('is_admin_only') or user_is_admin]
 
@@ -164,16 +165,16 @@ async def vip_area(request: Request):
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 m_eredmenyek = [m.get('eredmeny') for m in sz_meccsei]
+                                # Csak azokat a szelvényeket mutatjuk, amik még nem Veszítettek vagy már teljesen lezárultak (Nyert/Érvénytelen)
                                 if 'Veszített' in m_eredmenyek or all(r in ['Nyert', 'Érvénytelen'] for r in m_eredmenyek): continue
                                 for m in sz_meccsei:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 sz_data['meccsek'] = sz_meccsei
                                 
-                                # VISSZAÁLLÍTVA A TE MŰKÖDŐ LOGIKÁDRA
-                                if sz_data['tipp_neve'].endswith(today_str):
+                                if today_str in sz_data['tipp_neve']:
                                     todays_slips.append(sz_data)
-                                elif sz_data['tipp_neve'].endswith(tomorrow_str):
+                                elif tomorrow_str in sz_data['tipp_neve']:
                                     tomorrows_slips.append(sz_data)
             
             elif status == "Nincs megfelelő tipp":
