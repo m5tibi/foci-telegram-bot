@@ -1,4 +1,4 @@
-# main.py (V5.9 - Kényszerített Admin Kliens Javítás - Teljes Verzió)
+# main.py (V6.0 - Adatbázis Funkció Hívás Javítás)
 
 import os
 import asyncio
@@ -148,8 +148,6 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
 
-# ... a többi kód változatlan ...
-
 @api.get("/logout")
 async def logout(request: Request):
     request.session.pop("user_id", None)
@@ -282,22 +280,26 @@ async def upload_form(request: Request):
     return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
 
 @api.post("/admin/upload")
-async def handle_upload(request: Request, target_date: str = Form(...), slip_image: UploadFile = File(...)):
+async def handle_upload(
+    request: Request,
+    tipp_neve: str = Form(...),
+    eredo_odds: float = Form(...),
+    target_date: str = Form(...),
+    slip_image: UploadFile = File(...)
+):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
+
+    # A globális supabase klienst használjuk, mivel az a service_role kulccsal van inicializálva
+    admin_supabase_client = supabase
+
     try:
-        # --- VÉGLEGES JAVÍTÁS: Új, garantáltan admin kliens létrehozása ---
-        # Ez a kliens a service_role kulcsot használja, és minden RLS szabályt figyelmen kívül hagy.
-        admin_supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # ----------------------------------------------------------------
-        
+        # 1. Kép feltöltése
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
-        
         file_content = slip_image.file.read()
         
-        # A feltöltéshez már az új, admin klienst használjuk
         admin_supabase_client.storage.from_("slips").upload(
             file_name,
             file_content,
@@ -305,18 +307,17 @@ async def handle_upload(request: Request, target_date: str = Form(...), slip_ima
         )
         public_url = admin_supabase_client.storage.from_("slips").get_public_url(file_name)
         
-        # Az adatbázisba íráshoz is az új, admin klienst használjuk
-        response = admin_supabase_client.table("manual_slips").insert({
-            "target_date": target_date,
-            "image_url": public_url,
-            "status": "Folyamatban" # Státusz beállítása
-        }).execute()
-
-        if not response.data:
-            admin_supabase_client.storage.from_("slips").remove([file_name])
-            raise Exception(f"Adatbázisba írás sikertelen. Supabase válasz: {response}")
+        # 2. Adatbázis művelet a biztonságos funkcióval
+        params = {
+            'tipp_neve_in': tipp_neve,
+            'eredo_odds_in': eredo_odds,
+            'target_date_in': target_date,
+            'image_url_in': public_url
+        }
+        admin_supabase_client.rpc('add_manual_slip', params).execute()
 
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
         error_details = str(e)
