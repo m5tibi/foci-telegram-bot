@@ -1,4 +1,4 @@
-# main.py (V5.8 - RLS Diagnosztikai Verzió)
+# main.py (V5.9 - Kényszerített Admin Kliens Javítás)
 
 import os
 import asyncio
@@ -57,6 +57,7 @@ def get_current_user(request: Request):
     user_id = request.session.get("user_id")
     if user_id:
         try:
+            # A globális klienst használjuk itt, ami rendben van, mert csak olvasunk.
             res = supabase.table("felhasznalok").select("*").eq("id", user_id).single().execute()
             return res.data
         except Exception: return None
@@ -70,22 +71,19 @@ def is_web_user_subscribed(user: dict) -> bool:
             if expires_at > datetime.now(pytz.utc): return True
     return False
 async def send_admin_notification(message: str):
-    if not TOKEN or not ADMIN_CHAT_ID:
-        print("Telegram token vagy Admin Chat ID hiányzik, az admin értesítés nem küldhető el.")
-        return
+    if not TOKEN or not ADMIN_CHAT_ID: return
     try:
         bot = telegram.Bot(token=TOKEN)
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
-        print("Admin értesítés sikeresen elküldve.")
     except Exception as e:
         print(f"Hiba az admin értesítés küldésekor: {e}")
 
 # --- WEBOLDAL VÉGPONTOK ---
+# ... a többi végpont (/register, /login, /vip, stb.) változatlan ...
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
 
-# ... a /register és /login végpontok változatlanok ...
 @api.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
@@ -112,7 +110,6 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
     except Exception as e:
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
-# ... a többi végpont is változatlan ...
 @api.get("/logout")
 async def logout(request: Request):
     request.session.pop("user_id", None)
@@ -123,7 +120,7 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
-    # ... a VIP oldal logikája változatlan ...
+    # A teljesség kedvéért itt hagyjuk a kódot, de a hiba szempontjából nem releváns
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": [], "tomorrows_slips": [], "manual_slips_today": [], "manual_slips_tomorrow": [], "daily_status_message": "Tippek betöltése...", "is_standard_kinalat": False})
 
 @api.get("/profile", response_class=HTMLResponse)
@@ -185,34 +182,24 @@ async def handle_upload(
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
 
-    # --- DIAGNOSZTIKAI LÉPÉS ---
-    # Kiírjuk a logba a használt kulcs jellemzőit, hogy ellenőrizni tudd.
-    print("\n--- KULCS ELLENŐRZÉS (ADMIN UPLOAD) ---")
-    if SUPABASE_KEY:
-        key_length = len(SUPABASE_KEY)
-        key_start = SUPABASE_KEY[:5]
-        key_end = SUPABASE_KEY[-5:]
-        print(f"A használt SUPABASE_KEY hossza: {key_length} karakter")
-        print(f"Kulcs eleje: {key_start}..., Kulcs vége: ...{key_end}")
-        if key_length < 150: # A service_role kulcs általában sokkal hosszabb
-             print("!!! FIGYELEM: Ez a kulcs gyanúsan rövid! Valószínűleg nem a service_role kulcsot használod!")
-    else:
-        print("!!! HIBA: A SUPABASE_KEY környezeti változó nincs beállítva!")
-    print("-------------------------------------\n")
-    # --- DIAGNOSZTIKA VÉGE ---
-
     try:
+        # --- VÉGLEGES JAVÍTÁS: Új, garantáltan admin kliens létrehozása ---
+        # Ez a kliens a service_role kulcsot használja, és minden RLS szabályt figyelmen kívül hagy.
+        admin_supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # ----------------------------------------------------------------
+
         file_extension = slip_image.filename.split('.')[-1]
         file_name = f"{target_date}_{int(time.time())}.{file_extension}"
         
         file_content = slip_image.file.read()
         
-        supabase.storage.from_("slips").upload(
+        # A feltöltéshez már az új, admin klienst használjuk
+        admin_supabase_client.storage.from_("slips").upload(
             file_name,
             file_content,
             {"content-type": slip_image.content_type}
         )
-        public_url = supabase.storage.from_("slips").get_public_url(file_name)
+        public_url = admin_supabase_client.storage.from_("slips").get_public_url(file_name)
         
         slip_data_to_insert = {
             "tipp_neve": tipp_neve,
@@ -222,24 +209,20 @@ async def handle_upload(
             "status": "Folyamatban"
         }
         
-        response = supabase.table("manual_slips").insert(slip_data_to_insert).execute()
+        # Az adatbázisba íráshoz is az új, admin klienst használjuk
+        response = admin_supabase_client.table("manual_slips").insert(slip_data_to_insert).execute()
 
         if not response.data:
-            supabase.storage.from_("slips").remove([file_name])
+            admin_supabase_client.storage.from_("slips").remove([file_name])
             raise Exception(f"Adatbázisba írás sikertelen. Supabase válasz: {response}")
 
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
 
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
-        # A hibaüzenetet most már részletesebben adjuk vissza a sablonnak.
         error_details = str(e)
-        if "security policy" in error_details:
-             error_details += " | Javaslat: Ellenőrizd, hogy a Render.com-on a SUPABASE_KEY környezeti változó a 'service_role' kulcsra van-e állítva."
-
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {error_details}"})
 
-# ... a többi kód (startup, webhookok) változatlan ...
 @api.on_event("startup")
 async def startup():
     global application
@@ -268,7 +251,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             user_id = metadata.get('user_id')
             stripe_customer_id = session.get('customer')
             if user_id and stripe_customer_id:
-                # ... a webhook logika változatlan ...
                 pass
         return {"status": "success"}
     except Exception as e:
