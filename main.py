@@ -1,4 +1,4 @@
-# main.py (V7.4 - Szigorú Státusz Ellenőrzés a VIP Zónában)
+# main.py (V7.5 - Render Timeout Javítás)
 
 import os
 import asyncio
@@ -7,7 +7,6 @@ import requests
 import telegram
 import secrets
 import pytz
-import time
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
@@ -141,16 +140,13 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # === JAVÍTÁS KEZDETE: Szigorú státusz ellenőrzés ===
             approved_dates = set()
             status_response = supabase.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
             if status_response.data:
                 for record in status_response.data:
-                    # A tippek csak akkor jelenhetnek meg, ha a státusz "Kiküldve".
                     if record['status'] == 'Kiküldve':
                         approved_dates.add(record['date'])
             
-            # Az admin mindig lát mindent, függetlenül a státusztól
             if user_is_admin:
                 approved_dates.add(today_str)
                 approved_dates.add(tomorrow_str)
@@ -181,16 +177,13 @@ async def vip_area(request: Request):
                                 
                                 if today_str in sz_data['tipp_neve']: todays_slips.append(sz_data)
                                 elif tomorrow_str in sz_data['tipp_neve']: tomorrows_slips.append(sz_data)
-            # === JAVÍTÁS VÉGE ===
-
-            # Manuális szelvények lekérdezése (ez a logika változatlan)
+            
             manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
             if manual_res.data:
                 for m_slip in manual_res.data:
                     if m_slip['target_date'] == today_str: manual_slips_today.append(m_slip)
                     elif m_slip['target_date'] == tomorrow_str: manual_slips_tomorrow.append(m_slip)
 
-            # Státusz üzenet, ha semmi sincs
             if not todays_slips and not tomorrows_slips and not manual_slips_today and not manual_slips_tomorrow:
                 target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
                 status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
@@ -309,13 +302,13 @@ async def handle_upload(
 async def startup():
     global application
     persistence = PicklePersistence(filepath="bot_data.pickle")
+    # JAVÍTÁS: A botot itt már nem inicializáljuk és a webhookot sem állítjuk be,
+    # mert ez a Renderen időtúllépési hibát okozhat.
     application = Application.builder().token(TOKEN).persistence(persistence).build()
-    
-    await application.initialize()
     add_handlers(application)
-    if RENDER_APP_URL:
-        webhook_url = f"{RENDER_APP_URL}/{TOKEN}"
-        await application.bot.set_webhook(url=webhook_url, allowed_updates=telegram.Update.ALL_TYPES, drop_pending_updates=True)
+    print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
+    print("A webhookot egy különálló 'set_webhook.py' szkripttel kell beállítani!")
+
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
