@@ -80,7 +80,7 @@ async def send_admin_notification(message: str):
     except Exception as e:
         print(f"Hiba az admin értesítés küldésekor: {e}")
 
-# --- WEBOLDAL VÉGPONTOK (Változatlan) ---
+# --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
@@ -119,7 +119,6 @@ async def logout(request: Request):
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
-    # Ez a rész változatlan, a státusz ellenőrző logika már helyes
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
@@ -172,30 +171,88 @@ async def vip_area(request: Request):
             daily_status_message = "Hiba történt a tippek betöltése közben."
     return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, "manual_slips_today": manual_slips_today, "manual_slips_tomorrow": manual_slips_tomorrow, "daily_status_message": daily_status_message})
 
-# ... (a többi, változatlan végpont, mint /profile, /admin/upload stb. itt következik)
-@api.post("/create-portal-session", response_class=RedirectResponse)
-# ... (ez a rész változatlan)
-# ...
+@api.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    is_subscribed = is_web_user_subscribed(user)
+    return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
-# --- TELEGRAM BOT LOGIKA (JAVÍTOTT) ---
+@api.post("/generate-telegram-link", response_class=HTMLResponse)
+async def generate_telegram_link(request: Request):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    token = secrets.token_hex(16)
+    supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+    link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
+    return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
+
+@api.post("/create-portal-session", response_class=RedirectResponse)
+async def create_portal_session(request: Request):
+    user = get_current_user(request)
+    if not user or not user.get("stripe_customer_id"): return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
+    try:
+        return_url = f"{RENDER_APP_URL}/profile"
+        portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url)
+        return RedirectResponse(portal_session.url, status_code=303)
+    except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
+
+@api.post("/create-checkout-session-web")
+async def create_checkout_session_web(request: Request, plan: str = Form(...)):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
+    try:
+        params = {'payment_method_types': ['card'], 'line_items': [{'price': price_id, 'quantity': 1}], 'mode': 'subscription', 'billing_address_collection': 'required', 'success_url': f"{RENDER_APP_URL}/vip?payment=success", 'cancel_url': f"{RENDER_APP_URL}/vip", 'metadata': {'user_id': user['id']}}
+        if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
+        else: params['customer_email'] = user['email']
+        checkout_session = stripe.checkout.Session.create(**params)
+        return RedirectResponse(checkout_session.url, status_code=303)
+    except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
+
+@api.get("/admin/upload", response_class=HTMLResponse)
+async def upload_form(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
+        return RedirectResponse(url="/vip", status_code=303)
+    return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
+
+@api.post("/admin/upload")
+async def handle_upload(request: Request, tipp_neve: str = Form(...), eredo_odds: float = Form(...), target_date: str = Form(...), slip_image: UploadFile = File(...)):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
+        return RedirectResponse(url="/vip", status_code=303)
+    if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Kritikus hiba: SUPABASE_SERVICE_KEY vagy URL nincs beállítva!"})
+    try:
+        admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        file_extension = slip_image.filename.split('.')[-1]
+        file_name = f"{target_date}_{int(time.time())}.{file_extension}"
+        file_content = await slip_image.read()
+        admin_supabase_client.storage.from_("slips").upload(file_name, file_content, {"content-type": slip_image.content_type})
+        public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/slips/{file_name}"
+        params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
+        admin_supabase_client.rpc('add_manual_slip', params).execute()
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+    except Exception as e:
+        print(f"Hiba a fájlfeltöltés során: {e}")
+        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {str(e)}"})
+
 @api.on_event("startup")
 async def startup():
     global application
     persistence = PicklePersistence(filepath="bot_data.pickle")
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
-    # A set_webhook és initialize hívásokat továbbra is mellőzzük a Render timeout elkerülése érdekében.
     print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
+    print("A webhookot egy különálló 'set_webhook.py' szkripttel vagy manuálisan kell beállítani!")
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     if application:
-        # JAVÍTÁS: "Lusta Inicializálás"
-        # Ellenőrizzük, hogy az alkalmazás inicializálva van-e, és ha nem, most tesszük meg.
         if not application.initialized:
             await application.initialize()
             print("Telegram Application menet közben inicializálva.")
-            
         data = await request.json()
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
@@ -203,15 +260,12 @@ async def process_telegram_update(request: Request):
 
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    # Ez a rész változatlan
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            metadata = session.get('metadata', {})
-            user_id = metadata.get('user_id')
-            stripe_customer_id = session.get('customer')
+            metadata, user_id, stripe_customer_id = session.get('metadata', {}), session.get('metadata', {}).get('user_id'), session.get('customer')
             if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 price_id = line_items.data[0].price.id
