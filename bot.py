@@ -1,4 +1,4 @@
-# bot.py (V5.9 - Hibajavításokkal)
+# bot.py (V6.0 - Admin jogosultság javítással)
 
 import os
 import telegram
@@ -17,6 +17,8 @@ from dateutil.relativedelta import relativedelta
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# --- JAVÍTÁS: Hozzáadva a service key az admin műveletekhez ---
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
@@ -26,6 +28,7 @@ AWAITING_VIP_BROADCAST = 1
 
 # --- Segédfüggvények ---
 def get_db_client():
+    # Ez a kliens a publikus, olvasási műveletekhez továbbra is megfelelő
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
@@ -63,9 +66,9 @@ async def start(update: telegram.Update, context: CallbackContext):
 async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
-            supabase = get_db_client()
+            supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
             expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
-            supabase.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": expires_at.isoformat(),"stripe_customer_id": stripe_customer_id}).eq("id", user_id).execute()
+            supabase_admin.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": expires_at.isoformat(),"stripe_customer_id": stripe_customer_id}).eq("id", user_id).execute()
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
@@ -106,8 +109,8 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
     date_str = query.data.split("_")[-1]
     await query.edit_message_text(text=query.message.text_markdown + "\n\n*Állapot: ✅ Jóváhagyva, küldés indul...*", parse_mode='Markdown')
     successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
-    supabase = get_db_client()
-    supabase.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
+    supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"A(z) {date_str} napi tippek kiküldve.\nSikeres: {successful_sends} | Sikertelen: {failed_sends}")
 
 @admin_only
@@ -116,18 +119,18 @@ async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     await query.answer("Elutasítás és törlés folyamatban...")
     date_str = query.data.split("_")[-1]
     def sync_delete_rejected_tips(date_to_delete):
-        supabase = get_db_client()
-        slips_to_delete = supabase.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
+        supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        slips_to_delete = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
         if not slips_to_delete:
-            supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
+            supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
             return "Nem találhatóak szelvények, a státusz frissítve."
         tip_ids_to_delete = {tid for slip in slips_to_delete for tid in slip.get('tipp_id_k', [])}
         if tip_ids_to_delete:
             print(f"Törlésre kerül {len(tip_ids_to_delete)} tipp a 'meccsek' táblából...")
-            supabase.table("meccsek").delete().in_("id", list(tip_ids_to_delete)).execute()
+            supabase_admin.table("meccsek").delete().in_("id", list(tip_ids_to_delete)).execute()
         print(f"Törlésre kerül {len(slips_to_delete)} szelvény a 'napi_tuti' táblából...")
-        supabase.table("napi_tuti").delete().like("tipp_neve", f"%{date_to_delete}%").execute()
-        supabase.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
+        supabase_admin.table("napi_tuti").delete().like("tipp_neve", f"%{date_to_delete}%").execute()
+        supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
         return f"Sikeresen törölve {len(slips_to_delete)} szelvény és {len(tip_ids_to_delete)} tipp."
     delete_summary = await asyncio.to_thread(sync_delete_rejected_tips, date_str)
     await query.edit_message_text(text=query.message.text_markdown + f"\n\n*Állapot: ❌ Elutasítva és Törölve!*\n_{delete_summary}_", parse_mode='Markdown')
@@ -189,7 +192,13 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
     
     try:
         def sync_update_manual():
-            get_db_client().table("manual_slips").update({"status": result}).eq("id", slip_id).execute()
+            # --- JAVÍTÁS: Service key használata az írási művelethez ---
+            if not SUPABASE_SERVICE_KEY:
+                print("!!! KRITIKUS HIBA: SUPABASE_SERVICE_KEY hiányzik a bot környezeti változóiból!")
+                raise Exception("Service key not configured")
+            
+            supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            supabase_admin.table("manual_slips").update({"status": result}).eq("id", slip_id).execute()
         
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
@@ -222,7 +231,7 @@ async def admin_show_slips(update: telegram.Update, context: CallbackContext):
             supabase = get_db_client()
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            filter_value = f"tipp_neve.ilike.*{today_str}*,tipp_neve.ilike.*{tomorrow_str}*"
+            filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{tomorrow_str}%"
             response = supabase.table("napi_tuti").select("*, is_admin_only").or_(filter_value).order('tipp_neve', desc=False).execute()
             if not response.data: return {"today": "", "tomorrow": ""}
             all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
@@ -282,7 +291,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
         def sync_task():
             supabase = get_db_client()
             now_local = datetime.now(HUNGARY_TZ); today_str = now_local.strftime("%Y-%m-%d"); yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
-            filter_value = f"tipp_neve.ilike.*{today_str}*,tipp_neve.ilike.*{yesterday_str}*"
+            filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{yesterday_str}%"
             response_tuti = supabase.table("napi_tuti").select("*, is_admin_only").or_(filter_value).order('created_at', desc=True).execute()
             if not response_tuti.data: return None, None
             all_tip_ids = [tid for sz in response_tuti.data for tid in sz.get('tipp_id_k', [])]
