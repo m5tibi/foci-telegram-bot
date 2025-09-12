@@ -1,4 +1,4 @@
-# bot.py (V6.0 - Admin jogosultság javítással)
+# bot.py (V6.1 - Kétlépcsős jóváhagyás)
 
 import os
 import telegram
@@ -8,7 +8,6 @@ import stripe
 import requests
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-# --- JAVÍTÁS: A PicklePersistence importálása a típus-ellenőrzésekhez ---
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, PicklePersistence
 from supabase import create_client, Client
 from datetime import datetime, timedelta
@@ -17,7 +16,6 @@ from dateutil.relativedelta import relativedelta
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-# --- JAVÍTÁS: Hozzáadva a service key az admin műveletekhez ---
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
@@ -28,7 +26,6 @@ AWAITING_VIP_BROADCAST = 1
 
 # --- Segédfüggvények ---
 def get_db_client():
-    # Ez a kliens a publikus, olvasási műveletekhez továbbra is megfelelő
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
@@ -72,7 +69,7 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
-# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI ===
+# === JÓVÁHAGYÁSI RENDSZER FUNKCIÓI (MÓDOSÍTVA) ===
 
 async def send_public_notification(bot: telegram.Bot, date_str: str):
     supabase = get_db_client()
@@ -104,14 +101,49 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
+    """1. LÉPÉS: Jóváhagyja a tippeket, ami láthatóvá teszi őket a weben, majd megerősítést kér az értesítéshez."""
     query = update.callback_query
-    await query.answer("Jóváhagyás folyamatban...")
+    await query.answer("Jóváhagyás...")
     date_str = query.data.split("_")[-1]
-    await query.edit_message_text(text=query.message.text_markdown + "\n\n*Állapot: ✅ Jóváhagyva, küldés indul...*", parse_mode='Markdown')
-    successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
+    
+    # Adatbázis státusz frissítése "Kiküldve"-re, hogy a weboldalon megjelenjenek a tippek
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"A(z) {date_str} napi tippek kiküldve.\nSikeres: {successful_sends} | Sikertelen: {failed_sends}")
+    
+    # Megerősítő üzenet küldése a végleges kiküldés előtt
+    original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
+    confirmation_text = (
+        f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*"
+        "\nA tippek mostantól láthatóak a weboldalon."
+        "\n\nBiztosan kiküldöd az értesítést a VIP tagoknak?"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
+        [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=confirmation_text, parse_mode='Markdown', reply_markup=reply_markup)
+
+@admin_only
+async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
+    """2. LÉPÉS: A megerősítés után kiküldi a tömeges értesítést."""
+    query = update.callback_query
+    await query.answer("Értesítés küldése folyamatban...")
+    date_str = query.data.split("_")[-1]
+
+    # Visszajelzés az adminnak a folyamatról
+    original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
+    await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
+
+    # Értesítés küldése a felhasználóknak
+    successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
+    
+    # Végső visszajelzés az adminnak
+    final_admin_message = f"A(z) {date_str} napi tippekről az értesítés sikeresen kiküldve.\nSikeres: {successful_sends} | Sikertelen: {failed_sends}"
+    await query.edit_message_text(
+        text=f"{original_message_text}\n\n*🚀 Értesítés Elküldve!*\n_{final_admin_message}_",
+        parse_mode='Markdown'
+    )
 
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
@@ -149,7 +181,6 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
-# === ÚJ FUNKCIÓK A MANUÁLIS SZELVÉNYEK KEZELÉSÉRE ===
 @admin_only
 async def admin_manage_manual_slips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
@@ -192,7 +223,6 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
     
     try:
         def sync_update_manual():
-            # --- JAVÍTÁS: Service key használata az írási művelethez ---
             if not SUPABASE_SERVICE_KEY:
                 print("!!! KRITIKUS HIBA: SUPABASE_SERVICE_KEY hiányzik a bot környezeti változóiból!")
                 raise Exception("Service key not configured")
@@ -492,8 +522,12 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
+    
+    # MÓDOSÍTOTT ÉS ÚJ HANDLEREK
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
+    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
+    
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
