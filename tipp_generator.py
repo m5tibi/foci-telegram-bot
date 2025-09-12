@@ -1,4 +1,4 @@
-# tipp_generator.py (V8.0 - Profi Elemzői Logika)
+# tipp_generator.py (V8.1 - Javított Teszt Mód és Liga Lista)
 
 import os
 import requests
@@ -251,25 +251,49 @@ def record_daily_status(date_str, status, reason=""):
     except Exception as e:
         print(f"!!! HIBA a napi státusz rögzítése során: {e}")
         
-# --- FŐ VEZÉRLŐ FÜGGVÉNY ---
+# --- FŐ VEZÉRLŐ FÜGGVÉNY (JAVÍTOTT) ---
 def main():
+    # JAVÍTÁS: Visszaállítottuk a teszt mód ellenőrzését
+    is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Profi Tipp Generátor (V8.0) indítása...")
+    print(f"Profi Tipp Generátor (V8.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # A releváns ligákat tartalmazó meccsek lekérése
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
         print("Nem találhatóak meccsek a holnapi napra.")
-        record_daily_status(target_date_str, "Nincs megfelelő tipp", "Az API nem adott vissza meccseket.")
+        # JAVÍTÁS: Teszt módban is rögzítjük az eredményt
+        reason = "Az API nem adott vissza meccseket."
+        if is_test_mode:
+            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        else:
+            record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
         return
 
-    # A releváns ligákat tartalmazó meccsek kiszűrése (ezt a listát bővítheted)
-    relevant_leagues = set(list(LEAGUE_PROFILES.keys()) + [39, 140, 135, 78, 61, 2, 3, 848])
+    # JAVÍTÁS: Itt van a bővített liga lista, amit javasoltam
+    all_known_leagues = {
+        39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 
+        135: "Olasz Serie A", 78: "Német Bundesliga", 61: "Francia Ligue 1", 
+        88: "Holland Eredivisie", 144: "Belga Jupiler Pro League", 94: "Portugál Primeira Liga",
+        203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
+        179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien",
+        119: "Svéd Allsvenskan", 244: "Finn Veikkausliiga", 357: "Ír Premier Division",
+        71: "Brazil Serie A", 253: "USA MLS", 98: "Japán J1 League",
+        2: "Bajnokok Ligája", 3: "Európa-liga", 848: "Európa-konferencialiga"
+    }
+    all_known_leagues.update({k: v['name'] for k, v in LEAGUE_PROFILES.items()})
+    relevant_leagues = set(all_known_leagues.keys())
+    
     relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in relevant_leagues]
     print(f"Összesen {len(all_fixtures_raw)} meccs van, ebből {len(relevant_fixtures)} releváns.")
     if not relevant_fixtures:
-        record_daily_status(target_date_str, "Nincs megfelelő tipp", "Nincs meccs a figyelt ligákból.")
+        reason = "Nincs meccs a figyelt ligákból."
+        print(reason)
+        if is_test_mode:
+             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        else:
+            record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
         return
 
     prefetch_data_for_fixtures(relevant_fixtures)
@@ -286,16 +310,27 @@ def main():
     if all_potential_tips:
         all_slips = create_slips_pro(target_date_str, all_potential_tips)
         if all_slips:
-            save_slips_to_supabase(all_slips)
-            record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
+            # JAVÍTÁS: Most már helyesen kezeli a teszt és éles módot
+            if is_test_mode:
+                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
+                print("Teszt eredmények a 'test_results.json' fájlba írva.")
+            else:
+                save_slips_to_supabase(all_slips)
+                record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
         else:
             reason = "A V8.0 algoritmus talált értékes tippeket, de nem tudott belőlük stratégiába illő szelvényt összeállítani."
             print(reason)
-            record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
+            if is_test_mode:
+                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+            else:
+                record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
     else:
         reason = "A holnapi kínálatból a V8.0 Profi algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
-        record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
+        if is_test_mode:
+            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        else:
+            record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
 
 
 if __name__ == "__main__":
