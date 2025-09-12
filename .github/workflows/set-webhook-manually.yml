@@ -1,0 +1,25 @@
+name: Manual Webhook Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  set-webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kód letöltése
+        uses: actions/checkout@v4
+
+      - name: Python beállítása
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Függőségek telepítése
+        run: pip install python-telegram-bot python-dotenv
+
+      - name: Webhook beállítása
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          RENDER_EXTERNAL_URL: ${{ secrets.RENDER_EXTERNAL_URL }}
+        run: python set_webhook.py
