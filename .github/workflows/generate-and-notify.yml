@@ -1,8 +1,6 @@
-name: Napi Tipp Generálás és Értesítés
+name: Napi Tipp Generálás és Értesítés (Manuális Indítás)
 
 on:
-  schedule:
-    - cron: '0 17 * * *' # Minden nap 17:00 UTC-kor (magyar idő szerint 19:00 nyáron, 18:00 télen)
   workflow_dispatch:
 
 jobs:
