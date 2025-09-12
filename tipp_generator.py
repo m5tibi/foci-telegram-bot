@@ -1,4 +1,4 @@
-# tipp_generator.py (V7.4 - Adatbázis 'type' oszlop hiba javítva)
+# tipp_generator.py (V7.5 - Szelvény átnevezés és minimum odds)
 
 import os
 import requests
@@ -164,6 +164,8 @@ def analyze_fixture(fixture, min_score, is_test_mode=False):
                  potential_tips.append({"tipp": tip_type, "odds": odds, "confidence_score": chance_score, "type": "high_chance"})
         
         prob_score = 0
+        # Az odds alsó határát meghagytam 1.15-nél, a szűrést a szelvénykészítőben végzem,
+        # hogy más esetleges jövőbeli szelvénytípusoknál még felhasználható legyen ez a kategória.
         if tip_type in ["Home", "Away"] and 1.15 <= odds <= 1.39:
             base_confidence = 0
             if tip_type == "Home" and form_h_overall.count('W') >= 4: base_confidence += 40
@@ -191,13 +193,16 @@ def create_slips(date_str, all_tips):
     prob_tips = sorted([t for t in all_tips if t['type'] == 'prob'], key=lambda x: x['confidence_score'], reverse=True)
     chance_tips = sorted([t for t in all_tips if t['type'] == 'high_chance'], key=lambda x: x['confidence_score'], reverse=True)
     
-    if len(prob_tips) >= 2:
-        combo = prob_tips[:2]
+    # --- JAVÍTÁS: Minimum odds szűrés és átnevezés ---
+    prob_tips_filtered = [t for t in prob_tips if t['odds'] >= 1.30]
+    if len(prob_tips_filtered) >= 2:
+        combo = prob_tips_filtered[:2]
         created_slips.append({
-            "tipp_neve": f"Napi Biztos - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), 
+            "tipp_neve": f"Napi Papírforma - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), 
             "confidence_percent": min(int(sum(c['confidence_score'] for c in combo) / len(combo)), 98), 
             "combo": combo, "is_admin_only": False
         })
+    # --- JAVÍTÁS VÉGE ---
 
     if len(chance_tips) >= 2:
         combo = chance_tips[:2]
@@ -219,12 +224,10 @@ def save_tips_to_supabase(all_slips):
     try:
         tips_to_insert = []
         for tip in unique_tips:
-            # --- ITT A JAVÍTÁS: A 'type' kulcs eltávolítása mentés előtt ---
             tip_copy = tip.copy()
-            tip_copy.pop('type', None) # Biztonságosan eltávolítja a 'type' kulcsot
+            tip_copy.pop('type', None)
             tip_copy["eredmeny"] = "Tipp leadva"
             tips_to_insert.append(tip_copy)
-        # -----------------------------------------------------------------
 
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
         saved_tips_map = {t['fixture_id']: t['id'] for t in response.data}
@@ -250,7 +253,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V7.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V7.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
     if not is_test_mode:
@@ -311,7 +314,7 @@ def main():
             save_tips_to_supabase(all_slips)
             record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
     else:
-        reason = "A holnapi kínálatból a V7.4 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a V7.5 Hibrid algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         print(reason)
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
