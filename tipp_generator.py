@@ -1,4 +1,4 @@
-# tipp_generator.py (V9.0 - Szakértői Felülbírálat Logika)
+# tipp_generator.py (V9.1 - Realisztikus Megbízhatóság)
 
 import os
 import requests
@@ -32,7 +32,7 @@ LEAGUE_PROFILES = {
 }
 DERBY_LIST = [(50, 66), (85, 106)]
 
-# --- API és ADATGYŰJTŐ FÜGGVÉNYEK (Változatlanok) ---
+# --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
 def get_api_data(endpoint, params, retries=3, delay=5):
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
@@ -106,7 +106,6 @@ def analyze_fixture_expert(fixture):
 
     valuable_tips = []
     for tip, score in tip_scores.items():
-        # --- SZAKÉRTŐI VETÓ RENDSZER ---
         if league_profile['character'] == 'low_scoring' and tip == 'Over 2.5' and over_potential < 3.0: continue
         if context == 'top_clash' and tip in ['Home', 'Away'] and available_odds.get(tip, 99) > 2.5: continue
         
@@ -114,8 +113,7 @@ def analyze_fixture_expert(fixture):
             my_prob = max(0, min(score / 100, 0.98))
             implied_prob = 1 / available_odds[tip]
             value_metric = my_prob / implied_prob if implied_prob > 0 else 0
-            
-            if value_metric > 1.25: # Szigorított érték küszöb
+            if value_metric > 1.25:
                 valuable_tips.append({
                     "fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'],
                     "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": tip,
@@ -123,37 +121,40 @@ def analyze_fixture_expert(fixture):
                 })
     return valuable_tips
 
-# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ (V9.0) ---
+# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ (V9.1) ---
 def create_slips_expert(date_str, all_valuable_tips):
     print("--- Szakértői szelvények összeállítása ---")
     created_slips = []
 
-    # Stratégia 1: "Magabiztos Hazai" (Szigorított)
+    # Stratégia 1: "Magabiztos Hazai"
     mismatch_tips = sorted([t for t in all_valuable_tips if t['context'] == 'mismatch' and t['tipp'] == 'Home' and t['odds'] < 1.8], key=lambda x: x['value'], reverse=True)
     if len(mismatch_tips) >= 2:
         combo = mismatch_tips[:2]
         created_slips.append({"tipp_neve": f"Magabiztos Hazai Dupla - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), "combo": combo})
 
-    # Stratégia 2: "Gólparádé" (Védett a 'low_scoring' ligáktól)
+    # Stratégia 2: "Gólparádé"
     over_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 2.5' and t['odds'] >= 1.7], key=lambda x: x['value'], reverse=True)
     if len(over_tips) >= 2:
         combo = over_tips[:2]
         created_slips.append({"tipp_neve": f"Gólparádé Dupla - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), "combo": combo})
         
-    # Stratégia 3: "A Nap Value Tippje" (Szigorított)
+    # Stratégia 3: "A Nap Value Tippje"
     if all_valuable_tips:
         best_value_candidates = [t for t in all_valuable_tips if t['odds'] >= 1.80 and t['sajat_prob'] > 0.55]
         if best_value_candidates:
             best_value_tip = max(best_value_candidates, key=lambda x: x['value'])
             created_slips.append({"tipp_neve": f"A Nap Value Tippje - {date_str}", "eredo_odds": best_value_tip['odds'], "combo": [best_value_tip]})
 
-    # Confidence hozzáadása a végén
+    # JAVÍTÁS: Realisztikus megbízhatósági százalék számítása
     for slip in created_slips:
-        slip['confidence_percent'] = int(sum(c['sajat_prob'] for c in slip['combo']) / len(slip['combo']) * 100)
+        raw_avg_prob = sum(c['sajat_prob'] for c in slip['combo']) / len(slip['combo'])
+        # Normalizálás: A 0.5-1.0 közötti belső valószínűséget átalakítjuk egy 50-80% közötti sávra
+        normalized_confidence = 50 + (raw_avg_prob - 0.5) * 60 
+        slip['confidence_percent'] = min(int(normalized_confidence), 85) # A maximumot 85%-ban korlátozzuk
 
     return created_slips
 
-# --- MENTÉS ÉS STÁTUSZ (Változatlanok) ---
+# --- MENTÉS ÉS STÁTUSZ ---
 def save_slips_to_supabase(all_slips):
     if not all_slips: return
     unique_tips_dict = {t['fixture_id']: t for slip in all_slips for t in slip['combo']}
@@ -161,6 +162,7 @@ def save_slips_to_supabase(all_slips):
         tips_to_insert = [{
             "fixture_id": fix_id, "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'], "kezdes": tip['kezdes'],
             "liga_nev": tip['liga_nev'], "tipp": tip['tipp'], "odds": tip['odds'], "eredmeny": "Tipp leadva",
+            # A confidence_score-t most már a szelvényből vesszük, de a meccsek táblába az eredetit mentjük
             "confidence_score": int(tip['sajat_prob'] * 100)
         } for fix_id, tip in unique_tips_dict.items()]
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
@@ -186,11 +188,11 @@ def record_daily_status(date_str, status, reason=""):
     except Exception as e:
         print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ VEZÉRLŐ FÜGGVÉNY (V9.0) ---
+# --- FŐ VEZÉRLŐ FÜGGVÉNY ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Szakértői Tipp Generátor (V9.0) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Szakértői Tipp Generátor (V9.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
