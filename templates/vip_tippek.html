@@ -15,7 +15,10 @@
                     <h4>Mai Manuális Szelvény(ek)</h4>
                     <div class="manual-slips-grid">
                     {% for slip in manual_slips_today %}
-                        <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="Manuális szelvény" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                        {# JAVÍTÁS: Csak akkor jelenítjük meg a képet, ha van URL #}
+                        {% if slip.image_url %}
+                            <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                        {% endif %}
                     {% endfor %}
                     </div>
                 {% endif %}
@@ -24,7 +27,10 @@
                     <h4>Holnapi Manuális Szelvény(ek)</h4>
                      <div class="manual-slips-grid">
                     {% for slip in manual_slips_tomorrow %}
-                         <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="Manuális szelvény" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                        {# JAVÍTÁS: Csak akkor jelenítjük meg a képet, ha van URL #}
+                        {% if slip.image_url %}
+                            <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                        {% endif %}
                     {% endfor %}
                     </div>
                 {% endif %}
