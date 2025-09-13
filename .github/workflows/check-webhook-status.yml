@@ -19,31 +19,33 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
+          python -c "
           import os
           import requests
           import json
           
-          token = os.environ.get("TELEGRAM_TOKEN")
+          token = os.environ.get('TELEGRAM_TOKEN')
           if not token:
-            print("!!! HIBA: A TELEGRAM_TOKEN secret nincs beállítva!")
+            print('!!! HIBA: A TELEGRAM_TOKEN secret nincs beállítva!')
             exit(1)
             
-          url = f"https://api.telegram.org/bot{token}/getWebhookInfo"
-          print(f"Lekérdezés a következő címről: {url[:40]}...")
+          url = f'https://api.telegram.org/bot{token}/getWebhookInfo'
+          print(f'Lekérdezés a következő címről: {url[:40]}...')
           
           try:
             response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            print("\n--- VÁLASZ A TELEGRAMTÓL ---")
+            print('\n--- VÁLASZ A TELEGRAMTÓL ---')
             print(json.dumps(data, indent=2))
-            print("--------------------------\n")
+            print('--------------------------\n')
             
-            if data.get("result", {}).get("url"):
-              print("✅ A webhook BE VAN ÁLLÍTVA.")
+            if data.get('result', {}).get('url'):
+              print('✅ A webhook BE VAN ÁLLÍTVA.')
             else:
-              print("❌ A webhook NINCS BEÁLLÍTVA vagy üres.")
+              print('❌ A webhook NINCS BEÁLLÍTVA vagy üres.')
               
           except Exception as e:
-            print(f"!!! HIBA a lekérdezés során: {e}")
+            print(f'!!! HIBA a lekérdezés során: {e}')
             exit(1)
+          "
