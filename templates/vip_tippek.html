@@ -17,7 +17,9 @@
                     {% for slip in manual_slips_today %}
                         {% if slip.image_url %}
                             <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
-                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                <div class="image-wrapper">
+                                    <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                </div>
                                 <p>{{ slip.tipp_neve }}</p>
                             </a>
                         {% endif %}
@@ -31,7 +33,9 @@
                     {% for slip in manual_slips_tomorrow %}
                         {% if slip.image_url %}
                             <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
-                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                <div class="image-wrapper">
+                                    <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                </div>
                                 <p>{{ slip.tipp_neve }}</p>
                             </a>
                         {% endif %}
