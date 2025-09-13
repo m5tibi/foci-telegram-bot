@@ -202,7 +202,7 @@
         }
         .vip-notice ul { padding-left: 20px; }
 
-        /* --- MÓDOSÍTÁS: Kép méretének javítása --- */
+        /* --- MÓDOSÍTÁS: Garantáltan nagyobb képek --- */
         .manual-slips-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -212,7 +212,7 @@
         .manual-slip-card {
             display: flex;
             flex-direction: column;
-            background-color: var(--white);
+            background-color: var(--bg-dark);
             border-radius: 8px;
             overflow: hidden;
             border: 1px solid var(--border-color);
@@ -224,28 +224,29 @@
             box-shadow: 0 6px 15px rgba(0,0,0,0.25);
         }
         .manual-slip-card .image-wrapper {
-            background-color: var(--white);
+            background-color: var(--bg-dark);
+            padding: 10px;
             flex-grow: 1;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 15px;
+            /* Fix magasságot adunk a kép konténerének */
+            height: 350px; 
         }
         .manual-slip-card img {
-            /* A kép méretezése, hogy kitöltse a helyet torzítás nélkül */
-            width: 100%;
-            height: 100%;
-            object-fit: contain; /* Ez a kulcs: a kép arányait megtartva méreteződik */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
             display: block;
+            border-radius: 4px;
         }
         .manual-slip-card p {
             padding: 15px;
             margin: 0;
             font-weight: bold;
             text-align: center;
-            color: var(--text-color-dark);
-            background-color: var(--white);
-            border-top: 1px solid #eee;
+            color: var(--text-light);
+            background-color: var(--bg-card);
             font-family: 'Poppins', sans-serif;
             flex-shrink: 0;
         }
