@@ -125,4 +125,11 @@
             </div>
         </div>
     {% endif %}
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
+            fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+        }
+    </script>
 {% endblock %}
