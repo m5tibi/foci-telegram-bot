@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Kód letöltése a repositoryból
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Ezt is frissítettem v4-re a biztonság kedvéért
 
       - name: Python környezet beállítása
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Ezt is frissítettem v5-re
         with:
           python-version: '3.10'
 
@@ -24,7 +24,7 @@ jobs:
         run: python gemini_data_exporter.py
 
       - name: Eredmény (JSON) feltöltése artifactként
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # <-- ITT A JAVÍTÁS! (v3 helyett v4)
         with:
           name: gemini-adatcsomag
           path: gemini_analysis_data.json
