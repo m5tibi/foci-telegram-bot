@@ -244,6 +244,10 @@ async def startup():
     persistence = PicklePersistence(filepath="bot_data.pickle")
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
+
+    # Bot inicializálása az alkalmazás indulásakor
+    await application.initialize()
+
     print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
     print("A webhookot egy különálló 'set_webhook.py' szkripttel vagy manuálisan kell beállítani!")
 
@@ -278,4 +282,5 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
 
