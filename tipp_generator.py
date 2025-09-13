@@ -1,4 +1,4 @@
-# tipp_generator.py (V9.1 - Realisztikus Megbízhatóság)
+# tipp_generator.py (V9.2 - Új "Gólszámos Dupla" Stratégia)
 
 import os
 import requests
@@ -65,7 +65,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- SZAKÉRTŐI ELEMZŐ FÜGGVÉNY (V9.0) ---
+# --- SZAKÉRTŐI ELEMZŐ FÜGGVÉNY (MÓDOSÍTVA) ---
 def analyze_fixture_expert(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -81,7 +81,9 @@ def analyze_fixture_expert(fixture):
     odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
     if not odds_data or not odds_data[0].get('bookmakers'): return []
     bets = odds_data[0]['bookmakers'][0].get('bets', [])
-    tip_map = {"Home": 1, "Away": 2, "1X": 3, "X2": 4, "Over 2.5": 5, "Under 2.5": 6, "BTTS": 7}
+    
+    # MÓDOSÍTÁS: "Over 1.5" hozzáadva a figyelt tippekhez
+    tip_map = {"Home": 1, "Away": 2, "1X": 3, "X2": 4, "Over 2.5": 5, "Under 2.5": 6, "BTTS": 7, "Over 1.5": 25}
     available_odds = {name: float(v['odd']) for b in bets for v in b.get('values', []) for name, id_ in tip_map.items() if b.get('id') == id_ and v.get('value') == name}
     if not available_odds: return []
 
@@ -96,8 +98,12 @@ def analyze_fixture_expert(fixture):
     tip_scores = {tip: 50 for tip in tip_map.keys()}
     if league_profile['character'] in ['high_scoring', 'balanced_high']: tip_scores['Over 2.5'] += 15
     if league_profile['character'] == 'low_scoring': tip_scores['Under 2.5'] += 20
+    
+    # MÓDOSÍTÁS: Pontozási logika az új tippekhez
     if over_potential > 2.8: tip_scores['Over 2.5'] += 20; tip_scores['BTTS'] += 15
+    if over_potential > 2.2: tip_scores['Over 1.5'] += 20
     if over_potential < 1.9: tip_scores['Under 2.5'] += 20
+    
     if stats_h['form'][-5:].count('W') > stats_v['form'][-5:].count('W'): tip_scores['Home'] += 10
     if team_h_rank < team_v_rank: tip_scores['Home'] += (team_v_rank - team_h_rank) * 0.7
     if context == "derby": tip_scores['BTTS'] += 25
@@ -121,7 +127,7 @@ def analyze_fixture_expert(fixture):
                 })
     return valuable_tips
 
-# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ (V9.1) ---
+# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ (MÓDOSÍTVA) ---
 def create_slips_expert(date_str, all_valuable_tips):
     print("--- Szakértői szelvények összeállítása ---")
     created_slips = []
@@ -145,12 +151,21 @@ def create_slips_expert(date_str, all_valuable_tips):
             best_value_tip = max(best_value_candidates, key=lambda x: x['value'])
             created_slips.append({"tipp_neve": f"A Nap Value Tippje - {date_str}", "eredo_odds": best_value_tip['odds'], "combo": [best_value_tip]})
 
-    # JAVÍTÁS: Realisztikus megbízhatósági százalék számítása
+    # --- ÚJ STRATÉGIA HOZZÁADVA ---
+    # Stratégia 4: "Magabiztos Gólszámos Dupla"
+    over_1_5_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 1.5' and 1.30 <= t['odds'] <= 1.60], key=lambda x: x['sajat_prob'], reverse=True)
+    if len(over_1_5_tips) >= 2:
+        combo = over_1_5_tips[:2]
+        eredo_odds = math.prod(c['odds'] for c in combo)
+        # Csak akkor hozzuk létre, ha az eredő odds eléri a kívánt szintet
+        if eredo_odds >= 1.9:
+            created_slips.append({"tipp_neve": f"Magabiztos Gólszámos Dupla - {date_str}", "eredo_odds": eredo_odds, "combo": combo})
+    
+    # Megbízhatósági százalék számítása
     for slip in created_slips:
         raw_avg_prob = sum(c['sajat_prob'] for c in slip['combo']) / len(slip['combo'])
-        # Normalizálás: A 0.5-1.0 közötti belső valószínűséget átalakítjuk egy 50-80% közötti sávra
         normalized_confidence = 50 + (raw_avg_prob - 0.5) * 60 
-        slip['confidence_percent'] = min(int(normalized_confidence), 85) # A maximumot 85%-ban korlátozzuk
+        slip['confidence_percent'] = min(int(normalized_confidence), 85)
 
     return created_slips
 
@@ -162,7 +177,6 @@ def save_slips_to_supabase(all_slips):
         tips_to_insert = [{
             "fixture_id": fix_id, "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'], "kezdes": tip['kezdes'],
             "liga_nev": tip['liga_nev'], "tipp": tip['tipp'], "odds": tip['odds'], "eredmeny": "Tipp leadva",
-            # A confidence_score-t most már a szelvényből vesszük, de a meccsek táblába az eredetit mentjük
             "confidence_score": int(tip['sajat_prob'] * 100)
         } for fix_id, tip in unique_tips_dict.items()]
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
@@ -192,7 +206,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Szakértői Tipp Generátor (V9.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Szakértői Tipp Generátor (V9.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
