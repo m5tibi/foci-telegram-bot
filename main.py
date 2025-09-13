@@ -7,6 +7,7 @@ import requests
 import telegram
 import secrets
 import pytz
+import time
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
@@ -280,3 +281,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
