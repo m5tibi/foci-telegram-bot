@@ -1,4 +1,4 @@
-# main.py (V7.6 - Lusta Inicializálás Javítás a Render Timeout Elkerülésére)
+# main.py (V7.7 - Optimalizált, végleges inicializálás)
 
 import os
 import asyncio
@@ -244,17 +244,16 @@ async def startup():
     persistence = PicklePersistence(filepath="bot_data.pickle")
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
-
+    
     # Bot inicializálása az alkalmazás indulásakor
     await application.initialize()
-
+    
     print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
     print("A webhookot egy különálló 'set_webhook.py' szkripttel vagy manuálisan kell beállítani!")
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     if application:
-        print("Telegram Application menet közben inicializálva.")
         data = await request.json()
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
@@ -282,5 +281,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
-
