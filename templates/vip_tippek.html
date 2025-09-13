@@ -15,21 +15,25 @@
                     <h4>Mai Manuális Szelvény(ek)</h4>
                     <div class="manual-slips-grid">
                     {% for slip in manual_slips_today %}
-                        {# JAVÍTÁS: Csak akkor jelenítjük meg a képet, ha van URL #}
                         {% if slip.image_url %}
-                            <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                            <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
+                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                <p>{{ slip.tipp_neve }}</p>
+                            </a>
                         {% endif %}
                     {% endfor %}
                     </div>
                 {% endif %}
 
                 {% if manual_slips_tomorrow %}
-                    <h4>Holnapi Manuális Szelvény(ek)</h4>
+                    <h4 style="margin-top: 30px;">Holnapi Manuális Szelvény(ek)</h4>
                      <div class="manual-slips-grid">
                     {% for slip in manual_slips_tomorrow %}
-                        {# JAVÍTÁS: Csak akkor jelenítjük meg a képet, ha van URL #}
                         {% if slip.image_url %}
-                            <a href="{{ slip.image_url }}" target="_blank"><img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}" style="width:100%; border-radius: 8px; margin-bottom: 15px;"></a>
+                            <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
+                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                                <p>{{ slip.tipp_neve }}</p>
+                            </a>
                         {% endif %}
                     {% endfor %}
                     </div>
@@ -37,7 +41,6 @@
             </div>
             <hr style="margin: 30px 0;">
         {% endif %}
-
         <div class="vip-notice">
             <h3>Hogyan Hozd ki a Legtöbbet a Tippekből?</h3>
             <p>Üdv a VIP zónában! A legjobb eredmények eléréséhez érdemes figyelned az alábbiakra:</p>
