@@ -7,6 +7,21 @@
     <meta name="description" content="Profitálj a sportfogadásból érzelmek nélkül! Algoritmusunk napi szinten elemzi a meccseket, és a legjobb tippekből összeállított szelvényeket adja. Csatlakozz a VIP zónához!">
     <link rel="icon" type="image/png" href="images/favicon.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '1858049415130011');
+    fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
+    /></noscript>
     <style>
         :root {
             --primary-color: #38A169;
@@ -234,47 +249,4 @@
         <div class="container">
             <p>© 2025 Mondom a Tutit! | Minden jog fenntartva.</p>
             <p>
-                <a href="https://t.me/MondomATutit" target="_blank">Telegram Csatorna</a> |
-                <a href="/blog.html">Blog</a> |
-                <a href="/aszf.html">ÁSZF</a> |
-                <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
-            </p>
-        </div>
-    </footer>
-
-<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
-<script>
-    function openTab(evt, tabName) {
-        var i, authcontent, tablinks;
-        authcontent = document.getElementsByClassName("auth-content");
-        for (i = 0; i < authcontent.length; i++) { authcontent[i].style.display = "none"; }
-        tablinks = document.getElementsByClassName("tab-link");
-        for (i = 0; i < tablinks.length; i++) { tablinks[i].className = tablinks[i].className.replace(" active", ""); }
-        document.getElementById(tabName).style.display = "block";
-        evt.currentTarget.className += " active";
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-        const splideList = document.querySelector('#image-carousel .splide__list');
-        const basePath = 'images/wins/';
-        const totalImages = 8;
-        if (splideList) {
-            for (let i = 1; i <= totalImages; i++) {
-                const imageUrl = `${basePath}win${i}.jpg`;
-                const slide = document.createElement('li');
-                slide.className = 'splide__slide';
-                const img = document.createElement('img');
-                img.src = imageUrl;
-                img.alt = `Nyerő szelvény ${i}`;
-                img.loading = 'lazy';
-                slide.appendChild(img);
-                splideList.appendChild(slide);
-            }
-            new Splide('#image-carousel', {
-                type: 'loop', perPage: 3, perMove: 1, gap: '1rem', pagination: false,
-                breakpoints: { 768: { perPage: 2 }, 640: { perPage: 1 } }
-            }).mount();
-        }
-    });
-</script>
-</body>
-</html>
+                <a href
