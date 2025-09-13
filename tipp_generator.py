@@ -1,4 +1,4 @@
-# tipp_generator.py (V9.3 - Finomhangolt "Gólszámos Dupla" Stratégia)
+# tipp_generator.py (V9.4 - Végleges Odds-kezelés Javítás)
 
 import os
 import requests
@@ -65,7 +65,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- SZAKÉRTŐI ELEMZŐ FÜGGVÉNY (FINOMHANGOLVA) ---
+# --- SZAKÉRTŐI ELEMZŐ FÜGGVÉNY (JAVÍTVA) ---
 def analyze_fixture_expert(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -82,11 +82,33 @@ def analyze_fixture_expert(fixture):
     if not odds_data or not odds_data[0].get('bookmakers'): return []
     bets = odds_data[0]['bookmakers'][0].get('bets', [])
     
-    # JAVÍTÁS 1: Robusztusabb odds keresés
-    tip_names_to_find = {"Home", "Away", "1X", "X2", "Over 2.5", "Under 2.5", "BTTS", "Over 1.5"}
-    available_odds = {v['value']: float(v['odd']) for b in bets for v in b.get('values', []) if v.get('value') in tip_names_to_find}
+    # --- JAVÍTÁS: Precíz odds-feldolgozás a fogadási piacok alapján ---
+    available_odds = {}
+    for bet in bets:
+        bet_name = bet.get('name')
+        values = bet.get('values', [])
+        if bet_name == "Match Winner":
+            for v in values:
+                if v.get('value') == "Home": available_odds["Home"] = float(v.get('odd'))
+                if v.get('value') == "Away": available_odds["Away"] = float(v.get('odd'))
+        elif bet_name == "Double Chance":
+            for v in values:
+                if v.get('value') == "Home/Draw": available_odds["1X"] = float(v.get('odd'))
+                if v.get('value') == "Away/Draw": available_odds["X2"] = float(v.get('odd'))
+        elif bet_name == "Goals Over/Under":
+            for v in values:
+                if v.get('value') == "Over 1.5": available_odds["Over 1.5"] = float(v.get('odd'))
+                if v.get('value') == "Over 2.5": available_odds["Over 2.5"] = float(v.get('odd'))
+                if v.get('value') == "Under 2.5": available_odds["Under 2.5"] = float(v.get('odd'))
+        elif bet_name == "Both Teams to Score":
+            for v in values:
+                if v.get('value') == "Yes": available_odds["BTTS"] = float(v.get('odd'))
+    
     if not available_odds: return []
-
+    
+    tip_names_to_find = {"Home", "Away", "1X", "X2", "Over 2.5", "Under 2.5", "BTTS", "Over 1.5"}
+    tip_scores = {tip: 50 for tip in tip_names_to_find}
+    
     league_profile = LEAGUE_PROFILES.get(league['id'], {"character": "balanced", "avg_goals": 2.5})
     avg_goals = league_profile['avg_goals']
     attack_str_h = float(stats_h['goals']['for']['average']['home']) / (avg_goals / 2)
@@ -95,15 +117,11 @@ def analyze_fixture_expert(fixture):
     defense_wkn_h = float(stats_h['goals']['against']['average']['home']) / (avg_goals / 2)
     over_potential = (attack_str_h * defense_wkn_v) + (attack_str_v * defense_wkn_h)
     
-    tip_scores = {tip: 50 for tip in tip_names_to_find}
     if league_profile['character'] in ['high_scoring', 'balanced_high']: tip_scores['Over 2.5'] += 15
     if league_profile['character'] == 'low_scoring': tip_scores['Under 2.5'] += 20
-    
     if over_potential > 2.8: tip_scores['Over 2.5'] += 20; tip_scores['BTTS'] += 15
-    # JAVÍTÁS 2: Megnövelt bónuszpont az Over 1.5-re, hogy valós esélye legyen bekerülni
     if over_potential > 2.2: tip_scores['Over 1.5'] += 35
     if over_potential < 1.9: tip_scores['Under 2.5'] += 20
-    
     if stats_h['form'][-5:].count('W') > stats_v['form'][-5:].count('W'): tip_scores['Home'] += 10
     if team_h_rank < team_v_rank: tip_scores['Home'] += (team_v_rank - team_h_rank) * 0.7
     if context == "derby": tip_scores['BTTS'] += 25
@@ -112,9 +130,6 @@ def analyze_fixture_expert(fixture):
 
     valuable_tips = []
     for tip, score in tip_scores.items():
-        if league_profile['character'] == 'low_scoring' and tip == 'Over 2.5' and over_potential < 3.0: continue
-        if context == 'top_clash' and tip in ['Home', 'Away'] and available_odds.get(tip, 99) > 2.5: continue
-        
         if tip in available_odds:
             my_prob = max(0, min(score / 100, 0.98))
             implied_prob = 1 / available_odds[tip]
@@ -127,7 +142,7 @@ def analyze_fixture_expert(fixture):
                 })
     return valuable_tips
 
-# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ (Új stratégiával) ---
+# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ ---
 def create_slips_expert(date_str, all_valuable_tips):
     print("--- Szakértői szelvények összeállítása ---")
     created_slips = []
@@ -152,7 +167,7 @@ def create_slips_expert(date_str, all_valuable_tips):
             created_slips.append({"tipp_neve": f"A Nap Value Tippje - {date_str}", "eredo_odds": best_value_tip['odds'], "combo": [best_value_tip]})
 
     # Stratégia 4: "Magabiztos Gólszámos Dupla"
-    over_1_5_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 1.5' and 1.30 <= t['odds'] <= 1.60], key=lambda x: x['sajat_prob'], reverse=True)
+    over_1_5_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 1.5' and 1.30 <= t['odds'] <= 1.60], key=lambda x: x['value'], reverse=True)
     if len(over_1_5_tips) >= 2:
         combo = over_1_5_tips[:2]
         eredo_odds = math.prod(c['odds'] for c in combo)
@@ -204,7 +219,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Szakértői Tipp Generátor (V9.3) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Szakértői Tipp Generátor (V9.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
@@ -253,12 +268,12 @@ def main():
                 save_slips_to_supabase(all_slips)
                 record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
         else:
-            reason = "A V9.0 algoritmus talált értékes tippeket, de nem tudott belőlük stratégiába illő szelvényt összeállítani."
+            reason = "A bot talált értékes tippeket, de nem tudott belőlük a stratégiáknak megfelelő szelvényt összeállítani."
             if is_test_mode:
                 with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
             else: record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
     else:
-        reason = "A holnapi kínálatból a V9.0 Szakértői algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
+        reason = "A holnapi kínálatból a szakértői algoritmus nem talált a kritériumoknak megfelelő, kellő értékkel bíró tippeket."
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
         else: record_daily_status(target_date_str, "Nincs megfelelő tipp", reason)
