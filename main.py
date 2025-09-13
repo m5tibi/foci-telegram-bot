@@ -1,4 +1,4 @@
-# main.py (V7.7 - Optimalizált, végleges inicializálás)
+# main.py (V7.8 - Manuális feltöltés javítása)
 
 import os
 import asyncio
@@ -7,6 +7,7 @@ import requests
 import telegram
 import secrets
 import pytz
+import time # <-- JAVÍTÁS: Hiányzó time modul importálása
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
@@ -57,7 +58,7 @@ def get_current_user(request: Request):
     user_id = request.session.get("user_id")
     if user_id:
         try:
-            res = supabase.table("felhasznalok").select("*").eq("id", user_id).single().execute()
+            res = supabase.table("felhasnalok").select("*").eq("id", user_id).single().execute()
             return res.data
         except Exception: return None
     return None
@@ -88,11 +89,11 @@ async def read_root(request: Request):
 @api.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
-        existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
+        existing_user = supabase.table("felhasnalok").select("id").eq("email", email).execute()
         if existing_user.data:
             return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
         hashed_password = get_password_hash(password)
-        insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
+        insert_response = supabase.table("felhasnalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
         if insert_response.data:
             return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
         else: raise Exception("Insert failed")
@@ -103,7 +104,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
 @api.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
-        user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
+        user_res = supabase.table("felhasnalok").select("*").eq("email", email).maybe_single().execute()
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         request.session["user_id"] = user_res.data['id']
@@ -183,7 +184,7 @@ async def generate_telegram_link(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     token = secrets.token_hex(16)
-    supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+    supabase.table("felhasnalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
@@ -231,8 +232,16 @@ async def handle_upload(request: Request, tipp_neve: str = Form(...), eredo_odds
         file_content = await slip_image.read()
         admin_supabase_client.storage.from_("slips").upload(file_name, file_content, {"content-type": slip_image.content_type})
         public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/slips/{file_name}"
-        params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
+        
+        # A manuális szelvényeket RPC-n keresztül adjuk hozzá, ami egyben beállítja a státuszt is
+        params = {
+            'tipp_neve_in': tipp_neve,
+            'eredo_odds_in': eredo_odds,
+            'target_date_in': target_date,
+            'image_url_in': public_url
+        }
         admin_supabase_client.rpc('add_manual_slip', params).execute()
+
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
@@ -245,7 +254,6 @@ async def startup():
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
     
-    # Bot inicializálása az alkalmazás indulásakor
     await application.initialize()
     
     print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
