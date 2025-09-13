@@ -199,6 +199,42 @@
             font-size: 0.95rem;
         }
         .vip-notice ul { padding-left: 20px; }
+
+        /* --- MÓDOSÍTÁS: Új stílusok a manuális szelvények rácsához --- */
+        .manual-slips-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .manual-slip-card {
+            background-color: var(--bg-dark);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            text-decoration: none !important;
+        }
+        .manual-slip-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.25);
+            text-decoration: none !important;
+        }
+        .manual-slip-card img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .manual-slip-card p {
+            padding: 15px;
+            margin: 0;
+            font-weight: bold;
+            text-align: center;
+            color: var(--text-light);
+            font-family: 'Poppins', sans-serif;
+        }
+        /* --- MÓDOSÍTÁS VÉGE --- */
+
         @media (max-width: 600px) {
             nav {
                 flex-direction: column;
