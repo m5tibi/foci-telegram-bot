@@ -1,4 +1,4 @@
-# bot.py (V6.4 - Napi Tuti és Statisztika Javítás)
+# bot.py (V6.5 - Javított statisztika és egységszámítás)
 
 import os
 import telegram
@@ -12,6 +12,7 @@ from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQ
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+import math
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -41,9 +42,7 @@ def admin_only(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-# --- JAVÍTÁS: Hiányzó formázó függvény hozzáadása ---
 def format_slip_for_telegram(szelveny):
-    """Létrehozza a szelvény szöveges reprezentációját Telegram üzenethez."""
     admin_label = "[CSAK ADMIN] 🤫 " if szelveny.get('is_admin_only') else ""
     message = f"*{admin_label}{szelveny['tipp_neve']}*\n(Megbízhatóság: {szelveny.get('confidence_percent', 'N/A')}%, Odds: {szelveny['eredo_odds']:.2f})\n\n"
     for meccs in szelveny.get('meccsek', []):
@@ -116,8 +115,7 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer("Jóváhagyás...")
+    query = update.callback_query; await query.answer("Jóváhagyás...")
     date_str = query.data.split("_")[-1]
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
@@ -132,8 +130,7 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer("Értesítés küldése folyamatban...")
+    query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
     date_str = query.data.split("_")[-1]
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
@@ -144,8 +141,7 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
 
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer("Elutasítás és törlés folyamatban...")
+    query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
     date_str = query.data.split("_")[-1]
     def sync_delete_rejected_tips(date_to_delete):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -307,11 +303,10 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             await asyncio.sleep(0.5)
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
 
-# --- JAVÍTÁS: Statisztika függvény logikájának teljes implementálása ---
+# --- JAVÍTÁS: Statisztika függvény logikájának teljes implementálása és egységszámítás ---
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
-    query = update.callback_query
-    message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
+    query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
     await query.answer()
 
     try:
@@ -322,13 +317,11 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             
             if period == "all":
                 header = "Összesített (All-Time) Statisztika"
-                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).execute()
+                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").order('created_at', desc=True).execute()
                 response_manual = supabase.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
             else: # Havi statisztika
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 next_month_start = target_month_start + relativedelta(months=1)
-                month_str_filter = target_month_start.strftime("%Y-%m")
-                
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
                 
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent") \
@@ -352,17 +345,29 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         if public_slips:
             all_tip_ids_stat = [tid for sz in public_slips for tid in sz.get('tipp_id_k', [])]
             if all_tip_ids_stat:
-                def sync_stat_meccsek(): return get_db_client().table("meccsek").select("id, eredmeny").in_("id", all_tip_ids_stat).execute()
+                def sync_stat_meccsek(): return get_db_client().table("meccsek").select("id, eredmeny, odds").in_("id", all_tip_ids_stat).execute()
                 meccsek_res_stat = await asyncio.to_thread(sync_stat_meccsek)
-                eredmeny_map = {m['id']: m['eredmeny'] for m in meccsek_res_stat.data}
+                meccsek_map = {m['id']: {'eredmeny': m['eredmeny'], 'odds': m['odds']} for m in meccsek_res_stat.data}
 
                 for szelveny in public_slips:
-                    results = [eredmeny_map.get(tip_id) for tip_id in szelveny.get('tipp_id_k', [])]
-                    if all(r is not None and r != "Tipp leadva" and r != "Érvénytelen" for r in results):
-                        evaluated_tuti_count += 1
-                        if all(r == "Nyert" for r in results):
+                    results = [meccsek_map.get(tip_id) for tip_id in szelveny.get('tipp_id_k', [])]
+                    
+                    if any(r is None for r in results): continue # Ha egy meccs hiányzik, kihagyjuk
+                    
+                    eredmenyek = [r['eredmeny'] for r in results]
+                    
+                    if "Tipp leadva" in eredmenyek: continue # Még nem ért véget
+
+                    evaluated_tuti_count += 1 # 1 egység tét
+                    if "Veszített" in eredmenyek:
+                        pass # A nyeremény 0, a tét levonódik
+                    else: # Nincs benne Veszített, csak Nyert vagy Érvénytelen
+                        effective_odds = math.prod(r['odds'] for r in results if r['eredmeny'] == 'Nyert')
+                        if effective_odds > 1: # Csak akkor számít nyertesnek, ha van legalább egy nyertes tipp
                             won_tuti_count += 1
-                            total_return_tuti += float(szelveny['eredo_odds'])
+                            total_return_tuti += effective_odds
+                        else: # Minden tipp érvénytelen volt
+                            total_return_tuti += 1 # Visszakapja a tétet (push)
 
         # MANUÁLIS (SZERKESZTŐI) SZELVÉNYEK
         evaluated_manual_count = len(response_manual.data) if response_manual.data else 0
@@ -371,10 +376,12 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         # Eredmények formázása
         win_rate_tuti = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
-        roi_tuti = ((total_return_tuti - evaluated_tuti_count) / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
+        net_profit_tuti = total_return_tuti - evaluated_tuti_count
+        roi_tuti = (net_profit_tuti / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
         
         win_rate_manual = (won_manual_count / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
-        roi_manual = ((total_return_manual - evaluated_manual_count) / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
+        net_profit_manual = total_return_manual - evaluated_manual_count
+        roi_manual = (net_profit_manual / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
 
         stat_message = (
             f"🔥 *Statisztika - {header}*\n\n"
@@ -382,15 +389,16 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             f"  - Kiértékelt: *{evaluated_tuti_count} db*\n"
             f"  - Nyertes: *{won_tuti_count} db*\n"
             f"  - Találati arány: *{win_rate_tuti:.2f}%*\n"
+            f"  - Nettó Profit: *{net_profit_tuti:+.2f} egység*\n"
             f"  - ROI: *{roi_tuti:+.2f}%*\n\n"
             f"📝 *Szerkesztői Szelvények*\n"
             f"  - Kiértékelt: *{evaluated_manual_count} db*\n"
             f"  - Nyertes: *{won_manual_count} db*\n"
             f"  - Találati arány: *{win_rate_manual:.2f}%*\n"
+            f"  - Nettó Profit: *{net_profit_manual:+.2f} egység*\n"
             f"  - ROI: *{roi_manual:+.2f}%*"
         )
         
-        # Gombok a navigációhoz
         keyboard = [
             [
                 InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
