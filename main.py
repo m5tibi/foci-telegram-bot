@@ -1,4 +1,4 @@
-# main.py (V7.9 - Összesített javítás)
+# main.py (V7.7 - Stabil, feltöltés előtti verzió)
 
 import os
 import asyncio
@@ -7,7 +7,6 @@ import requests
 import telegram
 import secrets
 import pytz
-import time
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
