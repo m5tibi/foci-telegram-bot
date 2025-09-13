@@ -250,9 +250,7 @@ async def startup():
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     if application:
-        if not application.initialized:
-            await application.initialize()
-            print("Telegram Application menet közben inicializálva.")
+        print("Telegram Application menet közben inicializálva.")
         data = await request.json()
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
@@ -280,3 +278,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         return {"status": "success"}
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
