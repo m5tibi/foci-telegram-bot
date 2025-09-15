@@ -1,4 +1,4 @@
-# bot.py (V6.5 - Javított statisztika és egységszámítás)
+# bot.py (V6.6 - Összesített statisztika hozzáadva)
 
 import os
 import telegram
@@ -32,7 +32,7 @@ def get_db_client():
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def get_tip_details(tip_text):
-    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "First Half Over 0.5": "Félidő 0.5 gól felett", "Home Over 0.5": "Hazai 0.5 gól felett", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 0.5": "Vendég 0.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"}
+    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Under 2.5": "Gólok 2.5 alatt", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "First Half Over 0.5": "Félidő 0.5 gól felett", "Home Over 0.5": "Hazai 0.5 gól felett", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 0.5": "Vendég 0.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"}
     return tip_map.get(tip_text, tip_text)
 
 def admin_only(func):
@@ -303,7 +303,6 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             await asyncio.sleep(0.5)
     except Exception as e: print(f"Hiba az eredmények lekérésekor: {e}"); await initial_message.edit_text("Hiba történt.")
 
-# --- JAVÍTÁS: Statisztika függvény logikájának teljes implementálása és egységszámítás ---
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
@@ -317,14 +316,14 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             
             if period == "all":
                 header = "Összesített (All-Time) Statisztika"
-                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").order('created_at', desc=True).execute()
+                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).execute()
                 response_manual = supabase.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
-            else: # Havi statisztika
+            else: 
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 next_month_start = target_month_start + relativedelta(months=1)
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
                 
-                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent") \
+                response_tuti = supabase.table("napi_tuti").select("*, is_admin_only") \
                     .gte("created_at", target_month_start.isoformat()) \
                     .lt("created_at", next_month_start.isoformat()) \
                     .order('created_at', desc=True).execute()
@@ -338,7 +337,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         response_tuti, response_manual, header = await asyncio.to_thread(sync_task_stat)
 
-        # BOT SZELVÉNYEK (NAPI TUTI)
         public_slips = [sz for sz in response_tuti.data if not sz.get('is_admin_only')]
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
 
@@ -351,52 +349,56 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
                 for szelveny in public_slips:
                     results = [meccsek_map.get(tip_id) for tip_id in szelveny.get('tipp_id_k', [])]
-                    
-                    if any(r is None for r in results): continue # Ha egy meccs hiányzik, kihagyjuk
-                    
+                    if any(r is None or r['eredmeny'] == "Tipp leadva" for r in results): continue
+
+                    evaluated_tuti_count += 1
                     eredmenyek = [r['eredmeny'] for r in results]
                     
-                    if "Tipp leadva" in eredmenyek: continue # Még nem ért véget
-
-                    evaluated_tuti_count += 1 # 1 egység tét
-                    if "Veszített" in eredmenyek:
-                        pass # A nyeremény 0, a tét levonódik
-                    else: # Nincs benne Veszített, csak Nyert vagy Érvénytelen
+                    if "Veszített" not in eredmenyek:
                         effective_odds = math.prod(r['odds'] for r in results if r['eredmeny'] == 'Nyert')
-                        if effective_odds > 1: # Csak akkor számít nyertesnek, ha van legalább egy nyertes tipp
+                        if effective_odds > 1:
                             won_tuti_count += 1
                             total_return_tuti += effective_odds
-                        else: # Minden tipp érvénytelen volt
-                            total_return_tuti += 1 # Visszakapja a tétet (push)
+                        else: 
+                            total_return_tuti += 1
 
-        # MANUÁLIS (SZERKESZTŐI) SZELVÉNYEK
         evaluated_manual_count = len(response_manual.data) if response_manual.data else 0
         won_manual_count = sum(1 for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0
         total_return_manual = sum(float(slip['eredo_odds']) for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0.0
 
-        # Eredmények formázása
-        win_rate_tuti = (won_tuti_count / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
         net_profit_tuti = total_return_tuti - evaluated_tuti_count
         roi_tuti = (net_profit_tuti / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
         
-        win_rate_manual = (won_manual_count / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
         net_profit_manual = total_return_manual - evaluated_manual_count
         roi_manual = (net_profit_manual / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
 
-        stat_message = (
-            f"🔥 *Statisztika - {header}*\n\n"
+        evaluated_total = evaluated_tuti_count + evaluated_manual_count
+        won_total = won_tuti_count + won_manual_count
+        total_return_total = total_return_tuti + total_return_manual
+        net_profit_total = total_return_total - evaluated_total
+        roi_total = (net_profit_total / evaluated_total * 100) if evaluated_total > 0 else 0
+
+        stat_message = f"🔥 *Statisztika - {header}*\n\n"
+        
+        if evaluated_total > 0:
+            stat_message += (
+                f"📊 *Összesített Statisztika*\n"
+                f"  - Kiértékelt: *{evaluated_total} db*\n"
+                f"  - Nyertes: *{won_total} db*\n"
+                f"  - Találati arány: *{(won_total / evaluated_total * 100) if evaluated_total > 0 else 0:.2f}%*\n"
+                f"  - Nettó Profit: *{net_profit_total:+.2f} egység*\n"
+                f"  - ROI: *{roi_total:+.2f}%*\n\n"
+            )
+
+        stat_message += (
             f"🤖 *Bot Szelvények (Napi Tuti)*\n"
             f"  - Kiértékelt: *{evaluated_tuti_count} db*\n"
             f"  - Nyertes: *{won_tuti_count} db*\n"
-            f"  - Találati arány: *{win_rate_tuti:.2f}%*\n"
-            f"  - Nettó Profit: *{net_profit_tuti:+.2f} egység*\n"
-            f"  - ROI: *{roi_tuti:+.2f}%*\n\n"
+            f"  - Nettó Profit: *{net_profit_tuti:+.2f} egység*\n\n"
             f"📝 *Szerkesztői Szelvények*\n"
             f"  - Kiértékelt: *{evaluated_manual_count} db*\n"
             f"  - Nyertes: *{won_manual_count} db*\n"
-            f"  - Találati arány: *{win_rate_manual:.2f}%*\n"
-            f"  - Nettó Profit: *{net_profit_manual:+.2f} egység*\n"
-            f"  - ROI: *{roi_manual:+.2f}%*"
+            f"  - Nettó Profit: *{net_profit_manual:+.2f} egység*"
         )
         
         keyboard = [
