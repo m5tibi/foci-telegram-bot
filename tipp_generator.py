@@ -1,4 +1,4 @@
-# tipp_generator.py (V9.4 - Végleges Odds-kezelés Javítás)
+# tipp_generator.py (V9.5 - Robusztus adatkezelési javítás)
 
 import os
 import requests
@@ -70,7 +70,10 @@ def analyze_fixture_expert(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
     stats_h, stats_v, standings = TEAM_STATS_CACHE.get(f"{home_id}_{league['id']}"), TEAM_STATS_CACHE.get(f"{away_id}_{league['id']}"), STANDINGS_CACHE.get(league['id'])
-    if not all([stats_h, stats_v, standings]): return []
+    
+    # --- JAVÍTÁS: Szigorúbb ellenőrzés a hiányos adatokra ---
+    if not all([stats_h, stats_v, standings, stats_h.get('goals'), stats_v.get('goals')]): 
+        return []
 
     team_h_rank, team_v_rank = next((s['rank'] for s in standings if s['team']['id'] == home_id), 10), next((s['rank'] for s in standings if s['team']['id'] == away_id), 10)
     context = "normal"
@@ -82,7 +85,6 @@ def analyze_fixture_expert(fixture):
     if not odds_data or not odds_data[0].get('bookmakers'): return []
     bets = odds_data[0]['bookmakers'][0].get('bets', [])
     
-    # --- JAVÍTÁS: Precíz odds-feldolgozás a fogadási piacok alapján ---
     available_odds = {}
     for bet in bets:
         bet_name = bet.get('name')
@@ -122,7 +124,12 @@ def analyze_fixture_expert(fixture):
     if over_potential > 2.8: tip_scores['Over 2.5'] += 20; tip_scores['BTTS'] += 15
     if over_potential > 2.2: tip_scores['Over 1.5'] += 35
     if over_potential < 1.9: tip_scores['Under 2.5'] += 20
-    if stats_h['form'][-5:].count('W') > stats_v['form'][-5:].count('W'): tip_scores['Home'] += 10
+    
+    # --- JAVÍTÁS: Ellenőrizzük, hogy létezik-e 'form' adat ---
+    if stats_h.get('form') and stats_v.get('form'):
+        if stats_h['form'][-5:].count('W') > stats_v['form'][-5:].count('W'): 
+            tip_scores['Home'] += 10
+
     if team_h_rank < team_v_rank: tip_scores['Home'] += (team_v_rank - team_h_rank) * 0.7
     if context == "derby": tip_scores['BTTS'] += 25
     if context == "top_clash": tip_scores['Under 2.5'] += 20; tip_scores['BTTS'] += 10
@@ -219,7 +226,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Szakértői Tipp Generátor (V9.4) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Szakértői Tipp Generátor (V9.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
