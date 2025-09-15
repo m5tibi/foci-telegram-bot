@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (Végleges, Minden Státuszt Kezelő Verzió)
+# eredmeny_ellenorzo.py (Végleges, Minden Státuszt Kezelő Verzió + Under 2.5 javítás)
 import os
 import requests
 from supabase import create_client, Client
@@ -44,6 +44,7 @@ def evaluate_tip(tip_text, fixture_data):
     elif tip_text == "Away" and goals_away > goals_home: is_winner = True
     elif tip_text == "Draw" and goals_home == goals_away: is_winner = True
     elif tip_text == "Over 2.5" and (goals_home + goals_away) > 2.5: is_winner = True
+    elif tip_text == "Under 2.5" and (goals_home + goals_away) < 2.5: is_winner = True # <-- JAVÍTÁS: Hiányzó logika hozzáadva
     elif tip_text == "Over 1.5" and (goals_home + goals_away) > 1.5: is_winner = True
     elif tip_text == "BTTS" and goals_home > 0 and goals_away > 0: is_winner = True
     elif tip_text == "1X" and (goals_home > goals_away or goals_home == goals_away): is_winner = True
@@ -54,7 +55,7 @@ def evaluate_tip(tip_text, fixture_data):
     return "Nyert" if is_winner else "Veszített", score_str
 
 def main():
-    print("Eredmény-ellenőrző indítása (Minden Státuszt Kezelő Verzió)...")
+    print("Eredmény-ellenőrző indítása...")
     fixtures_to_check = get_fixtures_to_check()
     if not fixtures_to_check:
         print("Nincs kiértékelendő meccs.")
@@ -62,9 +63,8 @@ def main():
 
     print(f"{len(fixtures_to_check)} meccs eredményének ellenőrzése...")
     
-    # KIBŐVÍTETT STÁTUSZLISTA
     FINISHED_STATUSES = ["FT", "AET", "PEN"] 
-    VOID_STATUSES = ["PST", "CANC", "ABD", "AWD", "WO"] # Postponed, Cancelled, Abandoned, Awarded, Walkover
+    VOID_STATUSES = ["PST", "CANC", "ABD", "AWD", "WO"]
 
     for fixture in fixtures_to_check:
         fixture_id, tip_text, db_id = fixture.get('fixture_id'), fixture.get('tipp'), fixture.get('id')
@@ -80,7 +80,6 @@ def main():
 
             elif status in VOID_STATUSES:
                 print(f"Meccs: {fixture_id} érvénytelenítve. Státusz: {status}")
-                # Az "Érvénytelen" státusz jelzi a statisztikának, hogy ezt a meccset hagyja figyelmen kívül
                 supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", db_id).execute()
             
             else:
