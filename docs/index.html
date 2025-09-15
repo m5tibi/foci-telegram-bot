@@ -111,22 +111,7 @@
             .hero { min-height: 35vh; }
         }
     </style>
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1858049415130011');
-    fbq('track', 'PageView');
-    </script>
-    <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
-    /></noscript>
-    </head>
+</head>
 <body>
 
     <section class="hero">
@@ -257,12 +242,6 @@
         </div>
     </footer>
 
-<script>
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('registered') && urlParams.get('registered') === 'true') {
-        fbq('track', 'CompleteRegistration');
-    }
-</script>
 <script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
 <script>
     function openTab(evt, tabName) {
@@ -276,7 +255,8 @@
     }
     document.addEventListener('DOMContentLoaded', function() {
         const splideList = document.querySelector('#image-carousel .splide__list');
-        const basePath = 'images/wins/';
+        // --- JAVÍTÁS: Útvonal és képek száma ---
+        const basePath = './images/wins/';
         const totalImages = 16;
         if (splideList) {
             for (let i = 1; i <= totalImages; i++) {
