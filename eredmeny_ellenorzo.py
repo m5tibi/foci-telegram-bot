@@ -44,7 +44,7 @@ def evaluate_tip(tip_text, fixture_data):
     elif tip_text == "Away" and goals_away > goals_home: is_winner = True
     elif tip_text == "Draw" and goals_home == goals_away: is_winner = True
     elif tip_text == "Over 2.5" and (goals_home + goals_away) > 2.5: is_winner = True
-    elif tip_text == "Under 2.5" and (goals_home + goals_away) < 2.5: is_winner = True # <-- JAVÍTÁS: Hiányzó logika hozzáadva
+    elif tip_text == "Under 2.5" and (goals_home + goals_away) < 2.5: is_winner = True
     elif tip_text == "Over 1.5" and (goals_home + goals_away) > 1.5: is_winner = True
     elif tip_text == "BTTS" and goals_home > 0 and goals_away > 0: is_winner = True
     elif tip_text == "1X" and (goals_home > goals_away or goals_home == goals_away): is_winner = True
