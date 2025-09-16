@@ -7,21 +7,6 @@
     <meta name="description" content="Profitálj a sportfogadásból érzelmek nélkül! Algoritmusunk napi szinten elemzi a meccseket, és a legjobb tippekből összeállított szelvényeket adja. Csatlakozz a VIP zónához!">
     <link rel="icon" type="image/png" href="images/favicon.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1858049415130011');
-    fbq('track', 'PageView');
-    </script>
-    <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
-    /></noscript>
     <style>
         :root {
             --primary-color: #38A169;
@@ -35,7 +20,7 @@
             --text-light: #E2E8F0;
         }
         html { scroll-behavior: smooth; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0 0 120px 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
         section { padding: 60px 0; }
         .hero {
@@ -116,9 +101,68 @@
         footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
         footer a:hover { text-decoration: underline; }
+
+        #cookie-banner {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: var(--bg-card);
+            color: var(--text-light);
+            padding: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            box-sizing: border-box;
+        }
+        #cookie-banner p {
+            margin: 0;
+            flex-grow: 1;
+            max-width: 800px;
+            font-size: 0.9rem;
+        }
+        #cookie-banner p a {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+        .cookie-buttons {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .cookie-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        #cookie-accept-btn {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        #cookie-accept-btn:hover {
+            background-color: var(--secondary-color);
+        }
+        #cookie-decline-btn {
+            background-color: var(--border-color);
+            color: var(--text-light);
+        }
+
         @media(max-width: 768px) {
             .hero h1 { font-size: 2.5rem; }
             .hero { min-height: 40vh; }
+            #cookie-banner {
+                flex-direction: column;
+                text-align: center;
+            }
+            body {
+                margin-bottom: 180px; /* Nagyobb margó mobilon */
+            }
         }
         @media(max-width: 480px) {
             .hero h1 { font-size: 2rem; }
@@ -261,39 +305,97 @@
         </div>
     </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
-<script>
-    function openTab(evt, tabName) {
-        var i, authcontent, tablinks;
-        authcontent = document.getElementsByClassName("auth-content");
-        for (i = 0; i < authcontent.length; i++) { authcontent[i].style.display = "none"; }
-        tablinks = document.getElementsByClassName("tab-link");
-        for (i = 0; i < tablinks.length; i++) { tablinks[i].className = tablinks[i].className.replace(" active", ""); }
-        document.getElementById(tabName).style.display = "block";
-        evt.currentTarget.className += " active";
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-        const splideList = document.querySelector('#image-carousel .splide__list');
-        const basePath = './images/wins/';
-        const totalImages = 16;
-        if (splideList) {
-            for (let i = 1; i <= totalImages; i++) {
-                const imageUrl = `${basePath}win${i}.jpg`;
-                const slide = document.createElement('li');
-                slide.className = 'splide__slide';
-                const img = document.createElement('img');
-                img.src = imageUrl;
-                img.alt = `Nyerő szelvény ${i}`;
-                img.loading = 'lazy';
-                slide.appendChild(img);
-                splideList.appendChild(slide);
-            }
-            new Splide('#image-carousel', {
-                type: 'loop', perPage: 3, perMove: 1, gap: '1rem', pagination: false,
-                breakpoints: { 768: { perPage: 2 }, 640: { perPage: 1 } }
-            }).mount();
+    <div id="cookie-banner">
+        <p>Weboldalunk sütiket (cookie) használ a felhasználói élmény javítása, valamint analitikai és marketing célokból. Az "Elfogadom" gombra kattintva hozzájárulsz ezek használatához. További információt az <a href="/adatvedelem.html" target="_blank">Adatvédelmi Nyilatkozatban</a> találsz.</p>
+        <div class="cookie-buttons">
+            <button id="cookie-decline-btn" class="cookie-btn">Elutasítom</button>
+            <button id="cookie-accept-btn" class="cookie-btn">Elfogadom</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
+    <script>
+        // FACEBOOK PIXEL ÉS SÜTI KEZELŐ LOGIKA
+        function loadFacebookPixel() {
+            console.log("Facebook Pixel betöltése...");
+            !function(f,b,e,v,n,t,s)
+            {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+            n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+            if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+            n.queue=[];t=b.createElement(e);t.async=!0;
+            t.src=v;s=b.getElementsByTagName(e)[0];
+            s.parentNode.insertBefore(t,s)}(window, document,'script',
+            'https://connect.facebook.net/en_US/fbevents.js');
+            fbq('init', '1858049415130011');
+            fbq('track', 'PageView');
         }
-    });
-</script>
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const banner = document.getElementById('cookie-banner');
+            const acceptBtn = document.getElementById('cookie-accept-btn');
+            const declineBtn = document.getElementById('cookie-decline-btn');
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
+            }
+
+            const consent = getCookie('user_cookie_consent');
+
+            if (!consent) {
+                banner.style.display = 'flex';
+            } else if (consent === 'accepted') {
+                loadFacebookPixel();
+            }
+
+            acceptBtn.addEventListener('click', function() {
+                document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
+                banner.style.display = 'none';
+                loadFacebookPixel();
+            });
+
+            declineBtn.addEventListener('click', function() {
+                document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000';
+                banner.style.display = 'none';
+            });
+            
+            // A galéria és a fülek logikája
+            const splideList = document.querySelector('#image-carousel .splide__list');
+            const basePath = './images/wins/';
+            const totalImages = 16;
+            if (splideList) {
+                for (let i = 1; i <= totalImages; i++) {
+                    const imageUrl = `${basePath}win${i}.jpg`;
+                    const slide = document.createElement('li');
+                    slide.className = 'splide__slide';
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.alt = `Nyerő szelvény ${i}`;
+                    img.loading = 'lazy';
+                    slide.appendChild(img);
+                    splideList.appendChild(slide);
+                }
+                new Splide('#image-carousel', {
+                    type: 'loop', perPage: 3, perMove: 1, gap: '1rem', pagination: false,
+                    breakpoints: { 768: { perPage: 2 }, 640: { perPage: 1 } }
+                }).mount();
+            }
+        });
+        
+        function openTab(evt, tabName) {
+            var i, authcontent, tablinks;
+            authcontent = document.getElementsByClassName("auth-content");
+            for (i = 0; i < authcontent.length; i++) {
+                authcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tab-link");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+    </script>
 </body>
 </html>
