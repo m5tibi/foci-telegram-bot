@@ -1,4 +1,4 @@
-# main.py (V7.7 - Stabil, feltöltés előtti verzió)
+# main.py (V7.8 - Megújuló fizetések kezelése)
 
 import os
 import asyncio
@@ -245,9 +245,7 @@ async def startup():
     persistence = PicklePersistence(filepath="bot_data.pickle")
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
-    
     await application.initialize()
-    
     print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
     print("A webhookot egy különálló 'set_webhook.py' szkripttel vagy manuálisan kell beállítani!")
 
@@ -259,26 +257,65 @@ async def process_telegram_update(request: Request):
         await application.process_update(update)
     return {"status": "ok"}
 
+# --- JAVÍTOTT STRIPE WEBHOOK KEZELŐ ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
+        
+        # Esemény: Új előfizetés a weboldalon keresztül
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            metadata, user_id, stripe_customer_id = session.get('metadata', {}), session.get('metadata', {}).get('user_id'), session.get('customer')
+            user_id = session.get('metadata', {}).get('user_id')
+            stripe_customer_id = session.get('customer')
+            
             if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 price_id = line_items.data[0].price.id
                 duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-                if duration_days > 0 and application:
-                    await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
+                
+                await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
+                
+                customer_details = stripe.Customer.retrieve(stripe_customer_id)
+                customer_email = customer_details.get('email', 'Ismeretlen e-mail')
+                plan_type = "Havi" if duration_days == 30 else "Heti"
+                notification_message = f"🎉 *Új Előfizető!*\n\n*E-mail:* {customer_email}\n*Csomag:* {plan_type}\n*Stripe ID:* `{stripe_customer_id}`"
+                await send_admin_notification(notification_message)
+
+        # Esemény: Megújuló előfizetés sikeres fizetése
+        elif event['type'] == 'invoice.payment_succeeded':
+            invoice = event['data']['object']
+            stripe_customer_id = invoice.get('customer')
+            price_id = invoice.get('lines', {}).get('data', [{}])[0].get('price', {}).get('id')
+
+            if stripe_customer_id and price_id:
+                supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
+                
+                if user_res.data:
+                    user = user_res.data
+                    duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
+                    
+                    current_expires_at_str = user.get("subscription_expires_at")
+                    start_date = datetime.now(pytz.utc)
+                    if current_expires_at_str:
+                        current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
+                        if current_expires_at > start_date:
+                            start_date = current_expires_at
+                    
+                    new_expires_at = start_date + timedelta(days=duration_days)
+                    
+                    supabase_admin.table("felhasznalok").update({
+                        "subscription_status": "active",
+                        "subscription_expires_at": new_expires_at.isoformat()
+                    }).eq("id", user['id']).execute()
+                    
                     plan_type = "Havi" if duration_days == 30 else "Heti"
-                    customer_details = stripe.Customer.retrieve(stripe_customer_id)
-                    customer_email = customer_details.get('email', 'Ismeretlen e-mail')
-                    notification_message = f"🎉 *Új Előfizető!*\n\n*E-mail:* {customer_email}\n*Csomag:* {plan_type}\n*Stripe ID:* `{stripe_customer_id}`"
+                    notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
                     await send_admin_notification(notification_message)
+
         return {"status": "success"}
     except Exception as e:
-        print(f"WEBHOOK HIBA: {e}"); return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
+        print(f"WEBHOOK HIBA: {e}")
+        return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
