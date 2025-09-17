@@ -45,7 +45,12 @@ origins = [
     "https://m5tibi.github.io",
 ]
 api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+api.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+    same_site="none",
+    https_only=True
+)
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -319,3 +324,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
