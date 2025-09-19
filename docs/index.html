@@ -9,42 +9,69 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
     <style>
         :root {
-            --primary-color: #38A169; --secondary-color: #2F855A; --text-color: #333;
-            --bg-color: #f4f7f6; --white: #ffffff; --bg-dark: #1A202C;
-            --bg-card: #2D3748; --border-color: #4A5568; --text-light: #E2E8F0;
+            --primary-color: #38A169;
+            --secondary-color: #2F855A;
+            --text-color: #333;
+            --bg-color: #f4f7f6;
+            --white: #ffffff;
+            --bg-dark: #1A202C;
+            --bg-card: #2D3748;
+            --border-color: #4A5568;
+            --text-light: #E2E8F0;
         }
         html { scroll-behavior: smooth; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0 0 120px 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
-        
-        /* --- Navigáció --- */
-        .navbar { background-color: var(--bg-dark); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
-        .nav-logo { font-size: 1.5rem; color: var(--white); text-decoration: none; font-weight: bold; }
-        .nav-links { display: flex; gap: 20px; }
-        .nav-links a { color: var(--text-light); text-decoration: none; font-weight: bold; transition: color 0.3s ease; }
-        .nav-links a:hover { color: var(--primary-color); }
-        .nav-toggle { display: none; cursor: pointer; }
-        .nav-toggle span { display: block; width: 25px; height: 3px; background-color: var(--white); margin: 5px 0; transition: all 0.3s ease; }
-        
-        @media(max-width: 768px) {
-            .nav-links { display: none; flex-direction: column; width: 100%; text-align: center; background-color: var(--bg-dark); position: absolute; top: 60px; left: 0; padding: 20px 0; }
-            .nav-links.active { display: flex; }
-            .nav-toggle { display: block; }
-        }
-
         section { padding: 60px 0; }
-        .hero { background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('images/hero-background.jpg') no-repeat center center/cover; color: var(--white); min-height: 50vh; display: flex; align-items: center; text-align: center; padding: 40px 0; }
+        .hero {
+            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('images/hero-background.jpg') no-repeat center center/cover;
+            color: var(--white);
+            min-height: 50vh;
+            display: flex;
+            align-items: center;
+            text-align: center;
+            padding: 40px 0;
+        }
         .hero-content { max-width: 800px; margin: 0 auto; }
         .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
         .hero p { font-size: 1.25rem; margin-bottom: 2rem; }
         .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
         .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
         .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
-        .auth-section { background-color: var(--bg-dark); padding: 50px 0; }
-        .auth-box { max-width: 450px; margin: auto; background-color: var(--bg-card); padding: 30px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); color: var(--text-light); }
-        .auth-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 25px; }
-        .auth-tabs button { flex-grow: 1; padding: 15px; border: none; background: none; color: var(--text-light); font-size: 1.1rem; font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.3s ease; }
-        .auth-tabs button.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .auth-section {
+            background-color: var(--bg-dark);
+            padding: 50px 0;
+        }
+        .auth-box {
+            max-width: 450px;
+            margin: auto;
+            background-color: var(--bg-card);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            color: var(--text-light);
+        }
+        .auth-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 25px;
+        }
+        .auth-tabs button {
+            flex-grow: 1;
+            padding: 15px;
+            border: none;
+            background: none;
+            color: var(--text-light);
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .auth-tabs button.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
         .auth-content { display: none; }
         .auth-content.active { display: block; }
         .form-group { margin-bottom: 20px; }
@@ -65,24 +92,77 @@
         .faq-section { background-color: var(--white); }
         .faq-item { margin-bottom: 20px; border-left: 3px solid var(--primary-color); padding-left: 15px; }
         .faq-item h3 { margin-top: 0; }
-        .splide__slide img { width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .splide__slide img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
         footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
         footer a:hover { text-decoration: underline; }
-        #cookie-banner { position: fixed; bottom: 0; left: 0; width: 100%; background-color: var(--bg-card); color: var(--text-light); padding: 20px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); z-index: 1000; display: none; align-items: center; justify-content: center; gap: 20px; box-sizing: border-box; }
-        #cookie-banner p { margin: 0; flex-grow: 1; max-width: 800px; font-size: 0.9rem; }
-        #cookie-banner p a { color: var(--primary-color); text-decoration: underline; }
-        .cookie-buttons { display: flex; gap: 10px; flex-shrink: 0; }
-        .cookie-btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background-color 0.3s ease; }
-        #cookie-accept-btn { background-color: var(--primary-color); color: white; }
-        #cookie-accept-btn:hover { background-color: var(--secondary-color); }
-        #cookie-decline-btn { background-color: var(--border-color); color: var(--text-light); }
+
+        #cookie-banner {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: var(--bg-card);
+            color: var(--text-light);
+            padding: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            box-sizing: border-box;
+        }
+        #cookie-banner p {
+            margin: 0;
+            flex-grow: 1;
+            max-width: 800px;
+            font-size: 0.9rem;
+        }
+        #cookie-banner p a {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+        .cookie-buttons {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .cookie-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        #cookie-accept-btn {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        #cookie-accept-btn:hover {
+            background-color: var(--secondary-color);
+        }
+        #cookie-decline-btn {
+            background-color: var(--border-color);
+            color: var(--text-light);
+        }
 
         @media(max-width: 768px) {
             .hero h1 { font-size: 2.5rem; }
             .hero { min-height: 40vh; }
-            #cookie-banner { flex-direction: column; text-align: center; }
-            body { margin-bottom: 180px; }
+            #cookie-banner {
+                flex-direction: column;
+                text-align: center;
+            }
+            body {
+                margin-bottom: 180px; /* Nagyobb margó mobilon */
+            }
         }
         @media(max-width: 480px) {
             .hero h1 { font-size: 2rem; }
@@ -92,23 +172,6 @@
     </style>
 </head>
 <body>
-
-    <nav class="navbar">
-        <a href="/" class="nav-logo">Mondom a Tutit!</a>
-        <div class="nav-toggle" id="nav-toggle">
-            <span></span>
-            <span></span>
-            <span></span>
-        </div>
-        <div class="nav-links" id="nav-links">
-            <a href="/free_tips.html">Ingyenes Tippek</a>
-            <a href="/blog.html">Blog</a>
-            <a href="#how-it-works">Hogyan működik?</a>
-            <a href="#faq-section">GY.I.K.</a>
-            <a href="https://t.me/MondomATutit" target="_blank">Telegram</a>
-            <a href="#login-register">VIP Belépés</a>
-        </div>
-    </nav>
 
     <section class="hero">
         <div class="container hero-content">
@@ -196,7 +259,7 @@
         </div>
     </section>
 
-    <section id="faq-section" class="faq-section">
+    <section class="faq-section">
         <div class="container">
             <h2 class="section-title">Gyakran Ismételt Kérdések</h2>
             <div class="faq-item">
@@ -318,13 +381,6 @@
                     breakpoints: { 768: { perPage: 2 }, 640: { perPage: 1 } }
                 }).mount();
             }
-            
-            // Mobil menü
-            const navToggle = document.getElementById('nav-toggle');
-            const navLinks = document.getElementById('nav-links');
-            navToggle.addEventListener('click', () => {
-                navLinks.classList.toggle('active');
-            });
         });
         
         function openTab(evt, tabName) {
