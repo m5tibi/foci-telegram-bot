@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingyenes Foci Tippek - Mondom a Tutit!</title>
+    <meta name="description" content="Nézz bele ingyenes tippjeinkbe! Ha minden nap szeretnél hozzáférést a legjobb szelvényekhez, csatlakozz a VIP Zónához.">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <style>
+        :root {
+            --primary-color: #38A169; --secondary-color: #2F855A; --text-color: #333;
+            --bg-color: #f4f7f6; --white: #ffffff; --bg-dark: #1A202C;
+            --bg-card: #2D3748; --border-color: #4A5568; --text-light: #E2E8F0;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        header { background-color: var(--bg-dark); color: var(--white); text-align: center; padding: 40px 20px; }
+        header h1 { font-size: 2.8rem; margin-bottom: 1rem; }
+        .intro-text { text-align: center; max-width: 800px; margin: 30px auto; font-size: 1.1rem; }
+        .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
+        .slips-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 40px;
+        }
+        .slip-card {
+            background-color: var(--white);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            text-decoration: none !important;
+        }
+        .slip-card:hover { transform: translateY(-5px); box-shadow: 0 6px 15px rgba(0,0,0,0.15); }
+        .slip-card img { width: 100%; height: auto; display: block; }
+        .slip-card p { padding: 15px; margin: 0; font-weight: bold; text-align: center; color: var(--text-color); }
+        #loading-state { text-align: center; padding: 40px; font-size: 1.2rem; color: #555; }
+        footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; margin-top: 60px; }
+        footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Ingyenes Tippek</h1>
+        <p>Időről időre itt is megosztunk egy-egy tippet, hogy bepillantást nyerhess a rendszerünk működésébe.</p>
+    </header>
+
+    <div class="container">
+        <div class="intro-text">
+            <p>Ezeket a tippeket ajándékként adjuk, de a legjobb, legmagasabb megbízhatóságú, AI által elemzett és szakértőink által jóváhagyott szelvényeket kizárólag a VIP Zónában találod meg.</p>
+            <p><strong>Ha minden nap a legjobb tippeket szeretnéd, ne habozz, fizess elő!</strong></p>
+            <a href="https://mondomatutit.hu/#login-register" class="cta-button">Irány a VIP Zóna!</a>
+        </div>
+
+        <hr style="margin: 40px 0;">
+
+        <div id="free-slips-container" class="slips-grid">
+            </div>
+        <div id="loading-state">
+            <p>Ingyenes tippek betöltése...</p>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>© 2025 Mondom a Tutit! | <a href="/index.html">Vissza a Főoldalra</a></p>
+        </div>
+    </footer>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+
+        const SUPABASE_URL = 'https://ivchgsvhjwzhzvbbfhic.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2Y2hnc3Zoand6aHp2YmJmaGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjMyNzQ5ODEsImV4cCI6MjAzODg1MDk4MX0.F970b5y3R_gr_4o8lt_224JjUF4s-y25y7jQ-fN2t_Q';
+        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function loadFreeSlips() {
+            const container = document.getElementById('free-slips-container');
+            const loadingState = document.getElementById('loading-state');
+
+            try {
+                const { data, error } = await supabase
+                    .from('free_slips')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (data && data.length > 0) {
+                    loadingState.style.display = 'none';
+                    data.forEach(slip => {
+                        const card = document.createElement('a');
+                        card.href = slip.image_url;
+                        card.target = '_blank';
+                        card.className = 'slip-card';
+
+                        const img = document.createElement('img');
+                        img.src = slip.image_url;
+                        img.alt = slip.tipp_neve;
+                        img.loading = 'lazy';
+
+                        const p = document.createElement('p');
+                        p.textContent = slip.tipp_neve;
+
+                        card.appendChild(img);
+                        card.appendChild(p);
+                        container.appendChild(card);
+                    });
+                } else {
+                    loadingState.innerHTML = '<p>Jelenleg nincsenek aktív ingyenes tippek. Nézz vissza később!</p>';
+                }
+            } catch (error) {
+                console.error('Hiba az ingyenes tippek betöltésekor:', error);
+                loadingState.innerHTML = '<p>Hiba történt a tippek betöltése közben. Kérlek, próbáld újra később.</p>';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadFreeSlips);
+    </script>
+
+</body>
+</html>
