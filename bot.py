@@ -1,4 +1,4 @@
-# bot.py (V6.6 - Összesített statisztika hozzáadva)
+# bot.py (V6.7 - Bővített statisztika ingyenes tippekkel)
 
 import os
 import telegram
@@ -163,7 +163,7 @@ async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
 async def admin_menu(update: telegram.Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📊 Friss Eredmények", callback_data="admin_show_results"), InlineKeyboardButton("📈 Statisztikák", callback_data="admin_show_stat_current_month_0")],
-        [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips"), InlineKeyboardButton("📝 Szerk. Tippek Kezelése", callback_data="admin_manage_manual")],
+        [InlineKeyboardButton("📬 Napi Tutik Megtekintése", callback_data="admin_show_slips"), InlineKeyboardButton("📝 Tippek Kezelése", callback_data="admin_manage_manual")],
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet (Mindenki)", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("💎 VIP Körüzenet (Előfizetők)", callback_data="admin_vip_broadcast_start")],
@@ -191,35 +191,59 @@ async def test_service_key(update: telegram.Update, context: CallbackContext):
 @admin_only
 async def admin_manage_manual_slips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
-    message = await query.message.edit_text("📝 Folyamatban lévő szerkesztői tippek keresése...")
+    message = await query.message.edit_text("📝 Folyamatban lévő tippek keresése...")
     try:
-        def sync_fetch_manual(): return get_db_client().table("manual_slips").select("*").eq("status", "Folyamatban").execute().data
-        pending_slips = await asyncio.to_thread(sync_fetch_manual)
-        if not pending_slips:
-            await message.edit_text("Nincs folyamatban lévő, kiértékelésre váró szerkesztői tipp.")
+        def sync_fetch_manual():
+            db = get_db_client()
+            pending_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
+            pending_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
+            return pending_manual, pending_free
+            
+        pending_manual, pending_free = await asyncio.to_thread(sync_fetch_manual)
+        
+        if not pending_manual and not pending_free:
+            await message.edit_text("Nincs folyamatban lévő, kiértékelésre váró tipp.")
             return
+
         response_text = "Válassz szelvényt az eredmény rögzítéséhez:\n"; keyboard = []
-        for slip in pending_slips:
-            slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
-            keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
-            keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_{slip['id']}_Nyert"),
-                             InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_{slip['id']}_Veszített")])
+        
+        if pending_manual:
+            keyboard.append([InlineKeyboardButton("--- VIP (Szerkesztői) Tippek ---", callback_data="noop_0")])
+            for slip in pending_manual:
+                slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
+                keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
+                keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_vip_{slip['id']}_Nyert"),
+                                 InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_vip_{slip['id']}_Veszített")])
+        
+        if pending_free:
+            keyboard.append([InlineKeyboardButton("--- Ingyenes Tippek ---", callback_data="noop_0")])
+            for slip in pending_free:
+                slip_text = f"FREE: {slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
+                keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
+                keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_free_{slip['id']}_Nyert"),
+                                 InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_free_{slip['id']}_Veszített")])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message.edit_text(response_text, reply_markup=reply_markup)
     except Exception as e: await message.edit_text(f"Hiba történt a manuális tippek lekérésekor: {e}")
 
 @admin_only
 async def handle_manual_slip_action(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; _, _, slip_id_str, result = query.data.split("_"); slip_id = int(slip_id_str)
+    query = update.callback_query; _, _, tip_type, slip_id_str, result = query.data.split("_"); slip_id = int(slip_id_str)
     await query.answer(f"Státusz frissítése: {result}")
+    
+    table_name = "manual_slips" if tip_type == "vip" else "free_slips"
+
     try:
         def sync_update_manual():
             if not SUPABASE_SERVICE_KEY: raise Exception("Service key not configured")
             supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-            supabase_admin.table("manual_slips").update({"status": result}).eq("id", slip_id).execute()
+            supabase_admin.table(table_name).update({"status": result}).eq("id", slip_id).execute()
+        
         await asyncio.to_thread(sync_update_manual)
-        await query.message.edit_text(f"A szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
+        await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
     except Exception as e: await query.message.edit_text(f"Hiba a státusz frissítésekor: {e}")
+
 
 @admin_only
 async def admin_show_slips(update: telegram.Update, context: CallbackContext):
@@ -305,7 +329,8 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
 
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
-    query = update.callback_query; message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
+    query = update.callback_query
+    message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
     await query.answer()
 
     try:
@@ -318,6 +343,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 header = "Összesített (All-Time) Statisztika"
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).execute()
                 response_manual = supabase.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
+                response_free = supabase.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
             else: 
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 next_month_start = target_month_start + relativedelta(months=1)
@@ -332,10 +358,15 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     .gte("target_date", target_month_start.strftime('%Y-%m-%d')) \
                     .lt("target_date", next_month_start.strftime('%Y-%m-%d')) \
                     .in_("status", ["Nyert", "Veszített"]).execute()
-                    
-            return response_tuti, response_manual, header
 
-        response_tuti, response_manual, header = await asyncio.to_thread(sync_task_stat)
+                response_free = supabase.table("free_slips").select("*") \
+                    .gte("target_date", target_month_start.strftime('%Y-%m-%d')) \
+                    .lt("target_date", next_month_start.strftime('%Y-%m-%d')) \
+                    .in_("status", ["Nyert", "Veszített"]).execute()
+                    
+            return response_tuti, response_manual, response_free, header
+
+        response_tuti, response_manual, response_free, header = await asyncio.to_thread(sync_task_stat)
 
         public_slips = [sz for sz in response_tuti.data if not sz.get('is_admin_only')]
         evaluated_tuti_count, won_tuti_count, total_return_tuti = 0, 0, 0.0
@@ -365,16 +396,18 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         evaluated_manual_count = len(response_manual.data) if response_manual.data else 0
         won_manual_count = sum(1 for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0
         total_return_manual = sum(float(slip['eredo_odds']) for slip in response_manual.data if slip['status'] == 'Nyert') if response_manual.data else 0.0
+        
+        evaluated_free_count = len(response_free.data) if response_free.data else 0
+        won_free_count = sum(1 for slip in response_free.data if slip['status'] == 'Nyert') if response_free.data else 0
+        total_return_free = sum(float(slip['eredo_odds']) for slip in response_free.data if slip['status'] == 'Nyert') if response_free.data else 0.0
 
         net_profit_tuti = total_return_tuti - evaluated_tuti_count
-        roi_tuti = (net_profit_tuti / evaluated_tuti_count * 100) if evaluated_tuti_count > 0 else 0
-        
         net_profit_manual = total_return_manual - evaluated_manual_count
-        roi_manual = (net_profit_manual / evaluated_manual_count * 100) if evaluated_manual_count > 0 else 0
+        net_profit_free = total_return_free - evaluated_free_count
 
-        evaluated_total = evaluated_tuti_count + evaluated_manual_count
-        won_total = won_tuti_count + won_manual_count
-        total_return_total = total_return_tuti + total_return_manual
+        evaluated_total = evaluated_tuti_count + evaluated_manual_count + evaluated_free_count
+        won_total = won_tuti_count + won_manual_count + won_free_count
+        total_return_total = total_return_tuti + total_return_manual + total_return_free
         net_profit_total = total_return_total - evaluated_total
         roi_total = (net_profit_total / evaluated_total * 100) if evaluated_total > 0 else 0
 
@@ -392,13 +425,14 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         stat_message += (
             f"🤖 *Bot Szelvények (Napi Tuti)*\n"
-            f"  - Kiértékelt: *{evaluated_tuti_count} db*\n"
-            f"  - Nyertes: *{won_tuti_count} db*\n"
+            f"  - Kiértékelt: *{evaluated_tuti_count} db*, Nyertes: *{won_tuti_count} db*\n"
             f"  - Nettó Profit: *{net_profit_tuti:+.2f} egység*\n\n"
-            f"📝 *Szerkesztői Szelvények*\n"
-            f"  - Kiértékelt: *{evaluated_manual_count} db*\n"
-            f"  - Nyertes: *{won_manual_count} db*\n"
-            f"  - Nettó Profit: *{net_profit_manual:+.2f} egység*"
+            f"📝 *Szerkesztői Szelvények (VIP)*\n"
+            f"  - Kiértékelt: *{evaluated_manual_count} db*, Nyertes: *{won_manual_count} db*\n"
+            f"  - Nettó Profit: *{net_profit_manual:+.2f} egység*\n\n"
+            f"🆓 *Ingyenes Tippek*\n"
+            f"  - Kiértékelt: *{evaluated_free_count} db*, Nyertes: *{won_free_count} db*\n"
+            f"  - Nettó Profit: *{net_profit_free:+.2f} egység*"
         )
         
         keyboard = [
@@ -417,6 +451,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     except Exception as e:
         print(f"Hiba a statisztika készítésekor: {e}")
         await message_to_edit.edit_text(f"Hiba a statisztika készítésekor: {e}")
+
 
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
