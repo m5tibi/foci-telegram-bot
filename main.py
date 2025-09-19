@@ -1,4 +1,4 @@
-# main.py (V8.0 - Robusztusabb feltöltéskezelés)
+# main.py (V8.1 - Statisztikához igazított ingyenes feltöltés)
 
 import os
 import asyncio
@@ -229,9 +229,9 @@ async def handle_upload(
     request: Request,
     tip_type: str = Form(...),
     tipp_neve: str = Form(...),
-    slip_image: UploadFile = File(...),
-    eredo_odds: Optional[str] = Form(None), # Stringgé alakítva
-    target_date: Optional[str] = Form(None)
+    eredo_odds: float = Form(...),
+    target_date: str = Form(...),
+    slip_image: UploadFile = File(...)
 ):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
@@ -247,21 +247,13 @@ async def handle_upload(
         file_content = await slip_image.read()
 
         if tip_type == "vip":
-            # Manuális validáció
-            if not eredo_odds or not target_date:
-                return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "VIP tippekhez az odds és a dátum megadása kötelező."})
-            try:
-                odds_float = float(eredo_odds)
-            except (ValueError, TypeError):
-                return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Az odds érvénytelen szám formátumú."})
-
             bucket_name = "slips"
             file_name = f"{target_date}_{timestamp}.{file_extension}"
             
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
             
-            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': odds_float, 'target_date_in': target_date, 'image_url_in': public_url}
+            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
             admin_supabase_client.rpc('add_manual_slip', params).execute()
 
         elif tip_type == "free":
@@ -273,7 +265,10 @@ async def handle_upload(
             
             admin_supabase_client.table("free_slips").insert({
                 "tipp_neve": tipp_neve,
-                "image_url": public_url
+                "image_url": public_url,
+                "eredo_odds": eredo_odds,
+                "target_date": target_date,
+                "status": "Folyamatban"
             }).execute()
 
         else:
