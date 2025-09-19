@@ -88,9 +88,13 @@
                     .select('*')
                     .order('created_at', { ascending: false });
 
-                if (error) throw error;
+                if (error) {
+                    // Dobunk egy hibát, amit a catch blokk fog elkapni
+                    throw error;
+                }
 
                 if (data && data.length > 0) {
+                    // Vannak tippek, elrejtjük a töltő üzenetet és megjelenítjük őket
                     loadingState.style.display = 'none';
                     data.forEach(slip => {
                         const card = document.createElement('a');
@@ -111,9 +115,11 @@
                         container.appendChild(card);
                     });
                 } else {
+                    // Nincs hiba, de nincsenek tippek sem
                     loadingState.innerHTML = '<p>Jelenleg nincsenek aktív ingyenes tippek. Nézz vissza később!</p>';
                 }
             } catch (error) {
+                // Itt kezeljük a tényleges technikai hibákat
                 console.error('Hiba az ingyenes tippek betöltésekor:', error);
                 loadingState.innerHTML = '<p>Hiba történt a tippek betöltése közben. Kérlek, próbáld újra később.</p>';
             }
