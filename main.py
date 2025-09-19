@@ -1,4 +1,4 @@
-# main.py (V7.9 - Kombinált VIP/Ingyenes feltöltő)
+# main.py (V8.0 - Robusztusabb feltöltéskezelés)
 
 import os
 import asyncio
@@ -230,7 +230,7 @@ async def handle_upload(
     tip_type: str = Form(...),
     tipp_neve: str = Form(...),
     slip_image: UploadFile = File(...),
-    eredo_odds: Optional[float] = Form(None),
+    eredo_odds: Optional[str] = Form(None), # Stringgé alakítva
     target_date: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
@@ -247,17 +247,21 @@ async def handle_upload(
         file_content = await slip_image.read()
 
         if tip_type == "vip":
+            # Manuális validáció
             if not eredo_odds or not target_date:
                 return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "VIP tippekhez az odds és a dátum megadása kötelező."})
-            
+            try:
+                odds_float = float(eredo_odds)
+            except (ValueError, TypeError):
+                return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Az odds érvénytelen szám formátumú."})
+
             bucket_name = "slips"
             file_name = f"{target_date}_{timestamp}.{file_extension}"
             
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
             
-            # RPC hívás a VIP szelvény hozzáadásához
-            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
+            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': odds_float, 'target_date_in': target_date, 'image_url_in': public_url}
             admin_supabase_client.rpc('add_manual_slip', params).execute()
 
         elif tip_type == "free":
@@ -267,7 +271,6 @@ async def handle_upload(
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
             
-            # Adatbázisba írás az ingyenes tippeknek
             admin_supabase_client.table("free_slips").insert({
                 "tipp_neve": tipp_neve,
                 "image_url": public_url
@@ -301,14 +304,12 @@ async def process_telegram_update(request: Request):
         await application.process_update(update)
     return {"status": "ok"}
 
-# --- JAVÍTOTT STRIPE WEBHOOK KEZELŐ ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # Esemény: Új előfizetés a weboldalon keresztül
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             user_id = session.get('metadata', {}).get('user_id')
@@ -327,7 +328,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 notification_message = f"🎉 *Új Előfizető!*\n\n*E-mail:* {customer_email}\n*Csomag:* {plan_type}\n*Stripe ID:* `{stripe_customer_id}`"
                 await send_admin_notification(notification_message)
 
-        # Esemény: Megújuló előfizetés sikeres fizetése
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
