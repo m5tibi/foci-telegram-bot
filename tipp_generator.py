@@ -1,4 +1,4 @@
-# tipp_generator.py (V9.5 - Robusztus adatkezelési javítás)
+# tipp_generator.py (V9.6 - Konzervatív stratégiai finomhangolás)
 
 import os
 import requests
@@ -71,7 +71,6 @@ def analyze_fixture_expert(fixture):
     home_id, away_id = teams['home']['id'], teams['away']['id']
     stats_h, stats_v, standings = TEAM_STATS_CACHE.get(f"{home_id}_{league['id']}"), TEAM_STATS_CACHE.get(f"{away_id}_{league['id']}"), STANDINGS_CACHE.get(league['id'])
     
-    # --- JAVÍTÁS: Szigorúbb ellenőrzés a hiányos adatokra ---
     if not all([stats_h, stats_v, standings, stats_h.get('goals'), stats_v.get('goals')]): 
         return []
 
@@ -125,7 +124,6 @@ def analyze_fixture_expert(fixture):
     if over_potential > 2.2: tip_scores['Over 1.5'] += 35
     if over_potential < 1.9: tip_scores['Under 2.5'] += 20
     
-    # --- JAVÍTÁS: Ellenőrizzük, hogy létezik-e 'form' adat ---
     if stats_h.get('form') and stats_v.get('form'):
         if stats_h['form'][-5:].count('W') > stats_v['form'][-5:].count('W'): 
             tip_scores['Home'] += 10
@@ -149,31 +147,33 @@ def analyze_fixture_expert(fixture):
                 })
     return valuable_tips
 
-# --- SZAKÉRTŐI SZELVÉNYKÉSZÍTŐ ---
+# --- KONZERVATÍV SZELVÉNYKÉSZÍTŐ ---
 def create_slips_expert(date_str, all_valuable_tips):
-    print("--- Szakértői szelvények összeállítása ---")
+    print("--- Konzeratívabb, megbízhatóbb szelvények összeállítása ---")
     created_slips = []
 
-    # Stratégia 1: "Magabiztos Hazai"
-    mismatch_tips = sorted([t for t in all_valuable_tips if t['context'] == 'mismatch' and t['tipp'] == 'Home' and t['odds'] < 1.8], key=lambda x: x['value'], reverse=True)
+    # Stratégia 1: "Magabiztos Hazai" (Szigorított odds)
+    mismatch_tips = sorted([t for t in all_valuable_tips if t['context'] == 'mismatch' and t['tipp'] == 'Home' and t['odds'] < 1.75], key=lambda x: x['value'], reverse=True)
     if len(mismatch_tips) >= 2:
         combo = mismatch_tips[:2]
         created_slips.append({"tipp_neve": f"Magabiztos Hazai Dupla - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), "combo": combo})
 
-    # Stratégia 2: "Gólparádé"
-    over_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 2.5' and t['odds'] >= 1.7], key=lambda x: x['value'], reverse=True)
-    if len(over_tips) >= 2:
-        combo = over_tips[:2]
-        created_slips.append({"tipp_neve": f"Gólparádé Dupla - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), "combo": combo})
+    # Stratégia 2: "Gólváltás Dupla" (Új, a Gólparádé helyett)
+    btts_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'BTTS' and 1.50 <= t['odds'] <= 1.85], key=lambda x: x['value'], reverse=True)
+    if len(btts_tips) >= 2:
+        combo = btts_tips[:2]
+        created_slips.append({"tipp_neve": f"Gólváltás Dupla - {date_str}", "eredo_odds": math.prod(c['odds'] for c in combo), "combo": combo})
         
-    # Stratégia 3: "A Nap Value Tippje"
-    if all_valuable_tips:
-        best_value_candidates = [t for t in all_valuable_tips if t['odds'] >= 1.80 and t['sajat_prob'] > 0.55]
-        if best_value_candidates:
-            best_value_tip = max(best_value_candidates, key=lambda x: x['value'])
-            created_slips.append({"tipp_neve": f"A Nap Value Tippje - {date_str}", "eredo_odds": best_value_tip['odds'], "combo": [best_value_tip]})
+    # Stratégia 3: "Biztonsági Dupla Esély" (Új, a Value Tipp helyett)
+    double_chance_tips = sorted([t for t in all_valuable_tips if t['tipp'] in ['1X', 'X2'] and 1.25 <= t['odds'] <= 1.45], key=lambda x: x['value'], reverse=True)
+    if len(double_chance_tips) >= 2:
+        combo = double_chance_tips[:2]
+        eredo_odds = math.prod(c['odds'] for c in combo)
+        # Csak akkor hozzuk létre, ha az eredő odds eléri a játszható szintet
+        if 1.70 <= eredo_odds <= 2.10:
+             created_slips.append({"tipp_neve": f"Biztonsági Dupla Esély - {date_str}", "eredo_odds": eredo_odds, "combo": combo})
 
-    # Stratégia 4: "Magabiztos Gólszámos Dupla"
+    # Stratégia 4: "Magabiztos Gólszámos Dupla" (Változatlan, mert már konzervatív)
     over_1_5_tips = sorted([t for t in all_valuable_tips if t['tipp'] == 'Over 1.5' and 1.30 <= t['odds'] <= 1.60], key=lambda x: x['value'], reverse=True)
     if len(over_1_5_tips) >= 2:
         combo = over_1_5_tips[:2]
@@ -226,7 +226,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Szakértői Tipp Generátor (V9.5) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Szakértői Tipp Generátor (V9.6) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
     if not all_fixtures_raw:
