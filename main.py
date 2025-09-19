@@ -1,4 +1,4 @@
-# main.py (V7.8 - Megújuló fizetések kezelése)
+# main.py (V7.9 - Kombinált VIP/Ingyenes feltöltő)
 
 import os
 import asyncio
@@ -9,6 +9,7 @@ import secrets
 import pytz
 import time
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -224,25 +225,63 @@ async def upload_form(request: Request):
     return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
 
 @api.post("/admin/upload")
-async def handle_upload(request: Request, tipp_neve: str = Form(...), eredo_odds: float = Form(...), target_date: str = Form(...), slip_image: UploadFile = File(...)):
+async def handle_upload(
+    request: Request,
+    tip_type: str = Form(...),
+    tipp_neve: str = Form(...),
+    slip_image: UploadFile = File(...),
+    eredo_odds: Optional[float] = Form(None),
+    target_date: Optional[str] = Form(None)
+):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
+
     if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Kritikus hiba: SUPABASE_SERVICE_KEY vagy URL nincs beállítva!"})
+
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         file_extension = slip_image.filename.split('.')[-1]
-        file_name = f"{target_date}_{int(time.time())}.{file_extension}"
+        timestamp = int(time.time())
         file_content = await slip_image.read()
-        admin_supabase_client.storage.from_("slips").upload(file_name, file_content, {"content-type": slip_image.content_type})
-        public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/slips/{file_name}"
-        params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
-        admin_supabase_client.rpc('add_manual_slip', params).execute()
+
+        if tip_type == "vip":
+            if not eredo_odds or not target_date:
+                return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "VIP tippekhez az odds és a dátum megadása kötelező."})
+            
+            bucket_name = "slips"
+            file_name = f"{target_date}_{timestamp}.{file_extension}"
+            
+            admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
+            public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
+            
+            # RPC hívás a VIP szelvény hozzáadásához
+            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
+            admin_supabase_client.rpc('add_manual_slip', params).execute()
+
+        elif tip_type == "free":
+            bucket_name = "free-slips"
+            file_name = f"free_{timestamp}.{file_extension}"
+            
+            admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
+            public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
+            
+            # Adatbázisba írás az ingyenes tippeknek
+            admin_supabase_client.table("free_slips").insert({
+                "tipp_neve": tipp_neve,
+                "image_url": public_url
+            }).execute()
+
+        else:
+            return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Érvénytelen tipp típus."})
+
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
         return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {str(e)}"})
+
 
 @api.on_event("startup")
 async def startup():
@@ -324,4 +363,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
