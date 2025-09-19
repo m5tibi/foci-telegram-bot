@@ -16,7 +16,7 @@
     <form action="/admin/upload" method="post" enctype="multipart/form-data">
         <div class="form-group">
             <label for="tip_type">Tipp Típusa</label>
-            <select id="tip_type" name="tip_type" onchange="toggleVipFields()" style="width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem;">
+            <select id="tip_type" name="tip_type" style="width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background-color: var(--bg-dark); color: var(--text-light); font-size: 1rem;">
                 <option value="vip">VIP (Szerkesztői)</option>
                 <option value="free">Ingyenes Tipp</option>
             </select>
@@ -27,15 +27,13 @@
             <input type="text" id="tipp_neve" name="tipp_neve" required>
         </div>
 
-        <div id="vip_fields">
-             <div class="form-group">
-                <label for="eredo_odds">Eredő Odds (pl. 4.11)</label>
-                <input type="number" step="0.01" id="eredo_odds" name="eredo_odds" required>
-            </div>
-            <div class="form-group">
-                <label for="target_date">Melyik napra szól a szelvény?</label>
-                <input type="date" id="target_date" name="target_date" required>
-            </div>
+        <div class="form-group">
+            <label for="eredo_odds">Eredő Odds (pl. 4.11)</label>
+            <input type="number" step="0.01" id="eredo_odds" name="eredo_odds" required>
+        </div>
+        <div class="form-group">
+            <label for="target_date">Melyik napra szól a szelvény?</label>
+            <input type="date" id="target_date" name="target_date" required>
         </div>
 
         <div class="form-group">
@@ -44,25 +42,4 @@
         </div>
         <button type="submit" class="button">Feltöltés</button>
     </form>
-
-<script>
-    function toggleVipFields() {
-        const tipType = document.getElementById('tip_type').value;
-        const vipFields = document.getElementById('vip_fields');
-        const oddsInput = document.getElementById('eredo_odds');
-        const dateInput = document.getElementById('target_date');
-
-        if (tipType === 'free') {
-            vipFields.style.display = 'none';
-            oddsInput.required = false;
-            dateInput.required = false;
-        } else {
-            vipFields.style.display = 'block';
-            oddsInput.required = true;
-            dateInput.required = true;
-        }
-    }
-    // Oldal betöltésekor is futtassuk le, hogy a helyes állapotot mutassa
-    document.addEventListener('DOMContentLoaded', toggleVipFields);
-</script>
 {% endblock %}
