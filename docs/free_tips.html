@@ -75,21 +75,27 @@
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
         const SUPABASE_URL = 'https://mzfgelfidtjuqgpwxtkg.supabase.co';
-        
-        // FONTOS: A kulcsot másold be a két idézőjel közé, és figyelj, hogy ne legyen benne sortörés!
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDg2OTgsImV4cCI6MjA3MDQ4NDY5OH0.qE-tviGlahOqDARyBEBgQu8T6_6DfWD2T6Oa8EWUh6M';
-
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjM0NTc1MDIsImV4cCI6MjAzOTAzMzUwMn0.o2_bItYq34_Vnl_GubO-4_L_N2a-j-j_0pqgG_N4z_c';
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function loadFreeSlips() {
             const container = document.getElementById('free-slips-container');
             const loadingState = document.getElementById('loading-state');
 
+            // Aktuális dátum YYYY-MM-DD formátumban
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            const todayStr = `${year}-${month}-${day}`;
+
             try {
                 const { data, error } = await supabase
                     .from('free_slips')
                     .select('*')
-                    .order('created_at', { ascending: false });
+                    // Szűrés: a target_date legyen nagyobb vagy egyenlő, mint a mai nap
+                    .gte('target_date', todayStr)
+                    .order('target_date', { ascending: true }); // Dátum szerint növekvő sorrendbe rendezve
 
                 if (error) {
                     throw error;
