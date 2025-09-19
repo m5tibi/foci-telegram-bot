@@ -74,9 +74,11 @@
     <script type="module">
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-        // A HELYES, ÁLTALAD MEGADOTT URL
         const SUPABASE_URL = 'https://mzfgelfidtjuqgpwxtkg.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDg2OTgsImV4cCI6MjA3MDQ4NDY5OH0.qE-tviGlahOqDARyBEBgQu8T6_6DfWD2T6Oa8EWUh6M;
+        
+        // FONTOS: A kulcsot másold be a két idézőjel közé, és figyelj, hogy ne legyen benne sortörés!
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDg2OTgsImV4cCI6MjA3MDQ4NDY5OH0.qE-tviGlahOqDARyBEBgQu8T6_6DfWD2T6Oa8EWUh6M';
+
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function loadFreeSlips() {
