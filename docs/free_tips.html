@@ -25,10 +25,7 @@
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 25px;
             margin-top: 40px;
-            /* ÚJ RÉSZ: Korlátozza a maximális szélességet és középre igazítja a rácsot */
-            max-width: 1050px; 
-            margin-left: auto;
-            margin-right: auto;
+            justify-items: center; /* A rács elemeit középre igazítja */
         }
         .slip-card {
             background-color: var(--white);
@@ -37,6 +34,8 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
             transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
             text-decoration: none !important;
+            width: 100%; /* Kitölti a rács celláját */
+            max-width: 400px; /* DE soha nem lesz nagyobb, mint 400px */
         }
         .slip-card:hover { transform: translateY(-5px); box-shadow: 0 6px 15px rgba(0,0,0,0.15); }
         .slip-card img { width: 100%; height: auto; display: block; }
