@@ -74,7 +74,8 @@
     <script type="module">
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-        const SUPABASE_URL = 'https://ivchgsvhjwzhzvbbfhic.supabase.co';
+        // JAVÍTOTT URL (.co helyett .com)
+        const SUPABASE_URL = 'https://ivchgsvhjwzhzvbbfhic.supabase.com';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2Y2hnc3Zoand6aHp2YmJmaGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjMyNzQ5ODEsImV4cCI6MjAzODg1MDk4MX0.F970b5y3R_gr_4o8lt_224JjUF4s-y25y7jQ-fN2t_Q';
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -89,12 +90,10 @@
                     .order('created_at', { ascending: false });
 
                 if (error) {
-                    // Dobunk egy hibát, amit a catch blokk fog elkapni
                     throw error;
                 }
 
                 if (data && data.length > 0) {
-                    // Vannak tippek, elrejtjük a töltő üzenetet és megjelenítjük őket
                     loadingState.style.display = 'none';
                     data.forEach(slip => {
                         const card = document.createElement('a');
@@ -115,11 +114,9 @@
                         container.appendChild(card);
                     });
                 } else {
-                    // Nincs hiba, de nincsenek tippek sem
                     loadingState.innerHTML = '<p>Jelenleg nincsenek aktív ingyenes tippek. Nézz vissza később!</p>';
                 }
             } catch (error) {
-                // Itt kezeljük a tényleges technikai hibákat
                 console.error('Hiba az ingyenes tippek betöltésekor:', error);
                 loadingState.innerHTML = '<p>Hiba történt a tippek betöltése közben. Kérlek, próbáld újra később.</p>';
             }
