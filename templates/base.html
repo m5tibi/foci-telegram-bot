@@ -27,29 +27,44 @@
         body {
             font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             background-color: var(--bg-dark);
-            margin: 0 0 120px 0; /* Alsó margó a süti sáv miatt */
+            margin: 0 0 120px 0;
             color: var(--text-light);
             line-height: 1.6;
         }
         .container {
             max-width: 900px;
-            margin: 40px auto;
-            padding: 30px;
+            margin: 20px auto;
+            padding: 20px;
             background-color: var(--bg-card);
             border-radius: 12px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
-        nav {
+        
+        /* --- Navigáció --- */
+        .navbar {
             background-color: var(--bg-card);
-            padding: 20px;
-            text-align: center;
             border-bottom: 1px solid var(--border-color);
+            padding: 15px 20px;
             display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 15px;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
-        nav a {
+        .nav-logo {
+            font-size: 1.5rem;
+            color: var(--white);
+            text-decoration: none;
+            font-weight: bold;
+            font-family: 'Poppins', sans-serif;
+        }
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .nav-links a {
             color: var(--text-light);
             text-decoration: none;
             font-weight: bold;
@@ -57,10 +72,24 @@
             transition: color 0.3s ease;
             white-space: nowrap;
             padding: 5px 10px;
+            font-size: 0.95rem;
         }
-        nav a:hover {
+        .nav-links a:hover {
             color: var(--primary-green);
         }
+        .nav-toggle {
+            display: none;
+            cursor: pointer;
+        }
+        .nav-toggle span {
+            display: block;
+            width: 25px;
+            height: 3px;
+            background-color: var(--white);
+            margin: 5px 0;
+            transition: all 0.3s ease;
+        }
+        
         h1, h2, h3, h4 {
             font-family: 'Poppins', sans-serif;
             color: var(--text-light);
@@ -128,6 +157,7 @@
         hr {
             border: none;
             border-top: 1px solid var(--border-color);
+            margin: 20px 0;
         }
         .szelveny-card {
             border: 1px solid var(--border-color);
@@ -201,7 +231,6 @@
             font-size: 0.95rem;
         }
         .vip-notice ul { padding-left: 20px; }
-
         .manual-slips-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -244,7 +273,6 @@
             align-items: center;
             justify-content: center;
         }
-
         #cookie-banner {
             position: fixed;
             bottom: 0;
@@ -295,46 +323,66 @@
             background-color: var(--border-color);
             color: var(--text-light);
         }
-
-        @media (max-width: 768px) {
-            #cookie-banner {
+        @media (max-width: 850px) {
+             .nav-links {
+                display: none;
                 flex-direction: column;
+                width: 100%;
                 text-align: center;
-            }
-             body {
-                margin-bottom: 180px; /* Nagyobb margó mobilon */
-            }
-        }
-
-        @media (max-width: 600px) {
-            nav {
-                flex-direction: column;
-                gap: 10px;
-                padding: 15px;
-            }
-            nav a {
-                padding: 8px 15px;
-                font-size: 0.95rem;
+                background-color: var(--bg-card);
+                position: absolute;
+                top: 60px;
+                left: 0;
+                padding: 20px 0;
+                z-index: 100;
+                border-top: 1px solid var(--border-color);
+             }
+             .nav-links.active {
+                display: flex;
+             }
+            .nav-toggle {
+                display: block;
             }
             .container {
                 margin: 20px auto;
                 padding: 15px;
             }
         }
+        @media (max-width: 768px) {
+            #cookie-banner {
+                flex-direction: column;
+                text-align: center;
+            }
+             body {
+                margin-bottom: 180px;
+            }
+        }
     </style>
     </head>
 <body>
-    <nav>
-        <a href="https://mondomatutit.hu" target="_blank" rel="noopener noreferrer">Főoldal</a>
-        <a href="https://mondomatutit.hu/blog.html" target="_blank" rel="noopener noreferrer">Blog</a>
-        
-        {% if user %}
-            <a href="/vip">VIP Tippek</a>
-            <a href="/profile">Profil</a>
-            <a href="/logout">Kijelentkezés</a>
-        {% else %}
-            <a href="https://mondomatutit.hu/#login-register">Bejelentkezés</a>
-        {% endif %}
+    <nav class="navbar">
+        <a href="/vip" class="nav-logo">VIP Zóna</a>
+        <div class="nav-toggle" id="nav-toggle">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+        <div class="nav-links" id="nav-links">
+            <a href="https://mondomatutit.hu" target="_blank" rel="noopener noreferrer">Főoldal</a>
+            <a href="https://mondomatutit.hu/free_tips.html" target="_blank" rel="noopener noreferrer">Ingyenes Tippek</a>
+            <a href="https://mondomatutit.hu/blog.html" target="_blank" rel="noopener noreferrer">Blog</a>
+            
+            {% if user %}
+                <a href="/vip">VIP Tippek</a>
+                <a href="/profile">Profil</a>
+                {% if user.chat_id == 1326707238 %}
+                    <a href="/admin/upload">Admin Feltöltés</a>
+                {% endif %}
+                <a href="/logout">Kijelentkezés</a>
+            {% else %}
+                <a href="https://mondomatutit.hu/#login-register">Bejelentkezés</a>
+            {% endif %}
+        </div>
     </nav>
     <div class="container">
         {% block content %}{% endblock %}
@@ -349,23 +397,29 @@
     </div>
 
     <script>
-        // Facebook Pixel kód (függvénybe csomagolva)
-        function loadFacebookPixel() {
-            console.log("Facebook Pixel betöltése...");
-            !function(f,b,e,v,n,t,s)
-            {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-            n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-            if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-            n.queue=[];t=b.createElement(e);t.async=!0;
-            t.src=v;s=b.getElementsByTagName(e)[0];
-            s.parentNode.insertBefore(t,s)}(window, document,'script',
-            'https://connect.facebook.net/en_US/fbevents.js');
-            fbq('init', '1858049415130011');
-            fbq('track', 'PageView');
-        }
-
-        // Süti kezelő logika
         document.addEventListener('DOMContentLoaded', function() {
+            const navToggle = document.getElementById('nav-toggle');
+            const navLinks = document.getElementById('nav-links');
+            if (navToggle) {
+                navToggle.addEventListener('click', () => {
+                    navLinks.classList.toggle('active');
+                });
+            }
+
+            function loadFacebookPixel() {
+                console.log("Facebook Pixel betöltése...");
+                !function(f,b,e,v,n,t,s)
+                {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+                n.queue=[];t=b.createElement(e);t.async=!0;
+                t.src=v;s=b.getElementsByTagName(e)[0];
+                s.parentNode.insertBefore(t,s)}(window, document,'script',
+                'https://connect.facebook.net/en_US/fbevents.js');
+                fbq('init', '1858049415130011');
+                fbq('track', 'PageView');
+            }
+
             const banner = document.getElementById('cookie-banner');
             const acceptBtn = document.getElementById('cookie-accept-btn');
             const declineBtn = document.getElementById('cookie-decline-btn');
@@ -385,17 +439,16 @@
             }
 
             acceptBtn.addEventListener('click', function() {
-                document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000'; // 1 év
+                document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
                 banner.style.display = 'none';
                 loadFacebookPixel();
             });
 
             declineBtn.addEventListener('click', function() {
-                document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000'; // 1 év
+                document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000';
                 banner.style.display = 'none';
             });
 
-            // Speciális események követése (pl. sikeres vásárlás után)
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
                 if (getCookie('user_cookie_consent') === 'accepted') {
