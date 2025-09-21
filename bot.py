@@ -94,7 +94,7 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
             print("Nincsenek értesítendő előfizetők.")
             return 0, 0
         chat_ids_to_notify = {user['chat_id'] for user in response.data}
-        message_text = "Szia! 👋 Elkészültek a holnapi Napi Tuti szelvények!"
+        message_text = "Szia! 👋 Friss tippek érkeztek a VIP Zónába!"
         vip_url = "https://foci-telegram-bot.onrender.com/vip"
         keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése", url=vip_url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -556,3 +556,4 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+
