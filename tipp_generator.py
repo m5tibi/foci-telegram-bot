@@ -1,6 +1,6 @@
-# tipp_generator.py (V10.0 - Single Tipp Stratégia)
+# tipp_generator.py (V11.0 - Dinamikus 24 Órás Stratégia)
 # Módosítva a Gemini elemzései és javaslatai alapján.
-# Fókusz: Kizárólag magas magabiztosságú (81+) single tippek generálása.
+# Fókusz: Kizárólag magas magabiztosságú (81+) single tippek generálása a következő 24 órára.
 
 import os
 import requests
@@ -8,7 +8,6 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta
 import time
 import pytz
-import math
 import sys
 import json
 
@@ -30,7 +29,6 @@ LEAGUE_PROFILES = {
     79: {"name": "Német 2. Bundesliga", "character": "balanced_high", "avg_goals": 3.1},
     40: {"name": "Angol Championship", "character": "balanced", "avg_goals": 2.7},
     141: {"name": "Spanyol Segunda División", "character": "low_scoring", "avg_goals": 2.3},
-    # További ligák... (a teljesség igénye nélkül)
     71: {"name": "Brazil Serie A", "character": "balanced", "avg_goals": 2.5},
     78: {"name": "Német Bundesliga", "character": "high_scoring", "avg_goals": 3.2},
     135: {"name": "Olasz Serie A", "character": "balanced", "avg_goals": 2.6},
@@ -49,7 +47,6 @@ DERBY_LIST = [
     (126, 85), # Real Madrid vs Barcelona
     (131, 93), # Juventus vs Inter
     (42, 49), # Arsenal vs Tottenham
-    # További derbik...
 ]
 
 # --- API HÍVÁSOK ---
@@ -110,7 +107,6 @@ def analyze_fixture(fixture, odds_data):
 
         if not home_stats or not away_stats: return None
 
-        # Alapvető tippek és oddsok kinyerése
         main_odds = next((bookmaker['bets'] for bookmaker in odds_data.get('bookmakers', []) if bookmaker['id'] == 8), None)
         if not main_odds: return None
 
@@ -125,7 +121,7 @@ def analyze_fixture(fixture, odds_data):
 
         potential_tips = []
 
-        # --- Tipp Generálási Logika ---
+        # Tipp Generálási Logika...
         # 1. Hazai győzelem (Home)
         confidence = 0
         reasons = []
@@ -148,7 +144,7 @@ def analyze_fixture(fixture, odds_data):
                 reasons.append("H domináns H2H múlt.")
 
         if home_odd >= 1.45 and home_odd <= 2.2:
-            confidence += 15 # Az odds tartomány önmagában is egyfajta megerősítés
+            confidence += 15
         
         if confidence > 0:
             potential_tips.append({'fixture_id': fixture_id, 'tipp': 'Home', 'odds': home_odd, 'confidence_score': confidence, 'indoklas': " ".join(reasons), **fixture_data_for_db(fixture)})
@@ -186,7 +182,6 @@ def analyze_fixture(fixture, odds_data):
         return None
 
 def fixture_data_for_db(fixture):
-    """Kiegészítő adatokat formáz az adatbázisba mentéshez."""
     return {
         'kezdes': fixture['fixture']['date'],
         'csapat_H': fixture['teams']['home']['name'],
@@ -196,14 +191,9 @@ def fixture_data_for_db(fixture):
         'league_id': fixture['league']['id']
     }
 
-# --- ÚJ, ADATBÁZISBA MENTŐ FÜGGVÉNY ---
 def save_single_tips_to_supabase(tips_to_save):
-    """
-    Elmenti a generált single tippeket a 'meccsek' táblába.
-    """
     print(f"{len(tips_to_save)} db, 81+ magabiztosságú single tipp mentése az adatbázisba...")
     
-    # Az adatbázis tábla oszlopneveihez igazítjuk a kulcsokat
     records_to_insert = []
     for tip in tips_to_save:
         record = {
@@ -218,95 +208,123 @@ def save_single_tips_to_supabase(tips_to_save):
             'confidence_score': tip.get('confidence_score'),
             'indoklas': tip.get('indoklas'),
             'league_id': tip.get('league_id'),
-            'eredmeny': 'Folyamatban' # Alapértelmezett státusz
+            'eredmeny': 'Folyamatban'
         }
         records_to_insert.append(record)
 
     try:
         if records_to_insert:
-            # Ellenőrizzük, hogy a tippek nem léteznek-e már
             existing_fixture_ids = [r['fixture_id'] for r in supabase.table('meccsek').select('fixture_id').execute().data]
-            
             new_records = [r for r in records_to_insert if r['fixture_id'] not in existing_fixture_ids]
             
             if new_records:
                 supabase.table('meccsek').insert(new_records).execute()
                 print(f"{len(new_records)} db új single tipp sikeresen elmentve.")
             else:
-                print("Nem volt új tipp, amit menteni kellett volna (a meccsek már léteznek az adatbázisban).")
+                print("Nem volt új tipp, amit menteni kellett volna.")
         else:
             print("Nincs mentésre váró tipp.")
     except Exception as e:
         print(f"Hiba történt a tippek Supabase-be való mentése közben: {e}")
 
-
 # --- FŐ VEZÉRLŐ LOGIKA ---
-def main(target_date_str, is_test_mode=False):
-    print(f"Tippgenerálás indítása a(z) {target_date_str} napra...")
+def main(is_test_mode=False):
+    now_utc = datetime.now(pytz.utc)
+    now_budapest = now_utc.astimezone(BUDAPEST_TZ)
+    limit_utc = now_utc + timedelta(hours=24)
     
-    # 1. Meccsek lekérése
-    fixtures_response = make_api_request("fixtures", {"date": target_date_str, "status": "NS"})
-    if not fixtures_response or not fixtures_response.get('response'):
-        reason = "Nem sikerült lekérni a mérkőzéseket az API-tól."
+    today_str = now_budapest.strftime('%Y-%m-%d')
+    tomorrow_str = (now_budapest + timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    print(f"Tippgenerálás indítása a következő 24 órára: {now_utc.strftime('%Y-%m-%d %H:%M')} UTC-től")
+    
+    # 1. Meccsek lekérése a mai és holnapi napra
+    fixtures_today = make_api_request("fixtures", {"date": today_str, "status": "NS"})
+    fixtures_tomorrow = make_api_request("fixtures", {"date": tomorrow_str, "status": "NS"})
+    
+    all_fixtures = []
+    if fixtures_today and fixtures_today.get('response'):
+        all_fixtures.extend(fixtures_today['response'])
+    if fixtures_tomorrow and fixtures_tomorrow.get('response'):
+        all_fixtures.extend(fixtures_tomorrow['response'])
+
+    if not all_fixtures:
+        reason = "Nem sikerült lekérni a mérkőzéseket az API-tól a mai és holnapi napra."
         print(reason)
-        if not is_test_mode: record_daily_status(target_date_str, "API Hiba", reason)
+        if not is_test_mode: record_daily_status(today_str, "API Hiba", reason)
         return
-        
-    fixtures = fixtures_response['response']
-    print(f"Összesen {len(fixtures)} mérkőzés található a(z) {target_date_str} napon.")
+
+    # 2. Szűrés a következő 24 órára
+    upcoming_fixtures = []
+    for f in all_fixtures:
+        fixture_time_utc = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
+        if now_utc <= fixture_time_utc <= limit_utc:
+            upcoming_fixtures.append(f)
+            
+    print(f"Összesen {len(upcoming_fixtures)} mérkőzés található a következő 24 órában.")
+    if not upcoming_fixtures:
+        reason = "A következő 24 órában nincsenek ütemezett, még el nem kezdődött mérkőzések."
+        print(reason)
+        if is_test_mode:
+            with open('test_results.json', 'w', encoding='utf-8') as f:
+                json.dump({'status': 'Nincs Megfelelő Tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        else:
+            record_daily_status(today_str, "Nincs Megfelelő Tipp", reason)
+        return
 
     all_potential_tips = []
     processed_count = 0
     
-    for fixture in fixtures:
+    for fixture in upcoming_fixtures:
         fixture_id = fixture['fixture']['id']
-        
-        # 2. Oddsok lekérése
-        odds_response = make_api_request("odds", {"fixture": fixture_id, "bookmaker": "8"}) # Bet365
+        odds_response = make_api_request("odds", {"fixture": fixture_id, "bookmaker": "8"})
         if not odds_response or not odds_response.get('response'):
             continue
         
-        # 3. Meccs elemzése
         analyzed_tips = analyze_fixture(fixture, odds_response['response'][0])
         if analyzed_tips:
             all_potential_tips.extend(analyzed_tips)
         
         processed_count += 1
-        time.sleep(2) # API rate limit betartása
+        time.sleep(2)
         if processed_count % 20 == 0:
-            print(f"Feldolgozva {processed_count}/{len(fixtures)} mérkőzés...")
+            print(f"Feldolgozva {processed_count}/{len(upcoming_fixtures)} mérkőzés...")
 
     print(f"Elemzés befejezve. Összesen {len(all_potential_tips)} potenciális tipp generálva.")
 
-    # 4. SZŰRÉS ÉS MENTÉS (AZ ÚJ LOGIKA)
+    # 3. SZŰRÉS, MENTÉS ÉS JELENTÉS KÉSZÍTÉS
+    reason_for_no_tips = ""
+    final_tips = []
+
     if all_potential_tips:
-        # SZŰRÉS: Csak a 81 vagy annál magasabb magabiztosságú tippek maradnak
         final_tips = [tip for tip in all_potential_tips if tip.get('confidence_score', 0) >= 81]
         print(f"Szűrés után {len(final_tips)} db, 81+ magabiztosságú tipp maradt.")
-
-        if final_tips:
-            # MENTÉS: Az új, single tippeket mentő funkció hívása
-            if is_test_mode:
-                with open('test_results_single.json', 'w', encoding='utf-8') as f:
-                    json.dump({'status': 'Single tippek generálva', 'tips': final_tips}, f, ensure_ascii=False, indent=4)
-                print("Teszt eredmények a 'test_results_single.json' fájlba írva.")
-            else:
-                save_single_tips_to_supabase(final_tips)
-                record_daily_status(target_date_str, "Sikeres Generálás", f"{len(final_tips)} db single tipp generálva és elmentve.")
-        else:
-            reason = "A bot talált potenciális tippeket, de egyik sem érte el a 81-es magabiztossági küszöböt."
-            print(reason)
-            if not is_test_mode: record_daily_status(target_date_str, "Nincs Megfelelő Tipp", reason)
+        if not final_tips:
+            reason_for_no_tips = "A bot talált potenciális tippeket, de egyik sem érte el a 81-es magabiztossági küszöböt."
     else:
-        reason = "A holnapi kínálatból a szakértői algoritmus nem talált a kritériumoknak megfelelő, értékelhető tippeket."
-        print(reason)
-        if not is_test_mode: record_daily_status(target_date_str, "Nincs Megfelelő Tipp", reason)
+        reason_for_no_tips = "A következő 24 óra kínálatából a szakértői algoritmus nem talált értékelhető tippeket."
+
+    if is_test_mode:
+        test_output = {}
+        if final_tips:
+            test_output = {'status': 'Sikeres Generálás', 'tips': final_tips}
+            print("Teszt eredmények a 'test_results.json' fájlba írva.")
+        else:
+            test_output = {'status': 'Nincs Megfelelő Tipp', 'reason': reason_for_no_tips}
+            print(f"Nincs menthető tipp. Ok: {reason_for_no_tips}")
+        
+        with open('test_results.json', 'w', encoding='utf-8') as f:
+            json.dump(test_output, f, ensure_ascii=False, indent=4)
+    else:
+        # Éles futtatás logikája
+        if final_tips:
+            save_single_tips_to_supabase(final_tips)
+            record_daily_status(today_str, "Sikeres Generálás", f"{len(final_tips)} db single tipp generálva és elmentve.")
+        else:
+            print(reason_for_no_tips)
+            record_daily_status(today_str, "Nincs Megfelelő Tipp", reason_for_no_tips)
+
 
 if __name__ == '__main__':
     is_test = '--test' in sys.argv
-    
-    # A holnapi dátum meghatározása Budapest időzóna szerint
-    target_date = datetime.now(BUDAPEST_TZ) + timedelta(days=1)
-    date_string = target_date.strftime('%Y-%m-%d')
-    
-    main(date_string, is_test_mode=is_test)
+    main(is_test_mode=is_test)
