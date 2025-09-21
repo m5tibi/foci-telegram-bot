@@ -1,7 +1,4 @@
-# gemini_data_exporter.py (V1.2 - Teljes liga lista)
-# Feladata: Összegyűjti a holnapi meccsekhez tartozó összes releváns adatot a RapidAPI-ról
-# és egyetlen JSON fájlba menti a Gemini elemzéséhez.
-
+# gemini_data_exporter.py (V2.0 - 24 órás adatgyűjtés)
 import os
 import requests
 from datetime import datetime, timedelta
@@ -14,16 +11,13 @@ RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- JAVÍTÁS: Bővített és szinkronizált liga lista ---
+# --- Releváns ligák listája ---
 RELEVANT_LEAGUES = {
     39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A", 
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League", 
     94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
     179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan", 
-    244: "Finn Veikkausliiga", 357: "Ír Premier Division", 71: "Brazil Serie A", 253: "USA MLS", 
-    98: "Japán J1 League", 2: "Bajnokok Ligája", 3: "Európa-liga", 848: "Európa-konferencialiga",
-    89: "Holland Eerste Divisie", 62: "Francia Ligue 2", 79: "Német 2. Bundesliga",
-    141: "Spanyol La Liga 2", 136: "Olasz Serie B", 271: "Magyar NB II"
+    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
 }
 
 # --- API HÍVÓ FÜGGVÉNY ---
@@ -47,23 +41,32 @@ def get_api_data(endpoint, params, retries=3, delay=5):
 # --- FŐ VEZÉRLŐ ---
 def main():
     start_time = datetime.now(BUDAPEST_TZ)
-    target_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
+    today_str = start_time.strftime("%Y-%m-%d")
+    tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     output_filename = "gemini_analysis_data.json"
-    print(f"Adatgyűjtés indítása a(z) {target_date_str} napra a Gemini számára...")
+    print(f"Adatgyűjtés indítása a következő 24 órára ({today_str} és {tomorrow_str}) a Gemini számára...")
 
-    all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
+    fixtures_today = get_api_data("fixtures", {"date": today_str})
+    fixtures_tomorrow = get_api_data("fixtures", {"date": tomorrow_str})
+    all_fixtures_raw = (fixtures_today or []) + (fixtures_tomorrow or [])
+
     if not all_fixtures_raw:
-        print("Hiba: Nem sikerült lekérni a holnapi meccseket.")
+        print("Hiba: Nem sikerült lekérni a meccseket.")
         return
 
-    relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES]
-    print(f"Összesen {len(all_fixtures_raw)} meccs van, ebből {len(relevant_fixtures)} releváns a számunkra.")
+    # Csak a jövőbeli, releváns meccsek
+    now_utc = datetime.now(pytz.utc)
+    relevant_fixtures = [
+        f for f in all_fixtures_raw 
+        if f['league']['id'] in RELEVANT_LEAGUES
+        and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc
+    ]
+    print(f"Összesen {len(all_fixtures_raw)} meccs van a következő ~48 órában, ebből {len(relevant_fixtures)} releváns és jövőbeli.")
 
     if not relevant_fixtures:
-        print("Nincs releváns meccs a holnapi kínálatban.")
+        print("Nincs releváns meccs a vizsgált időszakban.")
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump([], f)
-        print(f"Üres '{output_filename}' fájl létrehozva, hogy a workflow sikeresen lefusson.")
         return
 
     season = str(start_time.year)
