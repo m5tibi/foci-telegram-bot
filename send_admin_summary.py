@@ -23,7 +23,7 @@ async def send_summary():
 
     print("Admin teszt összefoglaló küldése...")
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    target_date_str = (datetime.now(HUNGARY_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
+    generation_date_str = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
     message_to_admin = f"🤖 *Admin Teszt Futtatás Jelentés ({target_date_str})*\n\n"
 
     try:
