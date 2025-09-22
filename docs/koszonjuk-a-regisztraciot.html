@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Sikeres Regisztráció!</title>
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '1858049415130011');
+    fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
+    /></noscript>
+    <style>
+        body { font-family: sans-serif; background-color: #1A202C; color: #E2E8F0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; text-align: center; }
+        .container { max-width: 500px; }
+        h1 { color: #38A169; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Köszönjük a regisztrációdat!</h1>
+        <p>Egy pillanat, és átirányítunk a bejelentkezéshez...</p>
+    </div>
+
+    <script>
+        // A REGISZTRÁCIÓS ESEMÉNY ELKÜLDÉSE
+        fbq('track', 'CompleteRegistration');
+
+        // ÁTIRÁNYÍTÁS 2 MÁSODPERC MÚLVA
+        setTimeout(function() {
+            window.location.href = "https://mondomatutit.hu/#login-register";
+        }, 2000);
+    </script>
+</body>
+</html>
