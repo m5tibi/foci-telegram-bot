@@ -97,7 +97,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            # Ha a felhasználó már létezik, egyszerűen csak irányítsuk a bejelentkezéshez
+            # Ha a felhasználó már létezik, egyszerűen csak irányítsuk a bejelentkezéshez hibaüzenettel
             return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
         
         hashed_password = get_password_hash(password)
