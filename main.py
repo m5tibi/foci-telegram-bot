@@ -97,7 +97,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+            return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
         hashed_password = get_password_hash(password)
         insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
         if insert_response.data:
@@ -358,3 +358,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
