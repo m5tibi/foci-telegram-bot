@@ -1,4 +1,4 @@
-# main.py (V8.1 - Statisztikához igazított ingyenes feltöltés)
+# main.py (V8.2 - Végleges regisztrációs átirányítás javítás)
 
 import os
 import asyncio
@@ -97,12 +97,18 @@ async def handle_registration(request: Request, email: str = Form(...), password
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
+            # Ha a felhasználó már létezik, egyszerűen csak irányítsuk a bejelentkezéshez
+            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+        
         hashed_password = get_password_hash(password)
         insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
+        
         if insert_response.data:
-            return RedirectResponse(url="https://mondomatutit.hu?registered=true#login-register", status_code=303)
-        else: raise Exception("Insert failed")
+            # SIKERES ÚJ REGISZTRÁCIÓ ESETÉN IRÁNYÍTÁS A KÖSZÖNŐOLDALRA
+            return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
+        else: 
+            raise Exception("Insert failed")
+            
     except Exception as e:
         print(f"!!! KRITIKUS HIBA A REGISZTRÁCIÓ SORÁN: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
@@ -358,4 +364,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
