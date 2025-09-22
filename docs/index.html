@@ -170,7 +170,22 @@
             .hero { min-height: 35vh; }
         }
     </style>
-</head>
+
+    <script>
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        // A PIXEL INICIALIZÁLÁSA ITT MÉG NEM TÖRTÉNIK MEG!
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
+    /></noscript>
+    </head>
 <body>
 
     <section class="hero">
@@ -316,18 +331,14 @@
     <script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
     <script>
         // FACEBOOK PIXEL ÉS SÜTI KEZELŐ LOGIKA
-        function loadFacebookPixel() {
-            console.log("Facebook Pixel betöltése...");
-            !function(f,b,e,v,n,t,s)
-            {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-            n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-            if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-            n.queue=[];t=b.createElement(e);t.async=!0;
-            t.src=v;s=b.getElementsByTagName(e)[0];
-            s.parentNode.insertBefore(t,s)}(window, document,'script',
-            'https://connect.facebook.net/en_US/fbevents.js');
+        function initializeFacebookPixel() {
+            console.log("Facebook Pixel inicializálása...");
             fbq('init', '1858049415130011');
             fbq('track', 'PageView');
+            
+            // REGISZTRÁCIÓ FIGYELÉSE (CSAK HA AZ URL PARAMÉTER JELEN VAN)
+            // EZT A KÓDOT A SZERVER OLDALI ÁTIRÁNYÍTÁS UTÁN KIVETTEM, MERT MÁR A KÖSZÖNŐOLDALON TÖRTÉNIK A MÉRÉS.
+            // HA VISSZA KELL TENNI, IDE JÖNNE.
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -342,17 +353,22 @@
             }
 
             const consent = getCookie('user_cookie_consent');
+            let pixelInitialized = false;
 
-            if (!consent) {
+            if (consent === 'accepted') {
+                initializeFacebookPixel();
+                pixelInitialized = true;
+            } else if (!consent) {
                 banner.style.display = 'flex';
-            } else if (consent === 'accepted') {
-                loadFacebookPixel();
             }
 
             acceptBtn.addEventListener('click', function() {
                 document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
                 banner.style.display = 'none';
-                loadFacebookPixel();
+                if (!pixelInitialized) {
+                    initializeFacebookPixel();
+                    pixelInitialized = true;
+                }
             });
 
             declineBtn.addEventListener('click', function() {
