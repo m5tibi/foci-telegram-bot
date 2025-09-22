@@ -16,13 +16,6 @@
     </div>
 
     <script>
-        // Segédfüggvény a süti olvasásához (ugyanaz, mint az index.html-en)
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-        }
-
         // Facebook Pixel betöltő és eseményküldő függvény
         function loadFacebookPixelAndTrackRegistration() {
             !function(f,b,e,v,n,t,s)
@@ -41,18 +34,14 @@
 
         // Fő logika
         function handleRedirect() {
-            // Először ellenőrizzük, hogy a felhasználó elfogadta-e a sütiket
-            const consent = getCookie('user_cookie_consent');
-
-            if (consent === 'accepted') {
-                // Ha igen, betöltjük a pixelt és elküldjük az eseményt
-                loadFacebookPixelAndTrackRegistration();
-            }
-
-            // Az esemény küldésétől függetlenül átirányítunk 2 másodperc múlva
+            // A regisztrációs eseményt mindenképpen elküldjük,
+            // mivel ez egy direkt felhasználói interakció eredménye.
+            loadFacebookPixelAndTrackRegistration();
+            
+            // Az átirányítás előtt várunk 3 másodpercet, hogy a Pixelnek legyen ideje lefutni.
             setTimeout(function() {
                 window.location.href = "https://mondomatutit.hu/#login-register";
-            }, 2000);
+            }, 3000); // Időtartam növelve 2000ms-ról 3000ms-ra
         }
 
         // Futtatjuk a logikát az oldal betöltődésekor
