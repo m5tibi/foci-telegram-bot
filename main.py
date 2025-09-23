@@ -178,7 +178,7 @@ async def vip_area(request: Request):
                 if status == "Nincs megfelelő tipp": daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet."
                 elif status == "Jóváhagyásra vár": daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak."
                 elif status == "Admin által elutasítva": daily_status_message = f"A {status_message_date} tippeket az adminisztrátor minőségi ellenőrzés után elutasította."
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények. A holnapi tippek általában este 19:00 után érkeznek!"
+                else: daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben."
@@ -364,3 +364,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"WEBHOOK HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
