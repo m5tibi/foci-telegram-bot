@@ -1,4 +1,4 @@
-# send_daily_update.py (V5.5 - Admin Jóváhagyó Verzió)
+# send_daily_update.py (V5.6 - Aznapi Jóváhagyáshoz Igazítva)
 import os
 import asyncio
 from supabase import create_client
@@ -15,8 +15,16 @@ ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 def get_tip_details(tip_text):
-    tip_map = { "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt", "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2", "First Half Over 0.5": "Félidő 0.5 gól felett", "Home Over 0.5": "Hazai 0.5 gól felett", "Home Over 1.5": "Hazai 1.5 gól felett", "Away Over 0.5": "Vendég 0.5 gól felett", "Away Over 1.5": "Vendég 1.5 gól felett"}
-    return tip_map.get(tip_text, tip_text)
+    # Kiegészítve az új, szimulált fogadáskészítő tippekkel
+    tip_map = {
+        "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett",
+        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt",
+        "1X": "Dupla esély: 1X", "X2": "Dupla esély: X2",
+        "Home & Over 1.5": "Hazai nyer és 1.5 gól felett",
+        "Away & Over 1.5": "Vendég nyer és 1.5 gól felett"
+    }
+    return tip_map.get(tip_text, tip_text.replace('_', ' ').replace('&', 'és'))
+
 
 async def send_admin_review_notification():
     if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN, ADMIN_CHAT_ID]):
@@ -27,7 +35,9 @@ async def send_admin_review_notification():
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     
-    target_date_str = (datetime.now(HUNGARY_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
+    # --- JAVÍTÁS ITT: A timedelta(days=1) eltávolítva ---
+    target_date_str = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
+    # --- JAVÍTÁS VÉGE ---
 
     try:
         status_response = supabase.table("daily_status").select("status").eq("date", target_date_str).limit(1).execute()
@@ -36,7 +46,7 @@ async def send_admin_review_notification():
             print(f"Nincs jóváhagyásra váró tipp a(z) {target_date_str} napra.")
             return
 
-        slips_res = supabase.table("napi_tuti").select("*, is_admin_only").like("tipp_neve", f"%{target_date_str}%").execute()
+        slips_res = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").like("tipp_neve", f"%{target_date_str}%").execute()
         if not slips_res.data:
             await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"⚠️ Hiba: A státusz 'Jóváhagyásra vár', de nem található szelvény a(z) {target_date_str} napra.")
             return
@@ -47,7 +57,7 @@ async def send_admin_review_notification():
         message_to_admin = f"🔔 *Jóváhagyásra Váró Tippek ({target_date_str})*\n\n"
         for slip in slips_res.data:
             admin_label = "[CSAK ADMIN] 🤫 " if slip.get('is_admin_only') else ""
-            message_to_admin += f"*{admin_label}{slip['tipp_neve']}* (Conf: {slip['confidence_percent']}%, Odds: {slip['eredo_odds']:.2f})\n"
+            message_to_admin += f"*{admin_label}{slip['tipp_neve']}* (Conf: {slip.get('confidence_percent', 'N/A')}%, Odds: {slip['eredo_odds']:.2f})\n"
             for tip_id in slip.get('tipp_id_k', []):
                 meccs = meccsek_map.get(tip_id)
                 if meccs:
