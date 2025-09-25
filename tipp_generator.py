@@ -1,4 +1,4 @@
-# tipp_generator.py (V24.0 - Finomhangolt Stratégiával és Debug Móddal)
+# tipp_generator.py (V25.0 - Újragondolt Stratégiával és Debug Móddal)
 
 import os
 import requests
@@ -88,45 +88,44 @@ def analyze_fixture_for_patterns(fixture, odds_data):
             home_goals_against = home_stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0)
             away_goals_for = away_stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0)
             away_goals_against = away_stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0)
-
-            home_goals_avg = (home_goals_for + home_goals_against) / home_played
-            away_goals_avg = (away_goals_for + away_goals_against) / away_played
             
-            # FINOMHANGOLÁS: A küszöböt 2.8-ról 2.5-re csökkentettük
-            if (home_goals_avg + away_goals_avg) / 2 > 2.5:
-                potential_tips.append({
-                    "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
-                    "prediction": "Gólok száma 2.5 felett",
-                    "odds": over_2_5_odds,
-                    "reason": f"Magas gólátlag a meccseiken ({((home_goals_avg + away_goals_avg) / 2):.2f})",
-                    "confidence": 80
-                })
+            # Pontozás: Minél magasabb a gólátlag, annál több pont
+            combined_avg = ((home_goals_for + home_goals_against) / home_played + (away_goals_for + away_goals_against) / away_played) / 2
+            score = int(combined_avg * 25) # Szorzó a pontszám skálázásához
+            
+            potential_tips.append({
+                "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
+                "prediction": "Gólok száma 2.5 felett", "odds": over_2_5_odds,
+                "reason": f"Kombinált gólátlag: {combined_avg:.2f}", "score": score
+            })
 
     # --- 2. Minta: "Gólváltás" (GG) ---
     gg_odds = get_odds_for_market(odds_data, 8, "Yes")
     if gg_odds and 1.60 <= gg_odds <= 2.10:
-        home_goals_for_avg_str = home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0')
-        away_goals_for_avg_str = away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0')
+        home_avg_for = float(home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0'))
+        away_avg_for = float(away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0'))
         
-        home_goals_for_avg = float(home_goals_for_avg_str)
-        away_goals_for_avg = float(away_goals_for_avg_str)
+        # Pontozás: Minél magasabb a két csapat támadóereje, annál több pont
+        score = int((home_avg_for * 1.2 + away_avg_for) * 20) # Hazai pálya előnyével súlyozva
         
-        # FINOMHANGOLÁS: A küszöböt enyhítettük, hogy több esélyes meccset találjon
-        if home_goals_for_avg > 1.2 and away_goals_for_avg > 0.8:
-            potential_tips.append({
-                "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
-                "prediction": "Mindkét csapat szerez gólt",
-                "odds": gg_odds,
-                "reason": f"Mindkét csapat gólerős (H: {home_goals_for_avg_str}, V: {away_goals_for_avg_str})",
-                "confidence": 75
-            })
+        potential_tips.append({
+            "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
+            "prediction": "Mindkét csapat szerez gólt", "odds": gg_odds,
+            "reason": f"Gólszerzési átlag (H/V): {home_avg_for:.2f}/{away_avg_for:.2f}", "score": score
+        })
 
     return potential_tips
 
 # --- SZELVÉNY ÖSSZEÁLLÍTÓ ---
 def create_doubles_from_tips(today_str, tips):
     all_slips = []
-    sorted_tips = sorted(tips, key=lambda x: x['confidence'], reverse=True)
+    # Csak azokat a tippeket vesszük figyelembe, amik elérik a MINIMÁLIS pontszámot
+    qualified_tips = [tip for tip in tips if tip['score'] >= 60]
+    
+    if len(qualified_tips) < 2:
+        return []
+
+    sorted_tips = sorted(qualified_tips, key=lambda x: x['score'], reverse=True)
 
     for combo in combinations(sorted_tips[:8], 2):
         tip1, tip2 = combo[0], combo[1]
@@ -168,6 +167,7 @@ def main():
     
     status_message = ""
     all_slips = []
+    all_potential_tips = []
 
     if not all_fixtures_today:
         status_message = "Nem található egyetlen mérkőzés sem a mai napon."
@@ -184,7 +184,6 @@ def main():
                 status_message = "Nincs több meccs a mai napon a figyelt ligákból."
             else:
                 prefetch_data_for_fixtures(future_fixtures)
-                all_potential_tips = []
                 
                 print("\n--- Meccsek elemzése a Tipsterbot-stílusú stratégiákkal ---")
                 for fixture in future_fixtures:
@@ -196,19 +195,18 @@ def main():
 
                 if all_potential_tips:
                     all_slips = create_doubles_from_tips(today_str, all_potential_tips)
-                    status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény." if all_slips else "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
+                    status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény." if all_slips else "A jelöltekből nem sikerült szelvényt összeállítani (nem érték el a min. pontszámot)."
                 else:
                     status_message = "Egyetlen meccs sem felelt meg a beépített mintázatoknak."
 
     print(f"\nEredmény: {status_message}")
 
     if is_test_mode:
-        # ÚJ DEBUG MÓD: Ha nincs szelvény, kiírjuk a legjobb jelölteket
         if not all_slips and all_potential_tips:
-             print("\n--- DEBUG: Legjobb jelöltek, amik nem lettek szelvénnyé alakítva ---")
-             sorted_debug_tips = sorted(all_potential_tips, key=lambda x: x['confidence'], reverse=True)
+             print("\n--- DEBUG MÓD: Legjobb 5 jelölt, ami nem érte el a 60 pontos küszöböt ---")
+             sorted_debug_tips = sorted(all_potential_tips, key=lambda x: x['score'], reverse=True)
              for tip in sorted_debug_tips[:5]:
-                 print(f"- {tip['match']}: {tip['prediction']} @{tip['odds']} (Reason: {tip['reason']})")
+                 print(f"- Pontszám: {tip['score']} | {tip['match']}: {tip['prediction']} @{tip['odds']} (Indok: {tip['reason']})")
         
         test_result = {'status': 'Sikeres' if all_slips else 'Sikertelen', 'message': status_message, 'slips': all_slips}
         with open('test_results.json', 'w', encoding='utf-8') as f:
