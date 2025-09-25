@@ -1,258 +1,194 @@
-# tipp_generator.py (V13.0 - Bővített Adatgyűjtés: H2H és Sérültek)
-
-import os
-import requests
-from supabase import create_client, Client
-from datetime import datetime, timedelta
-import time
-import pytz
-import math
-import sys
 import json
-from itertools import combinations
 
 # --- Konfiguráció ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
+INPUT_FILE = 'gemini_analysis_data.json'
+OUTPUT_FILE = 'docs/free_tips.html'
+MAIN_BET_ID = 1      # Match Winner (1X2)
+OVER_UNDER_ID = 5  # Goals Over/Under
 
-# --- Globális Gyorsítótárak ---
-TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE = {}, {}, {}, {}
+def get_odds_for_bet(odds_list, bet_id, bet_value=None):
+    """
+    Segédfüggvény, amely kikeresi egy adott fogadási típushoz tartozó oddsot.
+    """
+    for bet in odds_list:
+        if bet['id'] == bet_id:
+            for value in bet['values']:
+                if bet_value:
+                    if value['value'] == bet_value:
+                        return float(value['odd'])
+                else: # Ha nincs bet_value, az elsőt adjuk vissza (pl. a 'Home' oddsot)
+                    return float(value['odd'])
+    return None
 
-# --- LIGA PROFILOK ---
-RELEVANT_LEAGUES = {
-    39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
-    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
-    94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
-    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
-}
-DERBY_LIST = [(50, 66), (85, 106)]
-
-# --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
-def get_api_data(endpoint, params, retries=3, delay=5):
-    url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    for i in range(retries):
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=25)
-            response.raise_for_status()
-            time.sleep(0.7)
-            return response.json().get('response', [])
-        except requests.exceptions.RequestException as e:
-            if i < retries - 1: time.sleep(delay)
-            else: print(f"Sikertelen API hívás: {endpoint}"); return []
-
-def prefetch_data_for_fixtures(fixtures):
-    if not fixtures: return
-    print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
-    season = str(datetime.now(BUDAPEST_TZ).year)
-    league_ids = list(set(f['league']['id'] for f in fixtures))
+def calculate_match_score(match_data):
+    """
+    A rendszer "agya". Ez a függvény lepontozza a mérkőzést a statisztikák alapján.
+    Minél magasabb a pontszám, annál biztosabbnak tűnik a favorit győzelme.
+    """
+    score = 0
+    reason = [] # Gyűjtjük az indokokat, hogy a tipp átláthatóbb legyen
     
-    for league_id in league_ids:
-        if league_id not in STANDINGS_CACHE:
-            standings_data = get_api_data("standings", {"league": str(league_id), "season": season})
-            if standings_data: STANDINGS_CACHE[league_id] = standings_data[0]['league']['standings'][0]
+    stats = match_data.get('statistics', {})
+    home_stats = stats.get('home')
+    away_stats = stats.get('away')
+    standings = stats.get('standings')
+    h2h = stats.get('h2h', [])
 
-    for fixture in fixtures:
-        fixture_id = fixture['fixture']['id']
-        league_id, home_id, away_id = fixture['league']['id'], fixture['teams']['home']['id'], fixture['teams']['away']['id']
+    # Odds lekérése a favorithoz
+    home_odds = get_odds_for_bet(match_data['odds'], MAIN_BET_ID, 'Home')
+    if not home_odds:
+        return 0, [] # Ha nincs odds, nem elemezzük
+
+    # 1. Forma alapú pontozás (max 20 pont)
+    if home_stats and 'form' in home_stats:
+        home_form = home_stats['form'] or ''
+        wins_in_last_5 = home_form[-5:].count('W')
+        score += wins_in_last_5 * 4
+        if wins_in_last_5 >= 4:
+            reason.append(f"Kiemelkedő forma ({home_form[-5:]})")
+
+    # 2. Tabellán elfoglalt helyezés (max 20 pont)
+    if standings:
+        home_rank, away_rank = None, None
+        for team_standing in standings:
+            if team_standing['team']['id'] == match_data['teams']['home']['id']:
+                home_rank = team_standing['rank']
+            if team_standing['team']['id'] == match_data['teams']['away']['id']:
+                away_rank = team_standing['rank']
         
-        # ÚJ: H2H és Sérültek adatainak előtöltése
-        h2h_key = tuple(sorted((home_id, away_id)))
-        if h2h_key not in H2H_CACHE: H2H_CACHE[h2h_key] = get_api_data("fixtures/headtohead", {"h2h": f"{home_id}-{away_id}", "last": "5"})
-        if fixture_id not in INJURIES_CACHE: INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
+        if home_rank is not None and away_rank is not None:
+            rank_diff = away_rank - home_rank
+            if rank_diff > 5:
+                score += 10
+                reason.append(f"Jelentős helyezéskülönbség a tabellán ({home_rank}. vs {away_rank}.)")
+            if rank_diff > 10:
+                score += 10 # Bónuszpont nagy különbségnél
 
-        for team_id in [home_id, away_id]:
-            stats_key = f"{team_id}_{league_id}"
-            if stats_key not in TEAM_STATS_CACHE:
-                stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(team_id)})
-                if stats: TEAM_STATS_CACHE[stats_key] = stats
-    print("Adatok előtöltése befejezve.")
-
-# --- BŐVÍTETT STRATÉGIAI ELEMZŐ ---
-def analyze_fixture_for_new_strategy(fixture):
-    teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
-    home_id, away_id = teams['home']['id'], teams['away']['id']
-    
-    if tuple(sorted((home_id, away_id))) in DERBY_LIST: return []
-    if "Cup" in league['name'] or "Kupa" in league['name']: return []
-
-    stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league['id']}")
-    stats_v = TEAM_STATS_CACHE.get(f"{away_id}_{league['id']}")
-    h2h_data = H2H_CACHE.get(tuple(sorted((home_id, away_id))))
-    injuries = INJURIES_CACHE.get(fixture_id, [])
-    
-    if not all([stats_h, stats_v, stats_h.get('goals'), stats_v.get('goals')]): return []
-
-    odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
-    if not odds_data or not odds_data[0].get('bookmakers'): return []
-    bets = odds_data[0]['bookmakers'][0].get('bets', [])
-    
-    odds_markets = {f"{b.get('name')}_{v.get('value')}": float(v.get('odd')) for b in bets for v in b.get('values', [])}
-
-    found_tips = []
-    confidence_modifiers = 0
-
-    # ÚJ: H2H elemzés a gólokra
-    if h2h_data:
-        over_2_5_count = sum(1 for match in h2h_data if (match['goals']['home'] + match['goals']['away']) > 2.5)
-        btts_count = sum(1 for match in h2h_data if match['goals']['home'] > 0 and match['goals']['away'] > 0)
-        if over_2_5_count >= 3: confidence_modifiers += 5 # Ha az utolsó 5 meccsből legalább 3-szor 2.5+ gól volt
-        if btts_count >= 3: confidence_modifiers += 5
-
-    # ÚJ: Sérültek elemzése (egyszerűsített)
-    # Ha 2-nél több fontos támadó vagy középpályás hiányzik összesen, csökkentjük az esélyt
-    key_player_positions = ['Attacker', 'Midfielder']
-    key_injuries_count = sum(1 for p in injuries if p['player']['type'] in key_player_positions)
-    if key_injuries_count > 2: confidence_modifiers -= 10
-    
-    # Stratégia 1: Fogadáskészítő Szimuláció
-    home_win_odds = odds_markets.get("Match Winner_Home")
-    away_win_odds = odds_markets.get("Match Winner_Away")
-    over_1_5_odds = odds_markets.get("Goals Over/Under_Over 1.5")
-    
-    if over_1_5_odds:
-        if home_win_odds and home_win_odds < 1.5:
-            combined_odds = home_win_odds * (1 + (over_1_5_odds - 1) * 0.4)
-            if 1.40 <= combined_odds <= 1.80:
-                found_tips.append({"tipp": f"Home & Over 1.5", "odds": combined_odds, "confidence": 80 + confidence_modifiers})
-        if away_win_odds and away_win_odds < 1.5:
-            combined_odds = away_win_odds * (1 + (over_1_5_odds - 1) * 0.4)
-            if 1.40 <= combined_odds <= 1.80:
-                 found_tips.append({"tipp": f"Away & Over 1.5", "odds": combined_odds, "confidence": 80 + confidence_modifiers})
-    
-    # Stratégia 2: Önálló Piacok
-    over_2_5_odds = odds_markets.get("Goals Over/Under_Over 2.5")
-    if over_2_5_odds and 1.40 <= over_2_5_odds <= 1.80:
-        avg_goals_home = float(stats_h['goals']['for']['total']['total'] or 0) / float(stats_h['fixtures']['played']['total'] or 1)
-        avg_goals_away = float(stats_v['goals']['for']['total']['total'] or 0) / float(stats_v['fixtures']['played']['total'] or 1)
-        if (avg_goals_home + avg_goals_away) > 2.8:
-            found_tips.append({"tipp": "Over 2.5", "odds": over_2_5_odds, "confidence": 75 + confidence_modifiers})
-
-    btts_yes_odds = odds_markets.get("Both Teams to Score_Yes")
-    if btts_yes_odds and 1.40 <= btts_yes_odds <= 1.80:
-        avg_goals_home = float(stats_h['goals']['for']['total']['total'] or 0) / float(stats_h['fixtures']['played']['total'] or 1)
-        avg_goals_away = float(stats_v['goals']['for']['total']['total'] or 0) / float(stats_v['fixtures']['played']['total'] or 1)
-        if avg_goals_home > 1.4 and avg_goals_away > 1.2:
-            found_tips.append({"tipp": "BTTS", "odds": btts_yes_odds, "confidence": 70 + confidence_modifiers})
-
-    if not found_tips: return []
-    best_tip = sorted(found_tips, key=lambda x: x['confidence'], reverse=True)[0]
-    
-    return [{
-        "fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'],
-        "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], 
-        "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']
-    }]
-
-# --- SZELVÉNYKÉSZÍTŐ ---
-def create_doubles_from_tips(date_str, all_potential_tips):
-    print(f"\nÖsszesen {len(all_potential_tips)} db, szabályoknak megfelelő tippből próbálunk szelvényt építeni.")
-    if len(all_potential_tips) < 2: return []
-    
-    sorted_tips = sorted(all_potential_tips, key=lambda x: x['confidence'], reverse=True)
-    valid_combos = []
-    
-    for combo in combinations(sorted_tips, 2):
-        tip1, tip2 = combo
-        if tip1['kezdes'][:10] != tip2['kezdes'][:10]: continue
-        total_odds = tip1['odds'] * tip2['odds']
-        if 2.00 <= total_odds <= 3.00:
-            valid_combos.append({"combo": [tip1, tip2], "eredo_odds": total_odds, "avg_confidence": (tip1['confidence'] + tip2['confidence']) / 2})
-            
-    if not valid_combos: return []
-    
-    print(f"Találat: {len(valid_combos)} db, 2.00-3.00 odds közötti, azonos napi kombináció.")
-    best_combos = sorted(valid_combos, key=lambda x: x['avg_confidence'], reverse=True)
-    final_slips, used_fixture_ids = [], set()
-    
-    for combo_data in best_combos:
-        if len(final_slips) >= 2: break
-        combo = combo_data['combo']
-        fixture_id1, fixture_id2 = combo[0]['fixture_id'], combo[1]['fixture_id']
+    # 3. Egymás elleni (H2H) eredmények (max 30 pont)
+    if h2h:
+        home_id = match_data['teams']['home']['id']
+        home_h2h_wins = 0
+        # Csak az utolsó 5 H2H meccset nézzük
+        for match in h2h[:5]:
+            if match['teams']['home']['id'] == home_id and match['score']['fulltime']['home'] > match['score']['fulltime']['away']:
+                home_h2h_wins += 1
+            elif match['teams']['away']['id'] == home_id and match['score']['fulltime']['away'] > match['score']['fulltime']['home']:
+                home_h2h_wins += 1
         
-        if fixture_id1 not in used_fixture_ids and fixture_id2 not in used_fixture_ids:
-            match_date = combo[0]['kezdes'][:10]
-            final_slips.append({
-                "tipp_neve": f"Napi Dupla #{len(final_slips) + 1} - {match_date}",
-                "eredo_odds": combo_data['eredo_odds'], "combo": combo,
-                "confidence_percent": int(combo_data['avg_confidence'])
-            })
-            used_fixture_ids.add(fixture_id1); used_fixture_ids.add(fixture_id2)
-            
-    return final_slips
+        if home_h2h_wins >= 4:
+            score += 30
+            reason.append(f"Domináns H2H mérleg (az utolsó 5-ből {home_h2h_wins} győzelem)")
+        elif home_h2h_wins == 3:
+            score += 15
 
-# --- MENTÉS ÉS STÁTUSZ ---
-def save_slips_to_supabase(all_slips):
-    if not all_slips: return
-    unique_tips_dict = {f"{t['fixture_id']}_{t['tipp']}": t for slip in all_slips for t in slip['combo']}
-    try:
-        tips_to_insert = [{"fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'], "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'], "odds": tip['odds'], "eredmeny": "Tipp leadva", "confidence_score": tip['confidence']} for _, tip in unique_tips_dict.items()]
-        response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
-        saved_tips_map = {f"{t['fixture_id']}_{t['tipp']}": t['id'] for t in response.data}
-        slips_to_insert = []
-        for slip in all_slips:
-            tipp_id_k = [saved_tips_map.get(f"{t['fixture_id']}_{t['tipp']}") for t in slip['combo'] if saved_tips_map.get(f"{t['fixture_id']}_{t['tipp']}")]
-            if len(tipp_id_k) == len(slip['combo']):
-                slips_to_insert.append({"tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"], "tipp_id_k": tipp_id_k, "confidence_percent": slip["confidence_percent"]})
-        if slips_to_insert:
-            supabase.table("napi_tuti").insert(slips_to_insert).execute()
-            print(f"Sikeresen elmentve {len(slips_to_insert)} szelvény.")
-    except Exception as e:
-        print(f"!!! HIBA a tippek Supabase-be mentése során: {e}")
+    # 4. Gólarány alapú pontozás (max 15 pont)
+    if home_stats and away_stats and home_stats.get('goals_for') is not None:
+        home_goals_for_avg = home_stats['goals_for'] / (home_stats.get('wins',0)+home_stats.get('draws',0)+home_stats.get('loses',1))
+        away_goals_against_avg = away_stats['goals_against'] / (away_stats.get('wins',0)+away_stats.get('draws',0)+away_stats.get('loses',1))
 
-def record_daily_status(date_str, status, reason=""):
-    try:
-        print(f"Napi státusz rögzítése: {date_str} - {status}")
-        supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
-    except Exception as e:
-        print(f"!!! HIBA a napi státusz rögzítése során: {e}")
+        if home_goals_for_avg > 1.8 and away_goals_against_avg > 1.5:
+            score += 15
+            reason.append(f"Erős támadósor ({home_goals_for_avg:.2f} gól/meccs) egy sebezhető védelem ellen")
 
-# --- FŐ VEZÉRLŐ ---
+    return score, reason
+
+def find_best_tips(matches_data):
+    """
+    Kiválasztja a legjobb tippeket a pontozórendszer alapján.
+    """
+    candidates = []
+    for match in matches_data:
+        data = match['fixture_data']
+        home_odds = get_odds_for_bet(data['odds'], MAIN_BET_ID, 'Home')
+        
+        # Alap szűrés: Csak a statisztikailag egyértelmű favoritokat nézzük
+        if home_odds and 1.20 <= home_odds <= 1.85:
+            score, reason = calculate_match_score(data)
+            if score > 30: # Csak a magas pontszámú, ígéretes meccsekkel foglalkozunk
+                candidates.append({
+                    'score': score,
+                    'reason': reason,
+                    'match_data': data,
+                    'tip_description': f"{data['teams']['home']['name']} győzelem",
+                    'odds': home_odds
+                })
+
+    # Rendezzük a jelölteket a pontszámuk alapján csökkenő sorrendbe
+    sorted_candidates = sorted(candidates, key=lambda x: x['score'], reverse=True)
+    
+    if len(sorted_candidates) < 2:
+        return None, None # Nincs elég jó meccs a dupla szelvényhez
+
+    # A legjobb két tippet választjuk ki a szelvényhez
+    tip1 = sorted_candidates[0]
+    
+    # A második tippet úgy keressük, hogy az össz-odds 2.00 felett legyen, de ne legyen túl magas
+    tip2 = None
+    for candidate in sorted_candidates[1:]:
+        if (tip1['odds'] * candidate['odds']) > 2.0 and (tip1['odds'] * candidate['odds']) < 3.5:
+             # Fontos ellenőrzés: a két tipp ne ugyanaz a meccs legyen
+            if tip1['match_data']['fixture']['id'] != candidate['match_data']['fixture']['id']:
+                tip2 = candidate
+                break
+
+    return tip1, tip2
+
+def generate_html_output(tip1, tip2):
+    """
+    Legenerálja a HTML kimenetet a weboldal számára.
+    """
+    if not tip1 or not tip2:
+        return "<h1>Nincs a mai napra a kritériumoknak megfelelő tipp.</h1>"
+
+    total_odds = tip1['odds'] * tip2['odds']
+    
+    # Az indoklásokat összefűzzük egy olvasható stringgé
+    reason1_str = ", ".join(tip1['reason'])
+    reason2_str = ", ".join(tip2['reason'])
+
+    html = f"""
+    <div class="szelveny">
+        <div class="szelveny-fejlec">
+            <h2>Napi Dupla Szelvény</h2>
+            <p>Eredő odds: <strong>{total_odds:.2f}</strong></p>
+        </div>
+        <div class="tipp">
+            <p class="meccs">{tip1['match_data']['teams']['home']['name']} vs {tip1['match_data']['teams']['away']['name']}</p>
+            <p class="piac">Tipp: <strong>{tip1['tip_description']}</strong></p>
+            <p class="odds">Odds: {tip1['odds']:.2f}</p>
+            <p class="indoklas">Indoklás: <strong>{reason1_str}</strong> (Pontszám: {tip1['score']})</p>
+        </div>
+        <div class="tipp">
+            <p class="meccs">{tip2['match_data']['teams']['home']['name']} vs {tip2['match_data']['teams']['away']['name']}</p>
+            <p class="piac">Tipp: <strong>{tip2['tip_description']}</strong></p>
+            <p class="odds">Odds: {tip2['odds']:.2f}</p>
+            <p class="indoklas">Indoklás: <strong>{reason2_str}</strong> (Pontszám: {tip2['score']})</p>
+        </div>
+    </div>
+    """
+    return html
+
 def main():
-    is_test_mode = '--test' in sys.argv
-    start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Bővített Adatgyűjtésű Tipp Generátor (V13.0) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
-    
-    today_str = start_time.strftime("%Y-%m-%d")
-    all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
+    try:
+        with open(INPUT_FILE, 'r', encoding='utf-8') as f:
+            matches_data = json.load(f)
+    except FileNotFoundError:
+        print(f"Hiba: A '{INPUT_FILE}' nem található. Futtasd először a gemini_data_exporter.py-t.")
+        return
+    except json.JSONDecodeError:
+        print(f"Hiba: A '{INPUT_FILE}' formátuma nem megfelelő.")
+        return
 
-    if not all_fixtures_raw:
-        record_daily_status(today_str, "Nincs megfelelő tipp", "Az API nem adott vissza meccseket a mai napra."); return
-        
-    now_utc = datetime.now(pytz.utc)
-    future_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc]
+    tip1, tip2 = find_best_tips(matches_data)
     
-    print(f"Összesen {len(future_fixtures)} releváns és jövőbeli meccs van a mai napon.")
-    if not future_fixtures:
-        record_daily_status(today_str, "Nincs megfelelő tipp", "Nincs több meccs a mai napon a figyelt ligákból."); return
-        
-    prefetch_data_for_fixtures(future_fixtures)
-    all_potential_tips = []
+    html_content = generate_html_output(tip1, tip2)
     
-    print("\n--- Meccsek elemzése a bővített stratégia alapján ---")
-    for fixture in future_fixtures:
-        valuable_tips = analyze_fixture_for_new_strategy(fixture)
-        if valuable_tips: all_potential_tips.extend(valuable_tips)
-        
-    if all_potential_tips:
-        all_slips = create_doubles_from_tips(today_str, all_potential_tips)
-        if all_slips:
-            print(f"\n✅ Sikeresen összeállítva {len(all_slips)} darab szelvény.")
-            if is_test_mode:
-                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
-                print("Teszt eredmények a 'test_results.json' fájlba írva.")
-            else:
-                save_slips_to_supabase(all_slips)
-                record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
-        else:
-            record_daily_status(today_str, "Nincs megfelelő tipp", "A bot talált tippeket, de nem tudott belőlük 2-es kötést összeállítani.")
-    else:
-        record_daily_status(today_str, "Nincs megfelelő tipp", "Az algoritmus nem talált a kritériumoknak megfelelő tippet a mai napra.")
+    try:
+        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"A tippek sikeresen legenerálva a(z) '{OUTPUT_FILE}' fájlba.")
+    except IOError as e:
+        print(f"Hiba a HTML fájl írása közben: {e}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
