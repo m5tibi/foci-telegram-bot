@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.0 - Eredeti Dátumkezeléssel és Gemini Pontozóval)
+# tipp_generator.py (V18.0 - Helyes Típuskonverzióval)
 
 import os
 import requests
@@ -150,8 +150,7 @@ def main():
         if not relevant_fixtures_today:
             status_message = "Nem található meccs a figyelt ligákban."
         else:
-            now_utc = datetime.utcnow() # Naiv UTC idő
-            # JAVÍTÁS: Visszatérés az eredeti, robusztus dátumkezelési logikához
+            now_utc = datetime.utcnow()
             future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'][:-6]) > now_utc]
             
             if not future_fixtures:
@@ -163,18 +162,22 @@ def main():
                 print("\n--- Meccsek elemzése az intelligens pontozóval ---")
                 for fixture in future_fixtures:
                     odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"})
-                    if odds_data:
-                        home_odds = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
-                        if home_odds and 1.25 <= home_odds <= 1.85:
-                            score, reason = analyze_and_score_fixture(fixture)
-                            if score >= 50 and len(reason) >= 2:
-                                all_potential_tips.append({
-                                    "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
-                                    "prediction": f"{fixture['teams']['home']['name']} győzelem",
-                                    "odds": home_odds,
-                                    "reason": ", ".join(reason),
-                                    "score": score
-                                })
+                    if odds_data and odds_data[0].get('bookmakers'):
+                        # JAVÍTÁS: Az odds értékét azonnal számmá (float) alakítjuk
+                        home_odds_str = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
+                        
+                        if home_odds_str:
+                            home_odds = float(home_odds_str)
+                            if 1.25 <= home_odds <= 1.85:
+                                score, reason = analyze_and_score_fixture(fixture)
+                                if score >= 50 and len(reason) >= 2:
+                                    all_potential_tips.append({
+                                        "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
+                                        "prediction": f"{fixture['teams']['home']['name']} győzelem",
+                                        "odds": home_odds,
+                                        "reason": ", ".join(reason),
+                                        "score": score
+                                    })
 
                 if all_potential_tips:
                     all_slips = create_doubles_from_tips(today_str, all_potential_tips)
