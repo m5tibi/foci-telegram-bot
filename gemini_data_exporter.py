@@ -3,13 +3,19 @@ import requests
 import json
 from datetime import datetime
 import time
+import sys # Szükséges a program azonnali leállításához
 
 # --- Konfiguráció (RapidAPI-hoz igazítva) ---
-# Fontos: A GitHub Secretsben a kulcs neve továbbra is API_SPORTS_KEY lehet, 
-# de az értékének a RapidAPI-n kapott kulcsnak kell lennie.
-API_KEY = os.getenv('API_SPORTS_KEY') 
-API_HOST = 'api-football-v1.p.rapidapi.com' # Ez a RapidAPI címe
+API_KEY = os.getenv('API_SPORTS_KEY')
+API_HOST = 'api-football-v1.p.rapidapi.com'
 BASE_URL = f'https://{API_HOST}/v3'
+
+# --- INDULÁS UTÁNI ELSŐ ÉS LEGFONTOSABB ELLENŐRZÉS ---
+if not API_KEY:
+    print("KRITIKUS HIBA: Az API_SPORTS_KEY nincs beállítva a környezeti változók között.")
+    print("Kérlek, ellenőrizd a GitHub repository 'Settings -> Secrets and variables -> Actions' menüpontját.")
+    sys.exit(1) # A program leáll, nem fut tovább hibásan
+
 HEADERS = {
     'X-RapidAPI-Host': API_HOST,
     'X-RapidAPI-Key': API_KEY
@@ -20,14 +26,13 @@ MAIN_BET_ID = 1 # Match Winner
 OVER_UNDER_ID = 5 # Goals Over/Under
 
 def make_api_request(url, params):
-    """
-    Központi függvény az API hívások kezelésére, hibakezeléssel.
-    """
+    """Központi függvény az API hívások kezelésére, hibakezeléssel."""
     try:
         response = requests.get(url, headers=HEADERS, params=params)
         response.raise_for_status()
         return response.json().get('response')
     except requests.exceptions.HTTPError as e:
+        # Most már a konkrét hibaüzenetet is kiírjuk a szerverről
         print(f"HTTP Hiba a(z) '{url}' hívásakor: {e.response.status_code} - {e.response.text}")
     except requests.exceptions.RequestException as e:
         print(f"Általános hálózati hiba: {e}")
@@ -47,16 +52,21 @@ def get_team_statistics(team_id, league_id, season):
     return None
 
 def get_h2h_data(team1_id, team2_id):
-    return make_api_request(f"{BASE_URL}/fixtures/headtohead", {'h2h': f"{team1_id}-{team2_id}", 'last': 10}) or []
+    h2h_response = make_api_request(f"{BASE_URL}/fixtures/headtohead", {'h2h': f"{team1_id}-{team2_id}", 'last': 10})
+    return h2h_response if h2h_response is not None else []
+
 
 def get_standings(league_id, season):
     if not league_id:
         return None
     standings_response = make_api_request(f"{BASE_URL}/standings", {'league': league_id, 'season': season})
     if standings_response and len(standings_response) > 0:
-        return standings_response[0]['league']['standings'][0]
+        # Biztonságosabb hozzáférés a beágyazott adatokhoz
+        try:
+            return standings_response[0]['league']['standings'][0]
+        except (KeyError, IndexError):
+            return None
     return None
-
 
 def main():
     today = datetime.now().strftime('%Y-%m-%d')
@@ -74,7 +84,6 @@ def main():
         fixture_id = fixture_info['fixture']['id']
         print(f"\n({i+1}/{total_fixtures}) Adatok gyűjtése: {fixture_info['teams']['home']['name']} vs {fixture_info['teams']['away']['name']}")
 
-        # A RapidAPI limitjei másodperc alapúak, a 1.2s-os várakozás biztonságos
         time.sleep(1.2) 
 
         odds_response = make_api_request(f"{BASE_URL}/odds", {'fixture': fixture_id, 'bookmaker': BOOKMAKER_ID})
@@ -88,6 +97,8 @@ def main():
         home_team_id = fixture_info['teams']['home']['id']
         away_team_id = fixture_info['teams']['away']['id']
 
+        # Hozzáadunk egy kis várakozást a prémium végpontok előtt
+        time.sleep(1)
         home_stats = get_team_statistics(home_team_id, league_id, season)
         time.sleep(1)
         away_stats = get_team_statistics(away_team_id, league_id, season)
