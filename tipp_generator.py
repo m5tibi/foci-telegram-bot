@@ -1,4 +1,4 @@
-# tipp_generator.py (V23.0 - Finomhangolt és Lazított Stratégiával)
+# tipp_generator.py (V24.0 - Finomhangolt Stratégiával és Debug Móddal)
 
 import os
 import requests
@@ -203,6 +203,13 @@ def main():
     print(f"\nEredmény: {status_message}")
 
     if is_test_mode:
+        # ÚJ DEBUG MÓD: Ha nincs szelvény, kiírjuk a legjobb jelölteket
+        if not all_slips and all_potential_tips:
+             print("\n--- DEBUG: Legjobb jelöltek, amik nem lettek szelvénnyé alakítva ---")
+             sorted_debug_tips = sorted(all_potential_tips, key=lambda x: x['confidence'], reverse=True)
+             for tip in sorted_debug_tips[:5]:
+                 print(f"- {tip['match']}: {tip['prediction']} @{tip['odds']} (Reason: {tip['reason']})")
+        
         test_result = {'status': 'Sikeres' if all_slips else 'Sikertelen', 'message': status_message, 'slips': all_slips}
         with open('test_results.json', 'w', encoding='utf-8') as f:
             json.dump(test_result, f, ensure_ascii=False, indent=4)
