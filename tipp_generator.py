@@ -1,14 +1,11 @@
-# tipp_generator.py (V18.0 - Gemini Intelligens Pontozó Integrációval és Robusztus Teszteléssel)
-
+# tipp_generator.py (V19.0 - Végleges, stabil verzió)
 import os
 import requests
-from supabase import create_client, Client
-from datetime import datetime, timedelta
-import time
-import pytz
-import math
 import sys
 import json
+import pytz
+from supabase import create_client, Client
+from datetime import datetime
 from itertools import combinations
 
 # --- Konfiguráció ---
@@ -19,10 +16,10 @@ RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- Globális Gyorsítótárak ---
-TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE = {}, {}, {}, {}
+# --- Gyorsítótárak ---
+TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE = {}, {}, {}
 
-# --- LIGA PROFILOK ---
+# --- Liga Profilok ---
 RELEVANT_LEAGUES = {
     39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
@@ -31,8 +28,8 @@ RELEVANT_LEAGUES = {
     79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
 }
 
-# --- API HÍVÓ FÜGGVÉNY ---
 def get_api_data(endpoint, params):
+    """Központi API hívó függvény hibakezeléssel."""
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": RAPIDAPI_HOST}
     try:
@@ -43,11 +40,10 @@ def get_api_data(endpoint, params):
         print(f"API hiba a(z) '{endpoint}' hívásakor: {e}")
         return None
 
-# --- ADATELŐTÖLTŐ FÜGGVÉNYEK ---
 def prefetch_data_for_fixtures(fixtures):
+    """Előtölti a tabellákat a gyorsítótárba a felesleges API hívások elkerülése érdekében."""
     if not fixtures: return
     league_ids = {f['league']['id'] for f in fixtures}
-    # A szezont a legelső meccsből olvassuk ki, feltételezve, hogy azonosak
     season = fixtures[0]['league']['season']
     print("\n--- Adatok előtöltése a gyorsítótárba ---")
     for league_id in league_ids:
@@ -56,8 +52,11 @@ def prefetch_data_for_fixtures(fixtures):
             standings_data = get_api_data("standings", {"league": str(league_id), "season": str(season)})
             if standings_data: STANDINGS_CACHE[league_id] = standings_data
 
-# --- INTELLIGENS PONTOZÓ ÉS ELEMZŐ RENDSZER ---
 def analyze_and_score_fixture(fixture):
+    """
+    A rendszer "agya". Lekéri a szükséges adatokat (cache-ből vagy API-ról),
+    és egy pontszámot, illetve indoklást generál a favorit győzelméhez.
+    """
     score, reason = 0, []
     league_id, season = fixture['league']['id'], fixture['league']['season']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
@@ -72,11 +71,11 @@ def analyze_and_score_fixture(fixture):
 
     standings_data = STANDINGS_CACHE.get(league_id)
 
-    # Pontozási logika
+    # --- Pontozási Logika ---
     if home_stats and home_stats.get('form'):
         wins_in_last_5 = home_stats['form'][-5:].count('W')
         score += wins_in_last_5 * 5
-        if wins_in_last_5 >= 4: reason.append(f"Kiemelkedő forma ({wins_in_last_5}/5 győzelem)")
+        if wins_in_last_5 >= 4: reason.append(f"Forma ({wins_in_last_5}/5)")
 
     if standings_data and standings_data[0]['league']['standings']:
         standings = standings_data[0]['league']['standings'][0]
@@ -84,26 +83,26 @@ def analyze_and_score_fixture(fixture):
         away_rank = next((t['rank'] for t in standings if t['team']['id'] == away_id), None)
         if home_rank and away_rank and (away_rank - home_rank >= 5):
             score += 15
-            reason.append(f"Jelentős helyezéskülönbség ({away_rank - home_rank} hely)")
+            reason.append(f"Helyezés (különbség: {away_rank - home_rank})")
 
     if h2h_data:
         home_h2h_wins = sum(1 for m in h2h_data[:5] if (m['teams']['home']['id'] == home_id and m['teams']['home'].get('winner')) or (m['teams']['away']['id'] == home_id and m['teams']['away'].get('winner')))
         if home_h2h_wins >= 4:
             score += 30
-            reason.append(f"Domináns H2H ({home_h2h_wins}/5 győzelem)")
+            reason.append(f"H2H ({home_h2h_wins}/5)")
 
     if home_stats and home_stats.get('goals'):
         total_played = home_stats['fixtures']['played']['total']
         if total_played > 0:
-            goals_for_avg = home_stats['goals']['for']['total']['total'] / total_played
-            if goals_for_avg > 1.8:
+            avg_goals = home_stats['goals']['for']['total']['total'] / total_played
+            if avg_goals > 1.8:
                 score += 15
-                reason.append(f"Gólerős támadósor ({goals_for_avg:.2f} gól/meccs)")
-
+                reason.append(f"Gólátlag ({avg_goals:.2f})")
+    
     return score, reason
 
-# --- SZELVÉNY ÖSSZEÁLLÍTÓ ---
 def create_doubles_from_tips(today_str, tips):
+    """A legjobb jelöltekből 2-es kötésű szelvényeket állít össze."""
     all_slips = []
     sorted_tips = sorted(tips, key=lambda x: x['score'], reverse=True)
 
@@ -119,28 +118,18 @@ def create_doubles_from_tips(today_str, tips):
             if len(all_slips) >= 3: break
     return all_slips
 
-# --- ADATBÁZIS MŰVELETEK ---
-def record_daily_status(date_str, status, details):
+def save_to_database(table, data):
+    """Adatok mentése a Supabase adatbázisba."""
     try:
-        supabase.table('daily_status').upsert({'date': date_str, 'status': status, 'details': details}).execute()
+        supabase.table(table).insert(data).execute()
     except Exception as e:
-        print(f"Hiba a napi státusz rögzítésekor: {e}")
+        print(f"Adatbázis hiba ({table}): {e}")
 
-def save_slips_to_supabase(slips):
-    try:
-        print(f"\n{len(slips)} darab szelvény mentése az adatbázisba...")
-        supabase.table('daily_slips').insert(slips).execute()
-        print("Szelvények sikeresen mentve.")
-    except Exception as e:
-        print(f"Hiba történt a Supabase mentés során: {e}")
-
-# --- FŐ VÉGREHAJTÁSI BLOKK ---
 def main():
     is_test_mode = '--test' in sys.argv
     today_str = datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')
     print(f"--- Tipp Generátor Indítása: {today_str} ---")
 
-    # JAVÍTÁS: Visszatérés az eredeti, robusztus adatlekérési módszerhez
     all_fixtures_today = get_api_data("fixtures", {"date": today_str})
     
     status_message = ""
@@ -149,14 +138,12 @@ def main():
     if not all_fixtures_today:
         status_message = "Nem található egyetlen mérkőzés sem a mai napon."
     else:
-        # Python oldali szűrés a releváns ligákra
         relevant_fixtures_today = [f for f in all_fixtures_today if f['league']['id'] in RELEVANT_LEAGUES]
         
         if not relevant_fixtures_today:
             status_message = "Nem található meccs a figyelt ligákban."
         else:
-            now_utc = datetime.utcnow() # Naiv UTC idő
-            # JAVÍTÁS: Visszatérés az eredeti, robusztus dátumkezelési logikához
+            now_utc = datetime.utcnow()
             future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'][:-6]) > now_utc]
             
             if not future_fixtures:
@@ -169,7 +156,6 @@ def main():
                 for fixture in future_fixtures:
                     odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"})
                     if odds_data and odds_data[0].get('bookmakers'):
-                        # JAVÍTÁS: Az odds értékét azonnal számmá (float) alakítjuk
                         home_odds_str = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
                         
                         if home_odds_str:
@@ -187,26 +173,23 @@ def main():
 
                 if all_potential_tips:
                     all_slips = create_doubles_from_tips(today_str, all_potential_tips)
-                    if all_slips:
-                        status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény."
-                    else:
-                        status_message = "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
+                    status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény." if all_slips else "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
                 else:
                     status_message = "Egyetlen meccs sem érte el a minimális pontszámot."
 
     print(f"\nEredmény: {status_message}")
 
     if is_test_mode:
-        test_result = {'status': 'Sikeres generálás' if all_slips else 'Sikertelen generálás', 'message': status_message, 'slips': all_slips}
+        test_result = {'status': 'Sikeres' if all_slips else 'Sikertelen', 'message': status_message, 'slips': all_slips}
         with open('test_results.json', 'w', encoding='utf-8') as f:
             json.dump(test_result, f, ensure_ascii=False, indent=4)
         print("Teszt eredmények a 'test_results.json' fájlba írva.")
     else:
         if all_slips:
-            save_slips_to_supabase(all_slips)
-            record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
+            save_to_database('daily_slips', all_slips)
+            save_to_database('daily_status', [{'date': today_str, 'status': "Jóváhagyásra vár", 'details': f"{len(all_slips)} szelvény vár jóváhagyásra."}])
         else:
-            record_daily_status(today_str, "Nincs megfelelő tipp", status_message)
+            save_to_database('daily_status', [{'date': today_str, 'status': "Nincs megfelelő tipp", 'details': status_message}])
 
 if __name__ == '__main__':
     main()
