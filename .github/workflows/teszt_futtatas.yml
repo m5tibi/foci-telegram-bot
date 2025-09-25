@@ -29,5 +29,8 @@ jobs:
       - name: Admin összefoglaló küldése
         if: always()
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          # --- ITT VAN A JAVÍTÁS ---
+          # Hozzáadtuk a hiányzó titkosított változókat, hogy a szkript működni tudjon.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
         run: python send_admin_summary.py
