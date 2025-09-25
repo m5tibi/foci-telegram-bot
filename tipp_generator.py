@@ -1,4 +1,4 @@
-# tipp_generator.py (V18.0 - Helyes Típuskonverzióval)
+# tipp_generator.py (V18.0 - Gemini Intelligens Pontozó Integrációval és Robusztus Teszteléssel)
 
 import os
 import requests
@@ -47,6 +47,7 @@ def get_api_data(endpoint, params):
 def prefetch_data_for_fixtures(fixtures):
     if not fixtures: return
     league_ids = {f['league']['id'] for f in fixtures}
+    # A szezont a legelső meccsből olvassuk ki, feltételezve, hogy azonosak
     season = fixtures[0]['league']['season']
     print("\n--- Adatok előtöltése a gyorsítótárba ---")
     for league_id in league_ids:
@@ -61,6 +62,7 @@ def analyze_and_score_fixture(fixture):
     league_id, season = fixture['league']['id'], fixture['league']['season']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
 
+    # Adatok lekérése a gyorsítótárból vagy frissen az API-ról
     home_stats = TEAM_STATS_CACHE.get(home_id) or get_api_data("teams/statistics", {"league": str(league_id), "season": str(season), "team": str(home_id)})
     if home_stats: TEAM_STATS_CACHE[home_id] = home_stats
 
@@ -70,6 +72,7 @@ def analyze_and_score_fixture(fixture):
 
     standings_data = STANDINGS_CACHE.get(league_id)
 
+    # Pontozási logika
     if home_stats and home_stats.get('form'):
         wins_in_last_5 = home_stats['form'][-5:].count('W')
         score += wins_in_last_5 * 5
@@ -82,7 +85,7 @@ def analyze_and_score_fixture(fixture):
         if home_rank and away_rank and (away_rank - home_rank >= 5):
             score += 15
             reason.append(f"Jelentős helyezéskülönbség ({away_rank - home_rank} hely)")
-    
+
     if h2h_data:
         home_h2h_wins = sum(1 for m in h2h_data[:5] if (m['teams']['home']['id'] == home_id and m['teams']['home'].get('winner')) or (m['teams']['away']['id'] == home_id and m['teams']['away'].get('winner')))
         if home_h2h_wins >= 4:
@@ -137,6 +140,7 @@ def main():
     today_str = datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')
     print(f"--- Tipp Generátor Indítása: {today_str} ---")
 
+    # JAVÍTÁS: Visszatérés az eredeti, robusztus adatlekérési módszerhez
     all_fixtures_today = get_api_data("fixtures", {"date": today_str})
     
     status_message = ""
@@ -145,12 +149,14 @@ def main():
     if not all_fixtures_today:
         status_message = "Nem található egyetlen mérkőzés sem a mai napon."
     else:
+        # Python oldali szűrés a releváns ligákra
         relevant_fixtures_today = [f for f in all_fixtures_today if f['league']['id'] in RELEVANT_LEAGUES]
         
         if not relevant_fixtures_today:
             status_message = "Nem található meccs a figyelt ligákban."
         else:
-            now_utc = datetime.utcnow()
+            now_utc = datetime.utcnow() # Naiv UTC idő
+            # JAVÍTÁS: Visszatérés az eredeti, robusztus dátumkezelési logikához
             future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'][:-6]) > now_utc]
             
             if not future_fixtures:
