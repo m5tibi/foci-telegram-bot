@@ -1,110 +1,170 @@
-# gemini_data_exporter.py (V2.0 - 24 órás adatgyűjtés)
 import os
 import requests
+import json
 from datetime import datetime, timedelta
 import time
-import pytz
-import json
 
 # --- Konfiguráció ---
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
-BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
-
-# --- Releváns ligák listája ---
-RELEVANT_LEAGUES = {
-    39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A", 
-    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League", 
-    94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan", 
-    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
+API_KEY = os.getenv('API_SPORTS_KEY')
+API_HOST = 'v3.football.api-sports.io'
+BASE_URL = 'https://v3.football.api-sports.io'
+HEADERS = {
+    'x-apisports-key': API_KEY,
+    'x-apisports-host': API_HOST
 }
+OUTPUT_FILE = 'gemini_analysis_data.json'
+BOOKMAKER_ID = 8 # Bet365 - megbízható oddsokhoz
+MAIN_BET_ID = 1 # Match Winner
+OVER_UNDER_ID = 5 # Goals Over/Under
 
-# --- API HÍVÓ FÜGGVÉNY ---
-def get_api_data(endpoint, params, retries=3, delay=5):
-    url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    for i in range(retries):
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=25)
-            response.raise_for_status()
-            time.sleep(0.7)
-            return response.json().get('response', [])
-        except requests.exceptions.RequestException as e:
-            if i < retries - 1:
-                print(f"API hívás hiba ({endpoint}), újrapróbálkozás {delay}s múlva...")
-                time.sleep(delay)
-            else:
-                print(f"Sikertelen API hívás ennyi próba után: {endpoint}. Hiba: {e}")
-                return None
+def get_team_statistics(team_id, league_id, season):
+    """
+    Lekéri egy adott csapat statisztikáit a megadott ligára és szezonra.
+    Ez adja a legfontosabb adatokat, mint a forma, lőtt/kapott gólok.
+    """
+    stats_url = f"{BASE_URL}/teams/statistics"
+    params = {'team': team_id, 'league': league_id, 'season': season}
+    try:
+        response = requests.get(stats_url, headers=HEADERS, params=params)
+        response.raise_for_status()
+        data = response.json().get('response')
+        # Csak a legfontosabb adatokat adjuk vissza a tisztább JSON érdekében
+        if data:
+            return {
+                'form': data.get('form', ''),
+                'goals_for': data.get('goals', {}).get('for', {}).get('total', {}).get('total'),
+                'goals_against': data.get('goals', {}).get('against', {}).get('total', {}).get('total'),
+                'wins': data.get('fixtures', {}).get('wins', {}).get('total'),
+                'draws': data.get('fixtures', {}).get('draws', {}).get('total'),
+                'loses': data.get('fixtures', {}).get('loses', {}).get('total')
+            }
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a csapatstatisztika lekérésekor (csapat: {team_id}): {e}")
+    return None
 
-# --- FŐ VEZÉRLŐ ---
+def get_h2h_data(team1_id, team2_id):
+    """
+    Lekéri a két csapat közötti 'head-to-head' (egymás elleni) eredményeket.
+    Ez segít azonosítani a "mumusokat" és a domináns párosításokat.
+    """
+    h2h_url = f"{BASE_URL}/fixtures/headtohead"
+    params = {'h2h': f"{team1_id}-{team2_id}", 'last': 10} # Utolsó 10 meccs
+    try:
+        response = requests.get(h2h_url, headers=HEADERS, params=params)
+        response.raise_for_status()
+        return response.json().get('response')
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a H2H adatok lekérésekor ({team1_id} vs {team2_id}): {e}")
+    return []
+
+def get_standings(league_id, season):
+    """
+    Lekéri a bajnokság tabelláját. Null, ha a bajnokságnak nincs tabellája (pl. kupa).
+    """
+    # A kupameccseknek nincs tabellája, ezt kezelni kell.
+    if not league_id:
+        return None
+    standings_url = f"{BASE_URL}/standings"
+    params = {'league': league_id, 'season': season}
+    try:
+        response = requests.get(standings_url, headers=HEADERS, params=params)
+        response.raise_for_status()
+        data = response.json().get('response')
+        if data and len(data) > 0:
+            # Visszaadjuk a teljes tabellát, a feldolgozást a generátor végzi
+            return data[0]['league']['standings'][0]
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a tabella lekérésekor (liga: {league_id}): {e}")
+    return None
+
+
 def main():
-    start_time = datetime.now(BUDAPEST_TZ)
-    today_str = start_time.strftime("%Y-%m-%d")
-    tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
-    output_filename = "gemini_analysis_data.json"
-    print(f"Adatgyűjtés indítása a következő 24 órára ({today_str} és {tomorrow_str}) a Gemini számára...")
-
-    fixtures_today = get_api_data("fixtures", {"date": today_str})
-    fixtures_tomorrow = get_api_data("fixtures", {"date": tomorrow_str})
-    all_fixtures_raw = (fixtures_today or []) + (fixtures_tomorrow or [])
-
-    if not all_fixtures_raw:
-        print("Hiba: Nem sikerült lekérni a meccseket.")
-        return
-
-    # Csak a jövőbeli, releváns meccsek
-    now_utc = datetime.now(pytz.utc)
-    relevant_fixtures = [
-        f for f in all_fixtures_raw 
-        if f['league']['id'] in RELEVANT_LEAGUES
-        and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc
-    ]
-    print(f"Összesen {len(all_fixtures_raw)} meccs van a következő ~48 órában, ebből {len(relevant_fixtures)} releváns és jövőbeli.")
-
-    if not relevant_fixtures:
-        print("Nincs releváns meccs a vizsgált időszakban.")
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            json.dump([], f)
-        return
-
-    season = str(start_time.year)
-    all_match_data = []
+    """
+    Fő függvény, amely összegyűjti az összes releváns adatot a mai napra.
+    """
+    today = datetime.now().strftime('%Y-%m-%d')
+    fixtures_url = f"{BASE_URL}/fixtures"
     
-    standings_cache = {}
-    league_ids = set(f['league']['id'] for f in relevant_fixtures)
-    for league_id in league_ids:
-        print(f"Tabella lekérése a(z) {RELEVANT_LEAGUES.get(league_id, f'Ismeretlen Liga ({league_id})')} ligához...")
-        standings_data = get_api_data("standings", {"league": str(league_id), "season": season})
-        if standings_data:
-            standings_cache[league_id] = standings_data
-            
-    print("\nRészletes adatok gyűjtése meccsenként...")
-    for i, fixture in enumerate(relevant_fixtures, 1):
-        fixture_id = fixture['fixture']['id']
-        league_id = fixture['league']['id']
-        home_id = fixture['teams']['home']['id']
-        away_id = fixture['teams']['away']['id']
+    # --- 1. Lépés: Alap mérkőzés adatok lekérése ---
+    fixtures_params = {'date': today, 'status': 'NS'} # Csak a még el nem kezdődött meccsek
+    try:
+        fixtures_response = requests.get(fixtures_url, headers=HEADERS, params=fixtures_params)
+        fixtures_response.raise_for_status()
+        fixtures = fixtures_response.json().get('response', [])
+    except requests.exceptions.RequestException as e:
+        print(f"Hiba a mérkőzések lekérésekor: {e}")
+        return
+
+    enriched_fixtures = []
+    total_fixtures = len(fixtures)
+    print(f"Összesen {total_fixtures} mérkőzés található a mai napon.")
+
+    # --- 2. Lépés: Minden mérkőzés gazdagítása statisztikai adatokkal ---
+    for i, fixture_info in enumerate(fixtures):
+        fixture_id = fixture_info['fixture']['id']
+        league_id = fixture_info['league']['id']
+        season = fixture_info['league']['season']
+        home_team_id = fixture_info['teams']['home']['id']
+        away_team_id = fixture_info['teams']['away']['id']
         
-        print(f"({i}/{len(relevant_fixtures)}) - {fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']} adatainak gyűjtése...")
+        print(f"\n({i+1}/{total_fixtures}) Adatok gyűjtése a(z) {fixture_info['teams']['home']['name']} vs {fixture_info['teams']['away']['name']} mérkőzéshez...")
 
-        match_data_package = {
-            "fixture_id": fixture_id,
-            "fixture_data": fixture,
-            "league_standings": standings_cache.get(league_id, {}),
-            "home_team_stats": get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(home_id)}),
-            "away_team_stats": get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(away_id)}),
-            "h2h_data": get_api_data("fixtures/headtohead", {"h2h": f"{home_id}-{away_id}"}),
-            "odds_data": get_api_data("odds", {"fixture": str(fixture_id)})
+        # Óvatos API hívások, hogy ne terheljük túl a szervert
+        time.sleep(1.5) 
+
+        # --- Oddsok lekérése ---
+        odds_url = f"{BASE_URL}/odds"
+        odds_params = {'fixture': fixture_id, 'bookmaker': BOOKMAKER_ID}
+        try:
+            odds_response = requests.get(odds_url, headers=HEADERS, params=odds_params)
+            odds_response.raise_for_status()
+            odds_data = odds_response.json().get('response')
+            # Csak azokat a meccseket dolgozzuk fel, amikhez van odds
+            if not odds_data or not odds_data[0].get('bookmakers'):
+                print("Ehhez a mérkőzéshez nem találhatóak oddsok. Kihagyás...")
+                continue
+            odds = odds_data[0]['bookmakers'][0]['bets']
+        except requests.exceptions.RequestException as e:
+            print(f"Hiba az oddsok lekérésekor: {e}")
+            continue
+
+        # --- Statisztikák, H2H, Tabella lekérése ---
+        home_stats = get_team_statistics(home_team_id, league_id, season)
+        time.sleep(1) # API limit tiszteletben tartása
+        away_stats = get_team_statistics(away_team_id, league_id, season)
+        time.sleep(1)
+        h2h = get_h2h_data(home_team_id, away_team_id)
+        time.sleep(1)
+        standings = get_standings(league_id, season)
+
+        # --- Adatok egyesítése egyetlen objektumba ---
+        fixture_data = {
+            'fixture': fixture_info['fixture'],
+            'league': fixture_info['league'],
+            'teams': fixture_info['teams'],
+            'odds': odds,
+            'statistics': {
+                'home': home_stats,
+                'away': away_stats,
+                'h2h': h2h,
+                'standings': standings
+            }
         }
-        all_match_data.append(match_data_package)
+        
+        enriched_fixtures.append({
+            'fixture_id': fixture_id,
+            'fixture_data': fixture_data
+        })
+        print("Adatok sikeresen összegyűjtve.")
 
-    with open(output_filename, 'w', encoding='utf-8') as f:
-        json.dump(all_match_data, f, ensure_ascii=False, indent=4)
 
-    print(f"\n✅ Sikeres adatgyűjtés! Az eredmény a(z) '{output_filename}' fájlba mentve.")
-    print(f"Összesen {len(all_match_data)} meccs adatai kerültek exportálásra.")
+    # --- 3. Lépés: A gazdagított adatok mentése JSON fájlba ---
+    try:
+        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(enriched_fixtures, f, ensure_ascii=False, indent=4)
+        print(f"\nAz adatok sikeresen elmentve a(z) '{OUTPUT_FILE}' fájlba.")
+    except IOError as e:
+        print(f"Hiba a fájlba írás során: {e}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
