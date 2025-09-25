@@ -4,104 +4,66 @@ import json
 from datetime import datetime
 import time
 
-# --- Konfiguráció ---
-API_KEY = os.getenv('API_SPORTS_KEY')
-API_HOST = 'v3.football.api-sports.io'
-BASE_URL = 'https://v3.football.api-sports.io'
+# --- Konfiguráció (RapidAPI-hoz igazítva) ---
+# Fontos: A GitHub Secretsben a kulcs neve továbbra is API_SPORTS_KEY lehet, 
+# de az értékének a RapidAPI-n kapott kulcsnak kell lennie.
+API_KEY = os.getenv('API_SPORTS_KEY') 
+API_HOST = 'api-football-v1.p.rapidapi.com' # Ez a RapidAPI címe
+BASE_URL = f'https://{API_HOST}/v3'
 HEADERS = {
-    'x-apisports-key': API_KEY,
-    'x-apisports-host': API_HOST
+    'X-RapidAPI-Host': API_HOST,
+    'X-RapidAPI-Key': API_KEY
 }
 OUTPUT_FILE = 'gemini_analysis_data.json'
 BOOKMAKER_ID = 8 # Bet365
 MAIN_BET_ID = 1 # Match Winner
 OVER_UNDER_ID = 5 # Goals Over/Under
 
-def get_team_statistics(team_id, league_id, season):
+def make_api_request(url, params):
     """
-    Lekéri egy adott csapat statisztikáit. Hiba esetén None-t ad vissza.
+    Központi függvény az API hívások kezelésére, hibakezeléssel.
     """
-    stats_url = f"{BASE_URL}/teams/statistics"
-    params = {'team': team_id, 'league': league_id, 'season': season}
     try:
-        response = requests.get(stats_url, headers=HEADERS, params=params)
+        response = requests.get(url, headers=HEADERS, params=params)
         response.raise_for_status()
-        data = response.json().get('response')
-        if data:
-            return {
-                'form': data.get('form', ''),
-                'goals_for': data.get('goals', {}).get('for', {}).get('total', {}).get('total'),
-                'goals_against': data.get('goals', {}).get('against', {}).get('total', {}).get('total'),
-                'wins': data.get('fixtures', {}).get('wins', {}).get('total'),
-                'draws': data.get('fixtures', {}).get('draws', {}).get('total'),
-                'loses': data.get('fixtures', {}).get('loses', {}).get('total')
-            }
+        return response.json().get('response')
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            print(f"Figyelmeztetés: Csapatstatisztika lekérése sikertelen (csapat: {team_id}). Valószínűleg előfizetési korlát.")
-        else:
-            print(f"HTTP Hiba a csapatstatisztika lekérésekor (csapat: {team_id}): {e}")
+        print(f"HTTP Hiba a(z) '{url}' hívásakor: {e.response.status_code} - {e.response.text}")
     except requests.exceptions.RequestException as e:
-        print(f"Hiba a csapatstatisztika lekérésekor (csapat: {team_id}): {e}")
+        print(f"Általános hálózati hiba: {e}")
+    return None
+
+def get_team_statistics(team_id, league_id, season):
+    stats_data = make_api_request(f"{BASE_URL}/teams/statistics", {'team': team_id, 'league': league_id, 'season': season})
+    if stats_data:
+        return {
+            'form': stats_data.get('form', ''),
+            'goals_for': stats_data.get('goals', {}).get('for', {}).get('total', {}).get('total'),
+            'goals_against': stats_data.get('goals', {}).get('against', {}).get('total', {}).get('total'),
+            'wins': stats_data.get('fixtures', {}).get('wins', {}).get('total'),
+            'draws': stats_data.get('fixtures', {}).get('draws', {}).get('total'),
+            'loses': stats_data.get('fixtures', {}).get('loses', {}).get('total')
+        }
     return None
 
 def get_h2h_data(team1_id, team2_id):
-    """
-    Lekéri a H2H adatokat. Hiba esetén üres listát ad vissza.
-    """
-    h2h_url = f"{BASE_URL}/fixtures/headtohead"
-    params = {'h2h': f"{team1_id}-{team2_id}", 'last': 10}
-    try:
-        response = requests.get(h2h_url, headers=HEADERS, params=params)
-        response.raise_for_status()
-        return response.json().get('response', [])
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-             print(f"Figyelmeztetés: H2H adatok lekérése sikertelen ({team1_id} vs {team2_id}). Valószínűleg előfizetési korlát.")
-        else:
-            print(f"HTTP Hiba a H2H adatok lekérésekor ({team1_id} vs {team2_id}): {e}")
-    except requests.exceptions.RequestException as e:
-        print(f"Hiba a H2H adatok lekérésekor ({team1_id} vs {team2_id}): {e}")
-    return []
+    return make_api_request(f"{BASE_URL}/fixtures/headtohead", {'h2h': f"{team1_id}-{team2_id}", 'last': 10}) or []
 
 def get_standings(league_id, season):
-    """
-    Lekéri a tabellát. Hiba vagy kupameccs esetén None-t ad vissza.
-    """
     if not league_id:
         return None
-    standings_url = f"{BASE_URL}/standings"
-    params = {'league': league_id, 'season': season}
-    try:
-        response = requests.get(standings_url, headers=HEADERS, params=params)
-        response.raise_for_status()
-        data = response.json().get('response')
-        if data and len(data) > 0:
-            return data[0]['league']['standings'][0]
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            print(f"Figyelmeztetés: Tabella lekérése sikertelen (liga: {league_id}). Valószínűleg előfizetési korlát.")
-        else:
-            print(f"HTTP Hiba a tabella lekérésekor (liga: {league_id}): {e}")
-    except requests.exceptions.RequestException as e:
-        print(f"Hiba a tabella lekérésekor (liga: {league_id}): {e}")
+    standings_response = make_api_request(f"{BASE_URL}/standings", {'league': league_id, 'season': season})
+    if standings_response and len(standings_response) > 0:
+        return standings_response[0]['league']['standings'][0]
     return None
 
 
 def main():
-    """
-    Fő függvény, amely összegyűjti az összes elérhető adatot.
-    """
     today = datetime.now().strftime('%Y-%m-%d')
-    fixtures_url = f"{BASE_URL}/fixtures"
     
-    fixtures_params = {'date': today, 'status': 'NS'}
-    try:
-        fixtures_response = requests.get(fixtures_url, headers=HEADERS, params=fixtures_params)
-        fixtures_response.raise_for_status()
-        fixtures = fixtures_response.json().get('response', [])
-    except requests.exceptions.RequestException as e:
-        print(f"Kritikus hiba a mérkőzések lekérésekor: {e}")
+    fixtures = make_api_request(f"{BASE_URL}/fixtures", {'date': today, 'status': 'NS'})
+    if fixtures is None:
+        print("Kritikus hiba: A mérkőzések lekérése sikertelen. A folyamat leáll.")
         return
 
     enriched_fixtures = []
@@ -112,21 +74,14 @@ def main():
         fixture_id = fixture_info['fixture']['id']
         print(f"\n({i+1}/{total_fixtures}) Adatok gyűjtése: {fixture_info['teams']['home']['name']} vs {fixture_info['teams']['away']['name']}")
 
-        time.sleep(1.2) # API rate limiting
+        # A RapidAPI limitjei másodperc alapúak, a 1.2s-os várakozás biztonságos
+        time.sleep(1.2) 
 
-        odds_url = f"{BASE_URL}/odds"
-        odds_params = {'fixture': fixture_id, 'bookmaker': BOOKMAKER_ID}
-        try:
-            odds_response = requests.get(odds_url, headers=HEADERS, params=odds_params)
-            odds_response.raise_for_status()
-            odds_data = odds_response.json().get('response')
-            if not odds_data or not odds_data[0].get('bookmakers'):
-                print("-> Ehhez a mérkőzéshez nem találhatóak oddsok. Kihagyás...")
-                continue
-            odds = odds_data[0]['bookmakers'][0]['bets']
-        except requests.exceptions.RequestException as e:
-            print(f"-> Hiba az oddsok lekérésekor, a meccs kihagyva: {e}")
+        odds_response = make_api_request(f"{BASE_URL}/odds", {'fixture': fixture_id, 'bookmaker': BOOKMAKER_ID})
+        if not odds_response or not odds_response[0].get('bookmakers'):
+            print("-> Ehhez a mérkőzéshez nem találhatóak oddsok. Kihagyás...")
             continue
+        odds = odds_response[0]['bookmakers'][0]['bets']
 
         league_id = fixture_info['league']['id']
         season = fixture_info['league']['season']
