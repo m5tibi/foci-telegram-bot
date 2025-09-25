@@ -1,4 +1,4 @@
-# tipp_generator.py (V21.0 - KeyError Javítással a GG Logikában)
+# tipp_generator.py (V22.0 - Finomhangolt Tipsterbot Stratégiával)
 
 import os
 import requests
@@ -44,18 +44,11 @@ def get_api_data(endpoint, params):
         return None
 
 def get_odds_for_market(odds_data, market_id, market_value):
-    """Kikeresi egy adott piac oddsát a Bet365-től."""
-    if not odds_data or not odds_data[0].get('bookmakers'):
-        return None
-    
+    if not odds_data or not odds_data[0].get('bookmakers'): return None
     bet365_odds = next((b['bets'] for b in odds_data[0]['bookmakers'] if b['id'] == 8), None)
-    if not bet365_odds:
-        return None
-        
+    if not bet365_odds: return None
     market = next((p for p in bet365_odds if p['id'] == market_id), None)
-    if not market:
-        return None
-        
+    if not market: return None
     value = next((v['odd'] for v in market['values'] if v['value'] == market_value), None)
     return float(value) if value else None
 
@@ -73,13 +66,7 @@ def prefetch_data_for_fixtures(fixtures):
 
 # --- ÚJ, TIPSTERBOT-STÍLUSÚ ELEMZŐ MOTOR ---
 def analyze_fixture_for_patterns(fixture, odds_data):
-    """
-    Több különböző stratégiát (mintázatot) keres egyetlen meccsen belül.
-    Visszaad egy listát az összes, a meccsen talált értékes tippről.
-    """
     potential_tips = []
-    
-    # Adatok előkészítése
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
     league_id, season = fixture['league']['id'], fixture['league']['season']
     
@@ -96,7 +83,7 @@ def analyze_fixture_for_patterns(fixture, odds_data):
     if over_2_5_odds and 1.60 <= over_2_5_odds <= 2.20:
         home_played = home_stats.get('fixtures', {}).get('played', {}).get('total', 0)
         away_played = away_stats.get('fixtures', {}).get('played', {}).get('total', 0)
-        if home_played > 0 and away_played > 0:
+        if home_played > 3 and away_played > 3: # Legalább néhány meccs kell a releváns átlaghoz
             home_goals_for = home_stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0)
             home_goals_against = home_stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0)
             away_goals_for = away_stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0)
@@ -105,26 +92,27 @@ def analyze_fixture_for_patterns(fixture, odds_data):
             home_goals_avg = (home_goals_for + home_goals_against) / home_played
             away_goals_avg = (away_goals_for + away_goals_against) / away_played
             
-            if (home_goals_avg + away_goals_avg) / 2 > 2.8:
+            # FINOMHANGOLÁS: A küszöböt 2.8-ról 2.6-ra csökkentettük
+            if (home_goals_avg + away_goals_avg) / 2 > 2.6:
                 potential_tips.append({
                     "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
                     "prediction": "Gólok száma 2.5 felett",
                     "odds": over_2_5_odds,
-                    "reason": f"Magas gólátlag a csapatok meccsein ({((home_goals_avg + away_goals_avg) / 2):.2f})",
+                    "reason": f"Magas gólátlag a meccseiken ({((home_goals_avg + away_goals_avg) / 2):.2f})",
                     "confidence": 80
                 })
 
     # --- 2. Minta: "Gólváltás" (GG) ---
     gg_odds = get_odds_for_market(odds_data, 8, "Yes")
     if gg_odds and 1.60 <= gg_odds <= 2.10:
-        # JAVÍTÁS: A nem létező 'percentage' kulcs helyett a valós gólátlagokat használjuk
         home_goals_for_avg_str = home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0')
         away_goals_for_avg_str = away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total', '0')
         
         home_goals_for_avg = float(home_goals_for_avg_str)
         away_goals_for_avg = float(away_goals_for_avg_str)
         
-        if home_goals_for_avg > 1.4 and away_goals_for_avg > 1.2:
+        # FINOMHANGOLÁS: A küszöböt enyhítettük, hogy több esélyes meccset találjon
+        if home_goals_for_avg > 1.3 and away_goals_for_avg > 1.0:
             potential_tips.append({
                 "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
                 "prediction": "Mindkét csapat szerez gólt",
@@ -143,8 +131,7 @@ def create_doubles_from_tips(today_str, tips):
     for combo in combinations(sorted_tips[:8], 2):
         tip1, tip2 = combo[0], combo[1]
         
-        if tip1['match'] == tip2['match']:
-            continue
+        if tip1['match'] == tip2['match']: continue
             
         total_odds = tip1['odds'] * tip2['odds']
         if 2.5 <= total_odds <= 5.0:
