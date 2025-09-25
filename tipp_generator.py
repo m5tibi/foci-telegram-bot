@@ -1,4 +1,4 @@
-# tipp_generator.py (V22.0 - Finomhangolt Tipsterbot Stratégiával)
+# tipp_generator.py (V23.0 - Finomhangolt és Lazított Stratégiával)
 
 import os
 import requests
@@ -83,7 +83,7 @@ def analyze_fixture_for_patterns(fixture, odds_data):
     if over_2_5_odds and 1.60 <= over_2_5_odds <= 2.20:
         home_played = home_stats.get('fixtures', {}).get('played', {}).get('total', 0)
         away_played = away_stats.get('fixtures', {}).get('played', {}).get('total', 0)
-        if home_played > 3 and away_played > 3: # Legalább néhány meccs kell a releváns átlaghoz
+        if home_played > 3 and away_played > 3:
             home_goals_for = home_stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0)
             home_goals_against = home_stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0)
             away_goals_for = away_stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0)
@@ -92,8 +92,8 @@ def analyze_fixture_for_patterns(fixture, odds_data):
             home_goals_avg = (home_goals_for + home_goals_against) / home_played
             away_goals_avg = (away_goals_for + away_goals_against) / away_played
             
-            # FINOMHANGOLÁS: A küszöböt 2.8-ról 2.6-ra csökkentettük
-            if (home_goals_avg + away_goals_avg) / 2 > 2.6:
+            # FINOMHANGOLÁS: A küszöböt 2.6-ról 2.5-re csökkentettük
+            if (home_goals_avg + away_goals_avg) / 2 > 2.5:
                 potential_tips.append({
                     "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
                     "prediction": "Gólok száma 2.5 felett",
@@ -112,7 +112,7 @@ def analyze_fixture_for_patterns(fixture, odds_data):
         away_goals_for_avg = float(away_goals_for_avg_str)
         
         # FINOMHANGOLÁS: A küszöböt enyhítettük, hogy több esélyes meccset találjon
-        if home_goals_for_avg > 1.3 and away_goals_for_avg > 1.0:
+        if home_goals_for_avg > 1.2 and away_goals_for_avg > 0.9:
             potential_tips.append({
                 "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
                 "prediction": "Mindkét csapat szerez gólt",
