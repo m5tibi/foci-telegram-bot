@@ -1,4 +1,4 @@
-# tipp_generator.py (V15.0 - Robusztus Tesztfájl Kezeléssel)
+# tipp_generator.py (V15.0 - Gemini Intelligens Pontozó Integrációval és Robusztus Teszteléssel)
 
 import os
 import requests
@@ -27,7 +27,7 @@ RELEVANT_LEAGUES = {
     39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
     94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan", 
+    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
     79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
 }
 
@@ -46,6 +46,8 @@ def get_api_data(endpoint, params):
 # --- ADATELŐTÖLTŐ FÜGGVÉNYEK ---
 def prefetch_data_for_fixtures(fixtures):
     league_ids = {f['league']['id'] for f in fixtures}
+    # A szezont a legelső meccsből olvassuk ki, feltételezve, hogy azonosak
+    if not fixtures: return
     season = fixtures[0]['league']['season']
     print("\n--- Adatok előtöltése a gyorsítótárba ---")
     for league_id in league_ids:
@@ -57,13 +59,14 @@ def prefetch_data_for_fixtures(fixtures):
 # --- INTELLIGENS PONTOZÓ ÉS ELEMZŐ RENDSZER ---
 def analyze_and_score_fixture(fixture):
     score, reason = 0, []
-    
+
     league_id, season = fixture['league']['id'], fixture['league']['season']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
-    
+
+    # Adatok lekérése a gyorsítótárból vagy frissen az API-ról
     home_stats = TEAM_STATS_CACHE.get(home_id) or get_api_data("teams/statistics", {"league": str(league_id), "season": str(season), "team": str(home_id)})
     if home_stats: TEAM_STATS_CACHE[home_id] = home_stats
-    
+
     h2h_key = f"{home_id}-{away_id}"
     h2h_data = H2H_CACHE.get(h2h_key) or get_api_data("fixtures/headtohead", {"h2h": h2h_key})
     if h2h_data: H2H_CACHE[h2h_key] = h2h_data
@@ -83,7 +86,7 @@ def analyze_and_score_fixture(fixture):
         if home_rank and away_rank and (away_rank - home_rank >= 5):
             score += 15
             reason.append(f"Jelentős helyezéskülönbség ({away_rank - home_rank} hely)")
-    
+
     if h2h_data:
         home_h2h_wins = sum(1 for m in h2h_data[:5] if (m['teams']['home']['id'] == home_id and m['teams']['home'].get('winner')) or (m['teams']['away']['id'] == home_id and m['teams']['away'].get('winner')))
         if home_h2h_wins >= 4:
@@ -104,7 +107,7 @@ def analyze_and_score_fixture(fixture):
 def create_doubles_from_tips(today_str, tips):
     all_slips = []
     sorted_tips = sorted(tips, key=lambda x: x['score'], reverse=True)
-    
+
     for combo in combinations(sorted_tips[:6], 2):
         tip1, tip2 = combo[0], combo[1]
         total_odds = tip1['odds'] * tip2['odds']
@@ -137,70 +140,65 @@ def main():
     is_test_mode = '--test' in sys.argv
     today_str = datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')
     print(f"--- Tipp Generátor Indítása: {today_str} ---")
+
+    fixtures_today = get_api_data("fixtures", {"date": today_str, "league": ','.join(map(str, RELEVANT_LEAGUES.keys()))})
     
-    # Teszt módban a program megpróbál helyi fájlból dolgozni, ha létezik
-    if is_test_mode and os.path.exists('gemini_analysis_data.json'):
-        print("Teszt mód: Adatok betöltése a helyi 'gemini_analysis_data.json' fájlból...")
-        with open('gemini_analysis_data.json', 'r', encoding='utf-8') as f:
-            # A te fájlod struktúrája más, ezért átalakítjuk
-            raw_data = json.load(f)
-            future_fixtures = [item['fixture_data'] for item in raw_data]
+    status_message = ""
+    all_slips = []
+
+    if not fixtures_today:
+        status_message = "Nem található meccs a figyelt ligákban."
     else:
-        fixtures_today = get_api_data("fixtures", {"date": today_str, "league": ','.join(map(str, RELEVANT_LEAGUES.keys()))})
-        if not fixtures_today:
-            record_daily_status(today_str, "Nincs megfelelő tipp", "Nem található meccs a figyelt ligákban.")
-            if is_test_mode:
-                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Hiba', 'message': 'Nem található meccs a figyelt ligákban.'}, f, ensure_ascii=False, indent=4)
-            return
-        
         now_utc = datetime.now(pytz.utc)
         future_fixtures = [f for f in fixtures_today if datetime.fromisoformat(f['fixture']['date'].replace('+00:00', 'Z')) > now_utc]
-    
-    if not future_fixtures:
-        record_daily_status(today_str, "Nincs megfelelő tipp", "Nincs több meccs a mai napon.")
-        if is_test_mode:
-            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Hiba', 'message': 'Nincs több meccs a mai napon.'}, f, ensure_ascii=False, indent=4)
-        return
         
-    prefetch_data_for_fixtures(future_fixtures)
-    all_potential_tips = []
-    
-    print("\n--- Meccsek elemzése az intelligens pontozóval ---")
-    for fixture in future_fixtures:
-        odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"}) # Bet365
-        if odds_data:
-            home_odds = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
-            if home_odds and 1.25 <= home_odds <= 1.85:
-                score, reason = analyze_and_score_fixture(fixture)
-                if score >= 50 and len(reason) >= 2:
-                    all_potential_tips.append({
-                        "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
-                        "prediction": f"{fixture['teams']['home']['name']} győzelem",
-                        "odds": home_odds,
-                        "reason": ", ".join(reason),
-                        "score": score
-                    })
-
-    if all_potential_tips:
-        all_slips = create_doubles_from_tips(today_str, all_potential_tips)
-        if all_slips:
-            print(f"\n✅ Sikeresen összeállítva {len(all_slips)} darab szelvény.")
-            if is_test_mode:
-                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Sikeres generálás', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
-                print("Teszt eredmények a 'test_results.json' fájlba írva.")
-            else:
-                save_slips_to_supabase(all_slips)
-                record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
+        if not future_fixtures:
+            status_message = "Nincs több meccs a mai napon a figyelt ligákból."
         else:
-            message = "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
-            record_daily_status(today_str, "Nincs megfelelő tipp", message)
-            if is_test_mode:
-                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Sikertelen generálás', 'message': message}, f, ensure_ascii=False, indent=4)
+            prefetch_data_for_fixtures(future_fixtures)
+            all_potential_tips = []
+            
+            print("\n--- Meccsek elemzése az intelligens pontozóval ---")
+            for fixture in future_fixtures:
+                # Bet365 oddsok lekérése
+                odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"})
+                if odds_data:
+                    home_odds = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
+                    if home_odds and 1.25 <= home_odds <= 1.85:
+                        score, reason = analyze_and_score_fixture(fixture)
+                        if score >= 50 and len(reason) >= 2: # Szigorú szűrő
+                            all_potential_tips.append({
+                                "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
+                                "prediction": f"{fixture['teams']['home']['name']} győzelem",
+                                "odds": home_odds,
+                                "reason": ", ".join(reason),
+                                "score": score
+                            })
+
+            if all_potential_tips:
+                all_slips = create_doubles_from_tips(today_str, all_potential_tips)
+                if all_slips:
+                    status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény."
+                else:
+                    status_message = "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
+            else:
+                status_message = "Egyetlen meccs sem érte el a minimális pontszámot."
+
+    print(f"\nEredmény: {status_message}")
+
+    if is_test_mode:
+        # A tesztfájl MINDIG létrejön
+        test_result = {'status': 'Sikeres generálás' if all_slips else 'Sikertelen generálás', 'message': status_message, 'slips': all_slips}
+        with open('test_results.json', 'w', encoding='utf-8') as f:
+            json.dump(test_result, f, ensure_ascii=False, indent=4)
+        print("Teszt eredmények a 'test_results.json' fájlba írva.")
     else:
-        message = "Egyetlen meccs sem érte el a minimális pontszámot."
-        record_daily_status(today_str, "Nincs megfelelő tipp", message)
-        if is_test_mode:
-            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Sikertelen generálás', 'message': message}, f, ensure_ascii=False, indent=4)
+        # Éles módban csak akkor mentünk, ha van szelvény
+        if all_slips:
+            save_slips_to_supabase(all_slips)
+            record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
+        else:
+            record_daily_status(today_str, "Nincs megfelelő tipp", status_message)
 
 if __name__ == '__main__':
     main()
