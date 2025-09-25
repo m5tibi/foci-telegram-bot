@@ -3,18 +3,19 @@ import requests
 import json
 from datetime import datetime
 import time
-import sys # Szükséges a program azonnali leállításához
+import sys
 
 # --- Konfiguráció (RapidAPI-hoz igazítva) ---
-API_KEY = os.getenv('API_SPORTS_KEY')
+# JAVÍTÁS: A környezeti változó nevét 'RAPIDAPI_KEY'-re cseréltem, hogy megfeleljen a te beállításaidnak.
+API_KEY = os.getenv('RAPIDAPI_KEY') 
 API_HOST = 'api-football-v1.p.rapidapi.com'
 BASE_URL = f'https://{API_HOST}/v3'
 
-# --- INDULÁS UTÁNI ELSŐ ÉS LEGFONTOSABB ELLENŐRZÉS ---
+# --- Indulás utáni ellenőrzés a helyes változónévvel ---
 if not API_KEY:
-    print("KRITIKUS HIBA: Az API_SPORTS_KEY nincs beállítva a környezeti változók között.")
+    print("KRITIKUS HIBA: A 'RAPIDAPI_KEY' nincs beállítva a környezeti változók között.")
     print("Kérlek, ellenőrizd a GitHub repository 'Settings -> Secrets and variables -> Actions' menüpontját.")
-    sys.exit(1) # A program leáll, nem fut tovább hibásan
+    sys.exit(1)
 
 HEADERS = {
     'X-RapidAPI-Host': API_HOST,
@@ -32,7 +33,6 @@ def make_api_request(url, params):
         response.raise_for_status()
         return response.json().get('response')
     except requests.exceptions.HTTPError as e:
-        # Most már a konkrét hibaüzenetet is kiírjuk a szerverről
         print(f"HTTP Hiba a(z) '{url}' hívásakor: {e.response.status_code} - {e.response.text}")
     except requests.exceptions.RequestException as e:
         print(f"Általános hálózati hiba: {e}")
@@ -55,13 +55,11 @@ def get_h2h_data(team1_id, team2_id):
     h2h_response = make_api_request(f"{BASE_URL}/fixtures/headtohead", {'h2h': f"{team1_id}-{team2_id}", 'last': 10})
     return h2h_response if h2h_response is not None else []
 
-
 def get_standings(league_id, season):
     if not league_id:
         return None
     standings_response = make_api_request(f"{BASE_URL}/standings", {'league': league_id, 'season': season})
     if standings_response and len(standings_response) > 0:
-        # Biztonságosabb hozzáférés a beágyazott adatokhoz
         try:
             return standings_response[0]['league']['standings'][0]
         except (KeyError, IndexError):
@@ -97,7 +95,6 @@ def main():
         home_team_id = fixture_info['teams']['home']['id']
         away_team_id = fixture_info['teams']['away']['id']
 
-        # Hozzáadunk egy kis várakozást a prémium végpontok előtt
         time.sleep(1)
         home_stats = get_team_statistics(home_team_id, league_id, season)
         time.sleep(1)
