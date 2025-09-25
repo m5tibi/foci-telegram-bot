@@ -1,4 +1,4 @@
-# tipp_generator.py (V15.0 - Gemini Intelligens Pontozó Integrációval és Robusztus Teszteléssel)
+# tipp_generator.py (V16.0 - Eredeti Adatlekérési Logikával és Gemini Pontozóval)
 
 import os
 import requests
@@ -45,9 +45,8 @@ def get_api_data(endpoint, params):
 
 # --- ADATELŐTÖLTŐ FÜGGVÉNYEK ---
 def prefetch_data_for_fixtures(fixtures):
-    league_ids = {f['league']['id'] for f in fixtures}
-    # A szezont a legelső meccsből olvassuk ki, feltételezve, hogy azonosak
     if not fixtures: return
+    league_ids = {f['league']['id'] for f in fixtures}
     season = fixtures[0]['league']['season']
     print("\n--- Adatok előtöltése a gyorsítótárba ---")
     for league_id in league_ids:
@@ -59,11 +58,9 @@ def prefetch_data_for_fixtures(fixtures):
 # --- INTELLIGENS PONTOZÓ ÉS ELEMZŐ RENDSZER ---
 def analyze_and_score_fixture(fixture):
     score, reason = 0, []
-
     league_id, season = fixture['league']['id'], fixture['league']['season']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
 
-    # Adatok lekérése a gyorsítótárból vagy frissen az API-ról
     home_stats = TEAM_STATS_CACHE.get(home_id) or get_api_data("teams/statistics", {"league": str(league_id), "season": str(season), "team": str(home_id)})
     if home_stats: TEAM_STATS_CACHE[home_id] = home_stats
 
@@ -73,7 +70,6 @@ def analyze_and_score_fixture(fixture):
 
     standings_data = STANDINGS_CACHE.get(league_id)
 
-    # Pontozási logika
     if home_stats and home_stats.get('form'):
         wins_in_last_5 = home_stats['form'][-5:].count('W')
         score += wins_in_last_5 * 5
@@ -86,7 +82,7 @@ def analyze_and_score_fixture(fixture):
         if home_rank and away_rank and (away_rank - home_rank >= 5):
             score += 15
             reason.append(f"Jelentős helyezéskülönbség ({away_rank - home_rank} hely)")
-
+    
     if h2h_data:
         home_h2h_wins = sum(1 for m in h2h_data[:5] if (m['teams']['home']['id'] == home_id and m['teams']['home'].get('winner')) or (m['teams']['away']['id'] == home_id and m['teams']['away'].get('winner')))
         if home_h2h_wins >= 4:
@@ -141,59 +137,63 @@ def main():
     today_str = datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')
     print(f"--- Tipp Generátor Indítása: {today_str} ---")
 
-    fixtures_today = get_api_data("fixtures", {"date": today_str, "league": ','.join(map(str, RELEVANT_LEAGUES.keys()))})
+    # JAVÍTÁS: Visszatérés az eredeti, robusztus adatlekérési módszerhez
+    all_fixtures_today = get_api_data("fixtures", {"date": today_str})
     
     status_message = ""
     all_slips = []
 
-    if not fixtures_today:
-        status_message = "Nem található meccs a figyelt ligákban."
+    if not all_fixtures_today:
+        status_message = "Nem található egyetlen mérkőzés sem a mai napon."
     else:
-        now_utc = datetime.now(pytz.utc)
-        future_fixtures = [f for f in fixtures_today if datetime.fromisoformat(f['fixture']['date'].replace('+00:00', 'Z')) > now_utc]
+        # Python oldali szűrés a releváns ligákra
+        relevant_fixtures_today = [f for f in all_fixtures_today if f['league']['id'] in RELEVANT_LEAGUES]
         
-        if not future_fixtures:
-            status_message = "Nincs több meccs a mai napon a figyelt ligákból."
+        if not relevant_fixtures_today:
+            status_message = "Nem található meccs a figyelt ligákban."
         else:
-            prefetch_data_for_fixtures(future_fixtures)
-            all_potential_tips = []
+            now_utc = datetime.now(pytz.utc)
+            future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'].replace('+00:00', 'Z')) > now_utc]
             
-            print("\n--- Meccsek elemzése az intelligens pontozóval ---")
-            for fixture in future_fixtures:
-                # Bet365 oddsok lekérése
-                odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"})
-                if odds_data:
-                    home_odds = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
-                    if home_odds and 1.25 <= home_odds <= 1.85:
-                        score, reason = analyze_and_score_fixture(fixture)
-                        if score >= 50 and len(reason) >= 2: # Szigorú szűrő
-                            all_potential_tips.append({
-                                "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
-                                "prediction": f"{fixture['teams']['home']['name']} győzelem",
-                                "odds": home_odds,
-                                "reason": ", ".join(reason),
-                                "score": score
-                            })
-
-            if all_potential_tips:
-                all_slips = create_doubles_from_tips(today_str, all_potential_tips)
-                if all_slips:
-                    status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény."
-                else:
-                    status_message = "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
+            if not future_fixtures:
+                status_message = "Nincs több meccs a mai napon a figyelt ligákból."
             else:
-                status_message = "Egyetlen meccs sem érte el a minimális pontszámot."
+                prefetch_data_for_fixtures(future_fixtures)
+                all_potential_tips = []
+                
+                print("\n--- Meccsek elemzése az intelligens pontozóval ---")
+                for fixture in future_fixtures:
+                    odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id']), "bookmaker": "8"})
+                    if odds_data:
+                        home_odds = next((v['odd'] for b in odds_data[0]['bookmakers'] for p in b['bets'] if p['id'] == 1 for v in p['values'] if v['value'] == 'Home'), None)
+                        if home_odds and 1.25 <= home_odds <= 1.85:
+                            score, reason = analyze_and_score_fixture(fixture)
+                            if score >= 50 and len(reason) >= 2:
+                                all_potential_tips.append({
+                                    "match": f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}",
+                                    "prediction": f"{fixture['teams']['home']['name']} győzelem",
+                                    "odds": home_odds,
+                                    "reason": ", ".join(reason),
+                                    "score": score
+                                })
+
+                if all_potential_tips:
+                    all_slips = create_doubles_from_tips(today_str, all_potential_tips)
+                    if all_slips:
+                        status_message = f"Sikeresen összeállítva {len(all_slips)} darab szelvény."
+                    else:
+                        status_message = "A jelöltekből nem sikerült a kritériumoknak megfelelő szelvényt összeállítani."
+                else:
+                    status_message = "Egyetlen meccs sem érte el a minimális pontszámot."
 
     print(f"\nEredmény: {status_message}")
 
     if is_test_mode:
-        # A tesztfájl MINDIG létrejön
         test_result = {'status': 'Sikeres generálás' if all_slips else 'Sikertelen generálás', 'message': status_message, 'slips': all_slips}
         with open('test_results.json', 'w', encoding='utf-8') as f:
             json.dump(test_result, f, ensure_ascii=False, indent=4)
         print("Teszt eredmények a 'test_results.json' fájlba írva.")
     else:
-        # Éles módban csak akkor mentünk, ha van szelvény
         if all_slips:
             save_slips_to_supabase(all_slips)
             record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
