@@ -6,7 +6,7 @@ from datetime import datetime
 import pytz
 
 # --- Konfiguráció ---
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") # Javítva TELEGRAM_TOKEN-re
 ADMIN_CHAT_ID = os.environ.get("TELEGRAM_ADMIN_CHAT_ID")
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
