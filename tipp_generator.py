@@ -1,4 +1,4 @@
-# tipp_generator.py (V16.0 - Eredeti Adatlekérési Logikával és Gemini Pontozóval)
+# tipp_generator.py (V17.0 - Eredeti Dátumkezeléssel és Gemini Pontozóval)
 
 import os
 import requests
@@ -137,7 +137,6 @@ def main():
     today_str = datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')
     print(f"--- Tipp Generátor Indítása: {today_str} ---")
 
-    # JAVÍTÁS: Visszatérés az eredeti, robusztus adatlekérési módszerhez
     all_fixtures_today = get_api_data("fixtures", {"date": today_str})
     
     status_message = ""
@@ -146,14 +145,14 @@ def main():
     if not all_fixtures_today:
         status_message = "Nem található egyetlen mérkőzés sem a mai napon."
     else:
-        # Python oldali szűrés a releváns ligákra
         relevant_fixtures_today = [f for f in all_fixtures_today if f['league']['id'] in RELEVANT_LEAGUES]
         
         if not relevant_fixtures_today:
             status_message = "Nem található meccs a figyelt ligákban."
         else:
-            now_utc = datetime.now(pytz.utc)
-            future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'].replace('+00:00', 'Z')) > now_utc]
+            now_utc = datetime.utcnow() # Naiv UTC idő
+            # JAVÍTÁS: Visszatérés az eredeti, robusztus dátumkezelési logikához
+            future_fixtures = [f for f in relevant_fixtures_today if datetime.fromisoformat(f['fixture']['date'][:-6]) > now_utc]
             
             if not future_fixtures:
                 status_message = "Nincs több meccs a mai napon a figyelt ligákból."
