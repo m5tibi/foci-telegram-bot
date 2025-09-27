@@ -1,4 +1,4 @@
-# tipp_generator.py (V13.1 - Bővített Adatgyűjtés és Javított Teszt Kezelés)
+# tipp_generator.py (V13.2 - H2H Hibajavítással)
 
 import os
 import requests
@@ -72,7 +72,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- BŐVÍTETT STRATÉGIAI ELEMZŐ ---
+# --- BŐVÍTETT STRATÉGIAI ELEMZŐ (HIBATŰRŐ VERZIÓ) ---
 def analyze_fixture_for_new_strategy(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -96,14 +96,15 @@ def analyze_fixture_for_new_strategy(fixture):
     found_tips = []
     confidence_modifiers = 0
 
+    # JAVÍTÁS: Ellenőrizzük a None értékeket a H2H adatokban
     if h2h_data:
-        over_2_5_count = sum(1 for match in h2h_data if (match['goals']['home'] + match['goals']['away']) > 2.5)
-        btts_count = sum(1 for match in h2h_data if match['goals']['home'] > 0 and match['goals']['away'] > 0)
+        over_2_5_count = sum(1 for match in h2h_data if match['goals']['home'] is not None and match['goals']['away'] is not None and (match['goals']['home'] + match['goals']['away']) > 2.5)
+        btts_count = sum(1 for match in h2h_data if match['goals']['home'] is not None and match['goals']['away'] is not None and match['goals']['home'] > 0 and match['goals']['away'] > 0)
         if over_2_5_count >= 3: confidence_modifiers += 5
         if btts_count >= 3: confidence_modifiers += 5
 
     key_player_positions = ['Attacker', 'Midfielder']
-    key_injuries_count = sum(1 for p in injuries if p['player']['type'] in key_player_positions)
+    key_injuries_count = sum(1 for p in injuries if p.get('player', {}).get('type') in key_player_positions)
     if key_injuries_count > 2: confidence_modifiers -= 10
     
     home_win_odds = odds_markets.get("Match Winner_Home")
@@ -198,11 +199,11 @@ def record_daily_status(date_str, status, reason=""):
     except Exception as e:
         print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ VEZÉRLŐ (JAVÍTOTT TESZT FÁJL KEZELÉSSEL) ---
+# --- FŐ VEZÉRLŐ ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Bővített Adatgyűjtésű Tipp Generátor (V13.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Bővített Adatgyűjtésű Tipp Generátor (V13.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     
     today_str = start_time.strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
