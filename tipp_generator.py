@@ -1,4 +1,4 @@
-# tipp_generator.py (V14.0 - Single Tipp Stratégia)
+# tipp_generator.py (V13.2 - H2H Hibajavítással)
 
 import os
 import requests
@@ -72,9 +72,9 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- BŐVÍTETT STRATÉGIAI ELEMZŐ ---
+# --- BŐVÍTETT STRATÉGIAI ELEMZŐ (HIBATŰRŐ VERZIÓ) ---
 def analyze_fixture_for_new_strategy(fixture):
-    teams, league, fixture_id = fixture['teams'], league['league'], fixture['fixture']['id']
+    teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
     
     if tuple(sorted((home_id, away_id))) in DERBY_LIST: return []
@@ -96,6 +96,7 @@ def analyze_fixture_for_new_strategy(fixture):
     found_tips = []
     confidence_modifiers = 0
 
+    # JAVÍTÁS: Ellenőrizzük a None értékeket a H2H adatokban
     if h2h_data:
         over_2_5_count = sum(1 for match in h2h_data if match['goals']['home'] is not None and match['goals']['away'] is not None and (match['goals']['home'] + match['goals']['away']) > 2.5)
         btts_count = sum(1 for match in h2h_data if match['goals']['home'] is not None and match['goals']['away'] is not None and match['goals']['home'] > 0 and match['goals']['away'] > 0)
@@ -139,48 +140,57 @@ def analyze_fixture_for_new_strategy(fixture):
     
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
-# --- ÚJ: LEGJOBB SINGLE TIPPEK KIVÁLASZTÁSA ---
-def select_best_single_tips(all_potential_tips, max_tips=3):
-    if not all_potential_tips:
-        return []
+# --- SZELVÉNYKÉSZÍTŐ ---
+def create_doubles_from_tips(date_str, all_potential_tips):
+    print(f"\nÖsszesen {len(all_potential_tips)} db, szabályoknak megfelelő tippből próbálunk szelvényt építeni.")
+    if len(all_potential_tips) < 2: return []
     
-    # Sorba rendezés megbízhatóság szerint, majd a legjobb X kiválasztása
     sorted_tips = sorted(all_potential_tips, key=lambda x: x['confidence'], reverse=True)
-    return sorted_tips[:max_tips]
+    valid_combos = []
+    
+    for combo in combinations(sorted_tips, 2):
+        tip1, tip2 = combo
+        if tip1['kezdes'][:10] != tip2['kezdes'][:10]: continue
+        total_odds = tip1['odds'] * tip2['odds']
+        if 2.00 <= total_odds <= 3.00:
+            valid_combos.append({"combo": [tip1, tip2], "eredo_odds": total_odds, "avg_confidence": (tip1['confidence'] + tip2['confidence']) / 2})
+            
+    if not valid_combos: return []
+    
+    print(f"Találat: {len(valid_combos)} db, 2.00-3.00 odds közötti, azonos napi kombináció.")
+    best_combos = sorted(valid_combos, key=lambda x: x['avg_confidence'], reverse=True)
+    final_slips, used_fixture_ids = [], set()
+    
+    for combo_data in best_combos:
+        if len(final_slips) >= 2: break
+        combo = combo_data['combo']
+        fixture_id1, fixture_id2 = combo[0]['fixture_id'], combo[1]['fixture_id']
+        
+        if fixture_id1 not in used_fixture_ids and fixture_id2 not in used_fixture_ids:
+            match_date = combo[0]['kezdes'][:10]
+            final_slips.append({"tipp_neve": f"Napi Dupla #{len(final_slips) + 1} - {match_date}", "eredo_odds": combo_data['eredo_odds'], "combo": combo, "confidence_percent": int(combo_data['avg_confidence'])})
+            used_fixture_ids.add(fixture_id1); used_fixture_ids.add(fixture_id2)
+            
+    return final_slips
 
-# --- ÚJ: MENTÉS SINGLE TIPPEKHEZ IGAZÍTVA ---
-def save_single_tips_to_supabase(single_tips):
-    if not single_tips:
-        return
-
+# --- MENTÉS ÉS STÁTUSZ ---
+def save_slips_to_supabase(all_slips):
+    if not all_slips: return
+    unique_tips_dict = {f"{t['fixture_id']}_{t['tipp']}": t for slip in all_slips for t in slip['combo']}
     try:
-        # 1. Minden tippet elmentünk a 'meccsek' táblába
-        tips_to_insert = [{
-            "fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'],
-            "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'],
-            "odds": tip['odds'], "eredmeny": "Tipp leadva", "confidence_score": tip['confidence']
-        } for tip in single_tips]
-        
+        tips_to_insert = [{"fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'], "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'], "odds": tip['odds'], "eredmeny": "Tipp leadva", "confidence_score": tip['confidence']} for _, tip in unique_tips_dict.items()]
         response = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute()
-        saved_tips = response.data
-        
-        # 2. Minden elmentett tippből "szelvényt" (napi_tuti bejegyzést) készítünk
+        saved_tips_map = {f"{t['fixture_id']}_{t['tipp']}": t['id'] for t in response.data}
         slips_to_insert = []
-        for i, tip in enumerate(saved_tips):
-            match_date = tip['kezdes'][:10]
-            slips_to_insert.append({
-                "tipp_neve": f"Napi Single #{i + 1} - {match_date}",
-                "eredo_odds": tip["odds"],
-                "tipp_id_k": [tip["id"]], # A tipp_id_k lista csak egy elemet tartalmaz
-                "confidence_percent": tip["confidence_score"]
-            })
-
+        for slip in all_slips:
+            tipp_id_k = [saved_tips_map.get(f"{t['fixture_id']}_{t['tipp']}") for t in slip['combo'] if saved_tips_map.get(f"{t['fixture_id']}_{t['tipp']}")]
+            if len(tipp_id_k) == len(slip['combo']):
+                slips_to_insert.append({"tipp_neve": slip["tipp_neve"], "eredo_odds": slip["eredo_odds"], "tipp_id_k": tipp_id_k, "confidence_percent": slip["confidence_percent"]})
         if slips_to_insert:
             supabase.table("napi_tuti").insert(slips_to_insert).execute()
-            print(f"Sikeresen elmentve {len(slips_to_insert)} darab single tipp.")
-            
+            print(f"Sikeresen elmentve {len(slips_to_insert)} szelvény.")
     except Exception as e:
-        print(f"!!! HIBA a single tippek Supabase-be mentése során: {e}")
+        print(f"!!! HIBA a tippek Supabase-be mentése során: {e}")
 
 def record_daily_status(date_str, status, reason=""):
     try:
@@ -193,7 +203,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Single Tipp Generátor (V14.0) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Bővített Adatgyűjtésű Tipp Generátor (V13.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     
     today_str = start_time.strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
@@ -223,19 +233,17 @@ def main():
         if valuable_tips: all_potential_tips.extend(valuable_tips)
         
     if all_potential_tips:
-        best_tips = select_best_single_tips(all_potential_tips)
-        if best_tips:
-            print(f"\n✅ Sikeresen kiválasztva {len(best_tips)} darab single tipp.")
+        all_slips = create_doubles_from_tips(today_str, all_potential_tips)
+        if all_slips:
+            print(f"\n✅ Sikeresen összeállítva {len(all_slips)} darab szelvény.")
             if is_test_mode:
-                # A tesztfájl formátumát is a "szelvény" struktúrához igazítjuk
-                test_slips = [{"tipp_neve": f"Napi Single #{i+1}", "eredo_odds": tip['odds'], "combo": [tip], "confidence_percent": tip['confidence']} for i, tip in enumerate(best_tips)]
-                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': test_slips}, f, ensure_ascii=False, indent=4)
+                with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': all_slips}, f, ensure_ascii=False, indent=4)
                 print("Teszt eredmények a 'test_results.json' fájlba írva.")
             else:
-                save_single_tips_to_supabase(best_tips)
-                record_daily_status(today_str, "Jóváhagyásra vár", f"{len(best_tips)} darab single tipp vár jóváhagyásra.")
+                save_slips_to_supabase(all_slips)
+                record_daily_status(today_str, "Jóváhagyásra vár", f"{len(all_slips)} szelvény vár jóváhagyásra.")
         else:
-            reason = "A bot talált tippeket, de nem tudta őket a kritériumok szerint rangsorolni."
+            reason = "A bot talált tippeket, de nem tudott belőlük 2-es kötést összeállítani."
             if is_test_mode:
                 with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
             record_daily_status(today_str, "Nincs megfelelő tipp", reason)
