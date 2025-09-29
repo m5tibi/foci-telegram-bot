@@ -110,7 +110,11 @@
             const container = document.getElementById('free-slips-container');
             const loadingState = document.getElementById('loading-state');
             
-            const today = new Date().toISOString().slice(0, 10);
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0'); // Hónapok 0-tól indexelődnek, ezért +1
+            const day = String(now.getDate()).padStart(2, '0');
+            const today = `${year}-${month}-${day}`;
 
             try {
                 const { data, error } = await supabase
