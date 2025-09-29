@@ -1,4 +1,4 @@
-# main.py (V8.2 - Végleges regisztrációs átirányítás javítás)
+# main.py (V8.3 - Stripe Webhook javítás)
 
 import os
 import asyncio
@@ -332,7 +332,27 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
-            price_id = invoice.get('lines', {}).get('data', [{}])[0].get('price', {}).get('id')
+            
+            # --- JAVÍTOTT RÉSZ KEZDETE ---
+            price_id = None
+            try:
+                # Ellenőrizzük, hogy a 'lines' és 'data' létezik és nem üres
+                if invoice.get('lines') and invoice['lines'].get('data'):
+                    price_id = invoice['lines']['data'][0].get('price', {}).get('id')
+                
+                # Ha a price_id még mindig hiányzik, megpróbáljuk a subscription-ből kiolvasni
+                if not price_id and invoice.get('subscription'):
+                    print(f"Price ID nem található a 'lines'-ban, lekérdezés a subscription-ből: {invoice.get('subscription')}") # LOG
+                    subscription_details = stripe.Subscription.retrieve(invoice['subscription'])
+                    if subscription_details.get('items', {}).get('data'):
+                         price_id = subscription_details['items']['data'][0].get('price', {}).get('id')
+                
+                print(f"Sikeresen azonosított Price ID: {price_id}") # LOG
+
+            except Exception as e:
+                print(f"!!! KRITIKUS HIBA a price_id kiolvasása közben: {e}")
+            # --- JAVÍTOTT RÉSZ VÉGE ---
+
 
             if stripe_customer_id and price_id:
                 supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -351,17 +371,24 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     
                     new_expires_at = start_date + timedelta(days=duration_days)
                     
-                    supabase_admin.table("felhasznalok").update({
+                    update_response = supabase_admin.table("felhasznalok").update({
                         "subscription_status": "active",
                         "subscription_expires_at": new_expires_at.isoformat()
                     }).eq("id", user['id']).execute()
+
+                    if not update_response.data:
+                         print(f"!!! ADATBÁZIS FRISSÍTÉSI HIBA a {user['email']} felhasználónál!")
                     
                     plan_type = "Havi" if duration_days == 30 else "Heti"
                     notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
                     await send_admin_notification(notification_message)
+                else:
+                    print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
+            else:
+                print(f"!!! WEBHOOK HIBA: Hiányzó stripe_customer_id vagy price_id. Customer ID: {stripe_customer_id}, Price ID: {price_id}")
+
 
         return {"status": "success"}
     except Exception as e:
-        print(f"WEBHOOK HIBA: {e}")
+        print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
