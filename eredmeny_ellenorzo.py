@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (Végleges, Minden Státuszt Kezelő Verzió + Under 2.5 javítás)
+# eredmeny_ellenorzo.py (Végleges, Kombinált Tippek Javításával)
 import os
 import requests
 from supabase import create_client, Client
@@ -38,19 +38,41 @@ def evaluate_tip(tip_text, fixture_data):
         return "Hiba", None
 
     score_str = f"{goals_home}-{goals_away}"
+    total_goals = goals_home + goals_away
     
     is_winner = False
-    if tip_text == "Home" and goals_home > goals_away: is_winner = True
-    elif tip_text == "Away" and goals_away > goals_home: is_winner = True
-    elif tip_text == "Draw" and goals_home == goals_away: is_winner = True
-    elif tip_text == "Over 2.5" and (goals_home + goals_away) > 2.5: is_winner = True
-    elif tip_text == "Under 2.5" and (goals_home + goals_away) < 2.5: is_winner = True
-    elif tip_text == "Over 1.5" and (goals_home + goals_away) > 1.5: is_winner = True
-    elif tip_text == "BTTS" and goals_home > 0 and goals_away > 0: is_winner = True
-    elif tip_text == "1X" and (goals_home > goals_away or goals_home == goals_away): is_winner = True
-    elif tip_text == "X2" and (goals_away > goals_home or goals_home == goals_away): is_winner = True
-    elif tip_text == "Home Over 1.5" and goals_home > 1.5: is_winner = True
-    elif tip_text == "Away Over 1.5" and goals_away > 1.5: is_winner = True
+    
+    # --- JAVÍTOTT KIÉRTÉKELŐ LOGIKA ---
+    if tip_text == "Home & Over 1.5":
+        if goals_home > goals_away and total_goals > 1.5: is_winner = True
+    elif tip_text == "Away & Over 1.5":
+        if goals_away > goals_home and total_goals > 1.5: is_winner = True
+    elif tip_text == "Over 2.5 & BTTS":
+        if total_goals > 2.5 and goals_home > 0 and goals_away > 0: is_winner = True
+    # --- EGYSZERŰ TIPP EK KEZELÉSE ---
+    elif tip_text == "Home":
+        if goals_home > goals_away: is_winner = True
+    elif tip_text == "Away":
+        if goals_away > goals_home: is_winner = True
+    elif tip_text == "Draw":
+        if goals_home == goals_away: is_winner = True
+    elif tip_text == "Over 2.5":
+        if total_goals > 2.5: is_winner = True
+    elif tip_text == "Under 2.5":
+        if total_goals < 2.5: is_winner = True
+    elif tip_text == "Over 1.5":
+        if total_goals > 1.5: is_winner = True
+    elif tip_text == "BTTS":
+        if goals_home > 0 and goals_away > 0: is_winner = True
+    elif tip_text == "1X":
+        if goals_home >= goals_away: is_winner = True
+    elif tip_text == "X2":
+        if goals_away >= goals_home: is_winner = True
+    elif tip_text == "Home Over 1.5":
+        if goals_home > 1.5: is_winner = True
+    elif tip_text == "Away Over 1.5":
+        if goals_away > 1.5: is_winner = True
+    # --- JAVÍTÁS VÉGE ---
 
     return "Nyert" if is_winner else "Veszített", score_str
 
