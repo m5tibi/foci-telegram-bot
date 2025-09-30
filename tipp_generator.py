@@ -2,7 +2,7 @@
 
 import os
 import requests
-from supabase import create\_client, Client
+from supabase import create_client, Client
 from datetime import datetime, timedelta
 import time
 import pytz
