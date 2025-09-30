@@ -1,4 +1,4 @@
-# send_admin_summary.py (V4.4 - Value Bet Kompatibilis)
+# send_admin_summary.py (V4.5 - Helyes EV Kulcs Használata)
 import os
 import asyncio
 import telegram
@@ -12,7 +12,6 @@ ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 def get_tip_details(tip_text):
-    # Egyszerűsített leképezés, a generátor már kezeli a neveket
     return tip_text.replace('_', ' ').replace('&', 'és')
 
 async def send_summary():
@@ -37,11 +36,11 @@ async def send_summary():
             if status == "Tippek generálva":
                 slips = results.get('slips', [])
                 if slips:
-                    message_to_admin += "✅ *Sikeres generálás!* A következő value bet szelvények jöttek volna létre:\n\n"
+                    message_to_admin += "✅ *Sikeres generálás!* A következő, pozitív EV-vel rendelkező tippek jöttek volna létre:\n\n"
                     for i, slip in enumerate(slips):
-                        # --- JAVÍTÁS ITT ---
-                        value = slip.get('value', 'N/A')
-                        message_to_admin += f"*{slip['tipp_neve']}* (Érték: {value:.3f})\n\n"
+                        # --- JAVÍTÁS ITT: 'value' helyett 'expected_value' használata ---
+                        expected_value = slip.get('expected_value', 0.0)
+                        message_to_admin += f"*{slip['tipp_neve']}* (Várható Érték: +{expected_value*100:.1f}%)\n\n"
                         # --- JAVÍTÁS VÉGE ---
 
                         for meccs in slip.get('combo', []):
@@ -56,7 +55,7 @@ async def send_summary():
                         if i < len(slips) - 1:
                             message_to_admin += "\n-----------------------------------\n\n"
                 else:
-                    message_to_admin += "ℹ️ *Nincs szelvény.* Bár a rendszer talált tippeket, nem tudott belőlük a szabályoknak megfelelő szelvényt összeállítani.\n"
+                    message_to_admin += "ℹ️ *Nincs szelvény.*\n"
             
             elif status == "Nincs megfelelő tipp":
                 reason = results.get('reason', 'Ismeretlen ok.')
