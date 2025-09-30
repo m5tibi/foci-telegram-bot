@@ -1,4 +1,4 @@
-# tipp_generator_v18_poisson.py (V18.1 - SyntaxError javítva)
+# tipp_generator.py (V19.0 - API Paraméter és Poisson Hibajavítás)
 
 import os
 import requests
@@ -39,7 +39,7 @@ def get_api_data(endpoint, params, retries=3, delay=5):
         try:
             response = requests.get(url, headers=headers, params=params, timeout=25)
             response.raise_for_status()
-            time.sleep(0.7) # API Rate limit betartása
+            time.sleep(0.7)
             return response.json().get('response', [])
         except requests.exceptions.RequestException as e:
             if i < retries - 1:
@@ -53,7 +53,8 @@ def get_league_stats(league_id, season):
     if league_id in LEAGUE_STATS_CACHE:
         return LEAGUE_STATS_CACHE[league_id]
 
-    params = {"league": str(league_id), "season": str(season)}
+    # --- JAVÍTÁS ITT: A paraméter 'league'-ról 'id'-ra cserélve ---
+    params = {"id": str(league_id), "season": str(season)}
     league_data = get_api_data("leagues", params)
     
     try:
@@ -81,10 +82,8 @@ def prefetch_data_for_fixtures(fixtures):
         home_id = fixture['teams']['home']['id']
         away_id = fixture['teams']['away']['id']
         
-        # Liga statisztikák előtöltése
         get_league_stats(league_id, season)
 
-        # Csapat statisztikák előtöltése
         for team_id in [home_id, away_id]:
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
@@ -94,16 +93,15 @@ def prefetch_data_for_fixtures(fixtures):
 
 # --- POISSON-ELOSZLÁS MODELL ---
 def poisson_probability(mu, k):
-    """Kiszámolja a Poisson-eloszlás valószínűségét (P(X=k))."""
-    if mu < 0: mu = 0 # Negatív mu nem megengedett
+    """Kiszámolja a Poisson-eloszlás valószínűségét (P(X=k)), hibakezeléssel."""
+    if mu < 0: mu = 0
     if k < 0: return 0
     try:
+        # A faktoriális hibát elkerüljük, ha k túl nagy, a valószínűség gyakorlatilag 0
+        if k > 170: return 0
         return (math.exp(-mu) * mu**k) / math.factorial(k)
     except (ValueError, OverflowError):
-        # Ha a faktoriális túl nagy, közelítünk
-        if k > 170: return 0
         return 0
-
 
 def calculate_poisson_probabilities(fixture):
     """Kiszámolja a lehetséges kimenetelek valószínűségét Poisson-eloszlás segítségével."""
@@ -120,23 +118,17 @@ def calculate_poisson_probabilities(fixture):
         return {}
 
     try:
-        # Támadóerő (Attack Strength) számítása
         home_attack = float(stats_h['goals']['for']['average']['home']) / league_stats['avg_goals_home']
         away_attack = float(stats_a['goals']['for']['average']['away']) / league_stats['avg_goals_away']
-        
-        # Védekező erő (Defence Strength) számítása
         home_defence = float(stats_h['goals']['against']['average']['home']) / league_stats['avg_goals_away']
         away_defence = float(stats_a['goals']['against']['average']['away']) / league_stats['avg_goals_home']
         
-        # Várható gólok (Expected Goals)
         home_exp_goals = home_attack * away_defence * league_stats['avg_goals_home']
         away_exp_goals = away_attack * home_defence * league_stats['avg_goals_away']
 
-        # Valószínűségek mátrixának felépítése (max 5-5 gólig)
         home_probs = [poisson_probability(home_exp_goals, i) for i in range(6)]
         away_probs = [poisson_probability(away_exp_goals, i) for i in range(6)]
 
-        # Kimeneteli valószínűségek számítása
         prob_home_win, prob_draw, prob_away_win = 0, 0, 0
         for h_goals in range(6):
             for a_goals in range(6):
@@ -176,13 +168,9 @@ def find_positive_ev_bets(fixture):
     for outcome, prob in probabilities.items():
         if outcome in match_winner_odds:
             odds = match_winner_odds[outcome]
-            
-            # A Várható Érték (EV) kiszámítása: (Valószínűség * Nyeremény) - Tét
-            # Egységnyi tétre (1): EV = (Prob/100 * Odds) - 1
             expected_value = (prob / 100 * odds) - 1
             
-            # Csak a pozitív EV-jű és reális oddsú fogadásokat vesszük figyelembe
-            if expected_value > 0.10 and odds < 7.0: # 10% feletti EV küszöb
+            if expected_value > 0.10 and odds < 7.0:
                 positive_ev_bets.append({
                     "fixture_id": fixture['fixture']['id'],
                     "csapat_H": fixture['teams']['home']['name'],
@@ -199,7 +187,7 @@ def find_positive_ev_bets(fixture):
 
 # --- MENTÉSI ÉS STÁTUSZKEZELŐ FÜGGVÉNYEK ---
 def save_bets_to_supabase(best_bets):
-    """Elmenti a legjobb, pozitív EV-vel rendelkező tippeket az adatázisba."""
+    """Elmenti a legjobb, pozitív EV-vel rendelkező tippeket az adatbázisba."""
     if not best_bets: return
 
     try:
@@ -207,7 +195,7 @@ def save_bets_to_supabase(best_bets):
             "fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'],
             "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'],
             "odds": tip['odds'], "eredmeny": "Tipp leadva",
-            "confidence_score": round(tip['expected_value'] * 100), # EV-t tároljuk százalékos formában (ROI)
+            "confidence_score": round(tip['expected_value'] * 100),
             "indoklas": f"A bot Poisson-modell alapján {tip['becsult_proba']}% esélyt becsül, ami {tip['odds']} oddsszal párosítva +{round(tip['expected_value']*100, 1)}% várható értéket (EV) eredményez."
         } for tip in best_bets]
 
@@ -237,7 +225,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Value Bet Generátor (V18.1 - SyntaxFix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Value Bet Generátor (V19.0 - API Fix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     
     today_str = start_time.strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
