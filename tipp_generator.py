@@ -1,4 +1,4 @@
-# tipp_generator_v18_poisson.py (V18.0 - Poisson-eloszlás &amp; EV Modell)
+# tipp_generator_v18_poisson.py (V18.1 - SyntaxError javítva)
 
 import os
 import requests
@@ -10,234 +10,276 @@ import sys
 import json
 import math
 
-# \--- Konfiguráció ---
+# --- Konfiguráció ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-SUPABASE\_URL = os.environ.get("SUPABASE\_URL")
-SUPABASE\_KEY = os.environ.get("SUPABASE\_KEY")
-RAPIDAPI\_KEY = os.environ.get("RAPIDAPI\_KEY")
-RAPIDAPI\_HOST = "api-football-v1.p.rapidapi.com"
-supabase: Client = create\_client(SUPABASE\_URL, SUPABASE\_KEY)
-BUDAPEST\_TZ = pytz.timezone('Europe/Budapest')
+# --- Globális Gyorsítótárak ---
+TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE, LEAGUE_STATS_CACHE = {}, {}, {}, {}, {}
 
-# \--- Globális Gyorsítótárak ---
-
-TEAM\_STATS\_CACHE, STANDINGS\_CACHE, H2H\_CACHE, INJURIES\_CACHE, LEAGUE\_STATS\_CACHE = {}, {}, {}, {}, {}
-
-# \--- LIGA PROFILOK (Változatlan) ---
-
-RELEVANT\_LEAGUES = {
-39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
-78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
-94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
-79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
+# --- LIGA PROFILOK ---
+RELEVANT_LEAGUES = {
+    39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
+    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
+    94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
+    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
+    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
 }
 
-# \--- API és ADATGYŰJTŐ FÜGGVÉNYEK (Bővítve a liga statisztikákhoz) ---
+# --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
+def get_api_data(endpoint, params, retries=3, delay=5):
+    """Általános API hívó függvény a RapidAPI-hoz, újrapróbálkozási logikával."""
+    url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
+    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+    for i in range(retries):
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=25)
+            response.raise_for_status()
+            time.sleep(0.7) # API Rate limit betartása
+            return response.json().get('response', [])
+        except requests.exceptions.RequestException as e:
+            if i < retries - 1:
+                time.sleep(delay)
+            else:
+                print(f"Sikertelen API hívás: {endpoint}. Hiba: {e}")
+                return []
 
-def get\_api\_data(endpoint, params, retries=3, delay=5):
-"""Általános API lekérdező függvény, újrapróbálkozási logikával."""
-url = f"https://{RAPIDAPI\_HOST}/v3/{endpoint}"
-headers = {"X-RapidAPI-Key": RAPIDAPI\_KEY, "X-RapidAPI-Host": RAPIDAPI\_HOST}
-for i in range(retries):
-try:
-response = requests.get(url, headers=headers, params=params, timeout=25)
-response.raise\_for\_status()
-time.sleep(0.7) \# API rate limit tiszteletben tartása
-return response.json().get('response',)
-except requests.exceptions.RequestException as e:
-if i \< retries - 1:
-time.sleep(delay)
-else:
-print(f"Sikertelen API hívás a végén is: {endpoint}, hiba: {e}")
-return
+def get_league_stats(league_id, season):
+    """Lekéri és gyorsítótárazza egy adott liga szezonális gólátlagait."""
+    if league_id in LEAGUE_STATS_CACHE:
+        return LEAGUE_STATS_CACHE[league_id]
 
-def prefetch\_data\_for\_fixtures(fixtures):
-"""Minden szükséges adatot előre letölt és gyorsítótáraz a megadott meccsekhez."""
-if not fixtures: return
-print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
-season = str(datetime.now(BUDAPEST\_TZ).year)
-league\_ids = list(set(f['league']['id'] for f in fixtures))
- # Liga gólátlagok számítása és tárolása a Poisson modellhez
-        total_home_goals, total_away_goals, total_matches = 0, 0, 0
-        for team_standing in standings:
-            total_matches += team_standing['all']['played']
-            total_home_goals += team_standing['home']['goals']['for']
-            total_away_goals += team_standing['away']['goals']['for']
+    params = {"league": str(league_id), "season": str(season)}
+    league_data = get_api_data("leagues", params)
+    
+    try:
+        avg_goals = league_data[0]['seasons'][0].get('goals', {}).get('average', {})
+        avg_home = float(avg_goals.get('home', 1.5))
+        avg_away = float(avg_goals.get('away', 1.2))
         
-        # Mivel minden meccset kétszer számolunk (egyszer a hazainál, egyszer a vendégnél), a meccsszámot felezni kell
-        num_matches_played = total_matches / 2
-        if num_matches_played > 0:
-            LEAGUE_STATS_CACHE[league_id] = {
-                'avg_home_goals': total_home_goals / num_matches_played,
-                'avg_away_goals': total_away_goals / num_matches_played
-            }
-            # H2H
-h2h_key = tuple(sorted((home_id, away_id)))
-if h2h_key not in H2H_CACHE:
-    H2H_CACHE[h2h_key] = get_api_data("fixtures/headtohead", {"h2h": f"{home_id}-{away_id}", "last": "5"})
+        if avg_home > 0 and avg_away > 0:
+            stats = {'avg_goals_home': avg_home, 'avg_goals_away': avg_away}
+            LEAGUE_STATS_CACHE[league_id] = stats
+            return stats
+    except (IndexError, KeyError, TypeError, ValueError) as e:
+        print(f"Hiba a ligaátlagok feldolgozása közben (league_id: {league_id}): {e}")
+    
+    return None
 
-# Sérülések
-if fixture_id not in INJURIES_CACHE:
-    INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
+def prefetch_data_for_fixtures(fixtures):
+    """Előtölti a szükséges statisztikákat a meccsekhez, hogy minimalizálja az API hívásokat."""
+    if not fixtures: return
+    print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
+    season = str(datetime.now(BUDAPEST_TZ).year)
 
-# Csapat statisztikák
-for team_id in [home_id, away_id]:
-    stats_key = f"{team_id}_{league_id}"
-    if stats_key not in TEAM_STATS_CACHE:
-        stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(team_id)})
-        if stats: TEAM_STATS_CACHE[stats_key] = stats
+    for fixture in fixtures:
+        league_id = fixture['league']['id']
+        home_id = fixture['teams']['home']['id']
+        away_id = fixture['teams']['away']['id']
+        
+        # Liga statisztikák előtöltése
+        get_league_stats(league_id, season)
+
+        # Csapat statisztikák előtöltése
+        for team_id in [home_id, away_id]:
+            stats_key = f"{team_id}_{league_id}"
+            if stats_key not in TEAM_STATS_CACHE:
+                stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(team_id)})
+                if stats: TEAM_STATS_CACHE[stats_key] = stats
+    print("Adatok előtöltése befejezve.")
+
+# --- POISSON-ELOSZLÁS MODELL ---
+def poisson_probability(mu, k):
+    """Kiszámolja a Poisson-eloszlás valószínűségét (P(X=k))."""
+    if mu < 0: mu = 0 # Negatív mu nem megengedett
+    if k < 0: return 0
+    try:
+        return (math.exp(-mu) * mu**k) / math.factorial(k)
+    except (ValueError, OverflowError):
+        # Ha a faktoriális túl nagy, közelítünk
+        if k > 170: return 0
+        return 0
+
+
+def calculate_poisson_probabilities(fixture):
+    """Kiszámolja a lehetséges kimenetelek valószínűségét Poisson-eloszlás segítségével."""
+    league_id = fixture['league']['id']
+    home_id = fixture['teams']['home']['id']
+    away_id = fixture['teams']['away']['id']
+    season = str(fixture['league']['season'])
+
+    league_stats = get_league_stats(league_id, season)
+    stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league_id}")
+    stats_a = TEAM_STATS_CACHE.get(f"{away_id}_{league_id}")
+
+    if not all([league_stats, stats_h, stats_a]):
+        return {}
+
+    try:
+        # Támadóerő (Attack Strength) számítása
+        home_attack = float(stats_h['goals']['for']['average']['home']) / league_stats['avg_goals_home']
+        away_attack = float(stats_a['goals']['for']['average']['away']) / league_stats['avg_goals_away']
+        
+        # Védekező erő (Defence Strength) számítása
+        home_defence = float(stats_h['goals']['against']['average']['home']) / league_stats['avg_goals_away']
+        away_defence = float(stats_a['goals']['against']['average']['away']) / league_stats['avg_goals_home']
+        
+        # Várható gólok (Expected Goals)
+        home_exp_goals = home_attack * away_defence * league_stats['avg_goals_home']
+        away_exp_goals = away_attack * home_defence * league_stats['avg_goals_away']
+
+        # Valószínűségek mátrixának felépítése (max 5-5 gólig)
+        home_probs = [poisson_probability(home_exp_goals, i) for i in range(6)]
+        away_probs = [poisson_probability(away_exp_goals, i) for i in range(6)]
+
+        # Kimeneteli valószínűségek számítása
+        prob_home_win, prob_draw, prob_away_win = 0, 0, 0
+        for h_goals in range(6):
+            for a_goals in range(6):
+                prob = home_probs[h_goals] * away_probs[a_goals]
+                if h_goals > a_goals: prob_home_win += prob
+                elif h_goals < a_goals: prob_away_win += prob
+                else: prob_draw += prob
+
+        return {
+            'Home': round(prob_home_win * 100, 2),
+            'Draw': round(prob_draw * 100, 2),
+            'Away': round(prob_away_win * 100, 2)
+        }
+    except (KeyError, TypeError, ValueError) as e:
+        print(f"Hiba a Poisson számítás során (fixture_id: {fixture['fixture']['id']}): {e}")
+        return {}
+
+# --- VÁRHATÓ ÉRTÉK (EV) SZÁMÍTÁS ---
+def find_positive_ev_bets(fixture):
+    """Felkutatja azokat a fogadási lehetőségeket, ahol a várható érték (EV) pozitív."""
+    positive_ev_bets = []
+    
+    odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id'])})
+    if not odds_data or not odds_data[0].get('bookmakers'):
+        return []
+    
+    try:
+        bets = odds_data[0]['bookmakers'][0].get('bets', [])
+        match_winner_odds = {v['value']: float(v['odd']) for v in bets[0]['values']}
+    except (IndexError, KeyError, TypeError):
+        return []
+
+    probabilities = calculate_poisson_probabilities(fixture)
+    if not probabilities:
+        return []
+    
+    for outcome, prob in probabilities.items():
+        if outcome in match_winner_odds:
+            odds = match_winner_odds[outcome]
             
-# \--- V18.0: POISSON-ELOSZLÁS VALÓSZÍNŰSÉG SZÁMÍTÓ MODUL ---
+            # A Várható Érték (EV) kiszámítása: (Valószínűség * Nyeremény) - Tét
+            # Egységnyi tétre (1): EV = (Prob/100 * Odds) - 1
+            expected_value = (prob / 100 * odds) - 1
+            
+            # Csak a pozitív EV-jű és reális oddsú fogadásokat vesszük figyelembe
+            if expected_value > 0.10 and odds < 7.0: # 10% feletti EV küszöb
+                positive_ev_bets.append({
+                    "fixture_id": fixture['fixture']['id'],
+                    "csapat_H": fixture['teams']['home']['name'],
+                    "csapat_V": fixture['teams']['away']['name'],
+                    "kezdes": fixture['fixture']['date'],
+                    "liga_nev": fixture['league']['name'],
+                    "tipp": outcome,
+                    "odds": odds,
+                    "becsult_proba": prob,
+                    "expected_value": expected_value
+                })
+                
+    return positive_ev_bets
 
-def calculate\_poisson\_probabilities(fixture):
-"""
-Kiszámítja a H/D/A kimenetelek valószínűségét a Bivariáns Poisson-eloszlás modell alapján.
-A modell a csapatok támadó/védekező erejét a ligaátlaghoz viszonyítja.
-"""
-teams, league = fixture['teams'], fixture['league']
-home\_id, away\_id = teams['home']['id'], teams['away']['id']
-fixture\_id = fixture['fixture']['id']
+# --- MENTÉSI ÉS STÁTUSZKEZELŐ FÜGGVÉNYEK ---
+def save_bets_to_supabase(best_bets):
+    """Elmenti a legjobb, pozitív EV-vel rendelkező tippeket az adatázisba."""
+    if not best_bets: return
 
-avg_home_goals_league = league_stats['avg_home_goals']
-avg_away_goals_league = league_stats['avg_away_goals']
+    try:
+        tips_to_insert = [{
+            "fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'],
+            "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'],
+            "odds": tip['odds'], "eredmeny": "Tipp leadva",
+            "confidence_score": round(tip['expected_value'] * 100), # EV-t tároljuk százalékos formában (ROI)
+            "indoklas": f"A bot Poisson-modell alapján {tip['becsult_proba']}% esélyt becsül, ami {tip['odds']} oddsszal párosítva +{round(tip['expected_value']*100, 1)}% várható értéket (EV) eredményez."
+        } for tip in best_bets]
 
-# Erősségi mutatók
-home_attack_strength = float(home_goals_scored_avg) / avg_home_goals_league
-home_defence_strength = float(home_goals_conceded_avg) / avg_away_goals_league
-away_attack_strength = float(away_goals_scored_avg) / avg_away_goals_league
-away_defence_strength = float(away_goals_conceded_avg) / avg_home_goals_league
+        saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
 
-# 2. Várható gólok (Lambda) kiszámítása
-lambda_home = home_attack_strength * away_defence_strength * avg_home_goals_league
-lambda_away = away_attack_strength * home_defence_strength * avg_away_goals_league
+        slips_to_insert = [{
+            "tipp_neve": f"A Nap Value Tippje #{i + 1} - {tip['kezdes'][:10]}",
+            "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]],
+            "confidence_percent": int(tip.get('confidence_score', 0))
+        } for i, tip in enumerate(saved_tips)]
 
-# 3. Sérülések hatásának integrálása (Kulcsjátékosok)
-# Egyszerűsített modell: ha egy top 3 góllövő hiányzik, csökkentjük a csapat várható góljait.
-if stats_h.get('players', {}).get('top_scorers'):
-    top_scorers_h = {p['id'] for p in stats_h.get('players', {}).get('top_scorers',)[:3]}
-else:
-    top_scorers_h = set()
-    
-if stats_a.get('players', {}).get('top_scorers'):
-    top_scorers_a = {p['id'] for p in stats_a.get('players', {}).get('top_scorers',)[:3]}
-else:
-    top_scorers_a = set()
+        if slips_to_insert:
+            supabase.table("napi_tuti").insert(slips_to_insert).execute()
+            print(f"Sikeresen elmentve {len(slips_to_insert)} darab, pozitív EV-vel rendelkező tipp.")
+    except Exception as e:
+        print(f"!!! HIBA a tippek Supabase-be mentése során: {e}")
 
-injured_player_ids = {p['player']['id'] for p in injuries}
+def record_daily_status(date_str, status, reason=""):
+    """Rögzíti a futás napi státuszát az adatbázisban."""
+    try:
+        print(f"Napi státusz rögzítése: {date_str} - {status}")
+        supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
+    except Exception as e:
+        print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-if not top_scorers_h.isdisjoint(injured_player_ids):
-    lambda_home *= 0.85 # 15% csökkentés
-if not top_scorers_a.isdisjoint(injured_player_ids):
-    lambda_away *= 0.85 # 15% csökkentés
-
-# 4. Poisson-eloszlás alkalmazása és valószínűségi mátrix felépítése
-max_goals = 7 # Reális maximum gólok száma a számításhoz
-prob_matrix = [ * max_goals for _ in range(max_goals)]
-
-for h_goals in range(max_goals):
-    for a_goals in range(max_goals):
-        prob_home = (math.exp(-lambda_home) * lambda_home**h_goals) / math.factorial(h_goals)
-        prob_away = (math.exp(-lambda_away) * lambda_away**a_goals) / math.factorial(a_goals)
-        prob_matrix[h_goals][a_goals] = prob_home * prob_away
-
-# 5. H/D/A valószínűségek összegzése a mátrixból
-prob_home_win, prob_draw, prob_away_win = 0, 0, 0
-for h_goals in range(max_goals):
-    for a_goals in range(max_goals):
-        if h_goals > a_goals:
-            prob_home_win += prob_matrix[h_goals][a_goals]
-        elif h_goals == a_goals:
-            prob_draw += prob_matrix[h_goals][a_goals]
-        else:
-            prob_away_win += prob_matrix[h_goals][a_goals]
-
-# Normalizálás, hogy a végeredmény 100% legyen
-total_prob = prob_home_win + prob_draw + prob_away_win
-if total_prob == 0: return {}
-return {
-    'Home': round((prob_home_win / total_prob) * 100, 2),
-    'Draw': round((prob_draw / total_prob) * 100, 2),
-    'Away': round((prob_away / total_prob) * 100, 2)
-    # \--- V18.0: VALUE BET KERESŐ (Várható Érték - EV alapú) ---
-
-def find\_value\_bets(fixture):
-"""
-Azonosítja a pozitív várható értékkel (EV) rendelkező fogadásokat.
-Egy fogadás akkor 'value', ha a modell által becsült valószínűség magasabb,
-mint az odds által sugallt valószínűség.
-"""
-value\_bets =
-prob = probabilities.get(tip, 0)
-if prob == 0: continue
-
-# Várható Érték (EV) számítása 1 egységnyi tétre
-# EV = (nyerési valószínűség * nyeremény) - (vesztési valószínűség * tét)
-ev = ((prob / 100) * (odds - 1)) - ((1 - (prob / 100)) * 1)
-
-# Csak a pozitív EV-vel rendelkező fogadásokat tartjuk meg (egy kis ráhagyással)
-if ev > 0.05: # Minimum 5% elvárt hozam
-    value_bets.append({
-        "fixture_id": fixture.get('fixture', {}).get('id'),
-        "csapat_H": fixture.get('teams', {}).get('home', {}).get('name'),
-        "csapat_V": fixture.get('teams', {}).get('away', {}).get('name'),
-        "kezdes": fixture.get('fixture', {}).get('date'),
-        "liga_nev": fixture.get('league', {}).get('name'),
-        "tipp": tip, 
-        "odds": odds,
-        "expected_value": round(ev, 4),
-        "becsult_proba": prob
-    })
-    
-# \--- MENTÉSI FÜGGVÉNYEK (EV-hez igazítva) ---
-
-def save\_value\_bets\_to\_supabase(best\_bets):
-"""Elmenti a legjobb, EV alapján kiválasztott tippeket a Supabase adatbázisba."""
-if not best\_bets: return
-try:
-tips\_to\_insert = [{
-"fixture\_id": tip['fixture\_id'], "csapat\_H": tip['csapat\_H'], "csapat\_V": tip['csapat\_V'],
-"kezdes": tip['kezdes'], "liga\_nev": tip['liga\_nev'], "tipp": tip['tipp'],
-"odds": tip['odds'], "eredmeny": "Tipp leadva",  
-\# A confidence score mostantól az EV-ből származik (pl. EV \* 20)
-"confidence\_score": min(10, round(tip['expected\_value'] \* 20)), \# Skálázás 10-es skálára
-"indoklas": f"Poisson-modell alapú becsült valószínűség ({tip['becsult\_proba']}%) magasabb, mint amit az odds ({tip['odds']}) sugall. Várható Érték (EV): {tip['expected\_value']:.2f}."
-} for tip in best\_bets]
-saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
-
-slips_to_insert =[:10]}",
-    "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]],
-    "confidence_percent": int(min(100, round(tip['expected_value'] * 200))) # Skálázás 100-as skálára
-} for i, tip in enumerate(saved_tips)]
-
-if slips_to_insert:
-    supabase.table("napi_tuti").insert(slips_to_insert).execute()
-    print(f"Sikeresen elmentve {len(slips_to_insert)} darab, pozitív EV-vel rendelkező tipp.")
-    def record\_daily\_status(date\_str, status, reason=""):
-"""Rögzíti a futás napi státuszát az adatbázisban."""
-try:
-print(f"Napi státusz rögzítése: {date\_str} - {status}")
-supabase.table("daily\_status").upsert({"date": date\_str, "status": status, "reason": reason}, on\_conflict="date").execute()
-except Exception as e:
-print(f"\!\!\! HIBA a napi státusz rögzítése során: {e}")
-
-# \--- FŐ VEZÉRLŐ ---
-
+# --- FŐ VEZÉRLŐ ---
 def main():
-is\_test\_mode = '--test' in sys.argv
-start\_time = datetime.now(BUDAPEST\_TZ)
-print(f"Value Bet Generátor (V18.0 - Poisson & EV) indítása {'TESZT ÜZEMMÓDBAN' if is\_test\_mode else ''}...")
-print(f"\n✅ A nap legjobb, pozitív EV-vel rendelkező tippjei ({len(best_bets)} db):")
-for bet in best_bets:
-    print(f"  - {bet['csapat_H']} vs {bet['csapat_V']} -> Tipp: {bet['tipp']}, Odds: {bet['odds']}, EV: {bet['expected_value']:.3f}")
-
-if is_test_mode:
-    with open('test_results.json', 'w', encoding='utf-8') as f:
-        json.dump({'status': 'Tippek generálva', 'slips': best_bets}, f, ensure_ascii=False, indent=4)
-    print("Teszt eredmények a 'test_results.json' fájlba írva.")
-else:
-    save_value_bets_to_supabase(best_bets)
-    record_daily_status(today_str, "Jóváhagyásra vár", f"{len(best_bets)} darab EV-alapú tipp vár jóváhagyásra.")
+    is_test_mode = '--test' in sys.argv
+    start_time = datetime.now(BUDAPEST_TZ)
+    print(f"Value Bet Generátor (V18.1 - SyntaxFix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     
-if **name** == "**main**":
-main()
+    today_str = start_time.strftime("%Y-%m-%d")
+    all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
+
+    if not all_fixtures_raw:
+        record_daily_status(today_str, "Nincs megfelelő tipp", "Az API nem adott vissza meccseket a mai napra."); return
+
+    now_utc = datetime.now(pytz.utc)
+    future_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc]
+    
+    if not future_fixtures:
+        record_daily_status(today_str, "Nincs megfelelő tipp", "Nincs több releváns meccs a mai napon."); return
+
+    prefetch_data_for_fixtures(future_fixtures)
+    all_positive_ev_bets = []
+    
+    print("\n--- Meccsek elemzése pozitív várható érték (EV) alapján ---")
+    for fixture in future_fixtures:
+        ev_bets = find_positive_ev_bets(fixture)
+        if ev_bets:
+            all_positive_ev_bets.extend(ev_bets)
+            
+    if all_positive_ev_bets:
+        best_bets = sorted(all_positive_ev_bets, key=lambda x: x['expected_value'], reverse=True)[:3]
+        
+        print(f"\n✅ A nap legjobb, pozitív EV-vel rendelkező tippjei ({len(best_bets)} db):")
+        for bet in best_bets:
+            print(f"  - {bet['csapat_H']} vs {bet['csapat_V']} -> Tipp: {bet['tipp']}, Odds: {bet['odds']}, EV: {bet['expected_value']:.3f}")
+        
+        if is_test_mode:
+            test_slips = [{"tipp_neve": f"Value Tipp #{i+1}", "eredo_odds": tip['odds'], "combo": [tip], "expected_value": tip['expected_value']} for i, tip in enumerate(best_bets)]
+            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': test_slips}, f, ensure_ascii=False, indent=4)
+            print("Teszt eredmények a 'test_results.json' fájlba írva.")
+        else:
+            save_bets_to_supabase(best_bets)
+            record_daily_status(today_str, "Jóváhagyásra vár", f"{len(best_bets)} darab, pozitív EV-vel rendelkező tipp vár jóváhagyásra.")
+    else:
+        reason = "Az algoritmus nem talált a kritériumoknak megfelelő, pozitív várható értékű fogadást a mai napra."
+        print(f"\n{reason}")
+        if is_test_mode:
+            with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
+        record_daily_status(today_str, "Nincs megfelelő tipp", reason)
+
+if __name__ == "__main__":
+    main()
