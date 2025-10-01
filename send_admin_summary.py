@@ -1,4 +1,4 @@
-# send_admin_summary.py (V4.5 - Helyes EV Kulcs Használata)
+# send_admin_summary.py (V4.6 - Esély % Megjelenítés)
 import os
 import asyncio
 import telegram
@@ -36,11 +36,11 @@ async def send_summary():
             if status == "Tippek generálva":
                 slips = results.get('slips', [])
                 if slips:
-                    message_to_admin += "✅ *Sikeres generálás!* A következő, pozitív EV-vel rendelkező tippek jöttek volna létre:\n\n"
+                    message_to_admin += "✅ *Sikeres generálás!* A következő tippek jöttek volna létre:\n\n"
                     for i, slip in enumerate(slips):
-                        # --- JAVÍTÁS ITT: 'value' helyett 'expected_value' használata ---
-                        expected_value = slip.get('expected_value', 0.0)
-                        message_to_admin += f"*{slip['tipp_neve']}* (Várható Érték: +{expected_value*100:.1f}%)\n\n"
+                        # --- JAVÍTÁS ITT: 'becsult_proba' használata ---
+                        probability = slip.get('becsult_proba', 0.0)
+                        message_to_admin += f"*{slip['tipp_neve']}* (Becsült Esély: {probability}%)\n\n"
                         # --- JAVÍTÁS VÉGE ---
 
                         for meccs in slip.get('combo', []):
