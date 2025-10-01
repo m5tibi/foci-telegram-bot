@@ -1,4 +1,4 @@
-# tipp_generator.py (V19.0 - API Paraméter és Poisson Hibajavítás)
+# tipp_generator.py (V20.0 - Kiegyensúlyozott Tippválasztás Esély Alapján)
 
 import os
 import requests
@@ -32,7 +32,6 @@ RELEVANT_LEAGUES = {
 
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
 def get_api_data(endpoint, params, retries=3, delay=5):
-    """Általános API hívó függvény a RapidAPI-hoz, újrapróbálkozási logikával."""
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     for i in range(retries):
@@ -42,48 +41,34 @@ def get_api_data(endpoint, params, retries=3, delay=5):
             time.sleep(0.7)
             return response.json().get('response', [])
         except requests.exceptions.RequestException as e:
-            if i < retries - 1:
-                time.sleep(delay)
-            else:
-                print(f"Sikertelen API hívás: {endpoint}. Hiba: {e}")
-                return []
+            if i < retries - 1: time.sleep(delay)
+            else: print(f"Sikertelen API hívás: {endpoint}. Hiba: {e}"); return []
 
 def get_league_stats(league_id, season):
-    """Lekéri és gyorsítótárazza egy adott liga szezonális gólátlagait."""
-    if league_id in LEAGUE_STATS_CACHE:
-        return LEAGUE_STATS_CACHE[league_id]
-
-    # --- JAVÍTÁS ITT: A paraméter 'league'-ról 'id'-ra cserélve ---
+    if league_id in LEAGUE_STATS_CACHE: return LEAGUE_STATS_CACHE[league_id]
     params = {"id": str(league_id), "season": str(season)}
     league_data = get_api_data("leagues", params)
-    
     try:
         avg_goals = league_data[0]['seasons'][0].get('goals', {}).get('average', {})
         avg_home = float(avg_goals.get('home', 1.5))
         avg_away = float(avg_goals.get('away', 1.2))
-        
         if avg_home > 0 and avg_away > 0:
             stats = {'avg_goals_home': avg_home, 'avg_goals_away': avg_away}
             LEAGUE_STATS_CACHE[league_id] = stats
             return stats
     except (IndexError, KeyError, TypeError, ValueError) as e:
         print(f"Hiba a ligaátlagok feldolgozása közben (league_id: {league_id}): {e}")
-    
     return None
 
 def prefetch_data_for_fixtures(fixtures):
-    """Előtölti a szükséges statisztikákat a meccsekhez, hogy minimalizálja az API hívásokat."""
     if not fixtures: return
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     season = str(datetime.now(BUDAPEST_TZ).year)
-
     for fixture in fixtures:
         league_id = fixture['league']['id']
         home_id = fixture['teams']['home']['id']
         away_id = fixture['teams']['away']['id']
-        
         get_league_stats(league_id, season)
-
         for team_id in [home_id, away_id]:
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
@@ -93,18 +78,14 @@ def prefetch_data_for_fixtures(fixtures):
 
 # --- POISSON-ELOSZLÁS MODELL ---
 def poisson_probability(mu, k):
-    """Kiszámolja a Poisson-eloszlás valószínűségét (P(X=k)), hibakezeléssel."""
     if mu < 0: mu = 0
     if k < 0: return 0
     try:
-        # A faktoriális hibát elkerüljük, ha k túl nagy, a valószínűség gyakorlatilag 0
         if k > 170: return 0
         return (math.exp(-mu) * mu**k) / math.factorial(k)
-    except (ValueError, OverflowError):
-        return 0
+    except (ValueError, OverflowError): return 0
 
 def calculate_poisson_probabilities(fixture):
-    """Kiszámolja a lehetséges kimenetelek valószínűségét Poisson-eloszlás segítségével."""
     league_id = fixture['league']['id']
     home_id = fixture['teams']['home']['id']
     away_id = fixture['teams']['away']['id']
@@ -114,8 +95,7 @@ def calculate_poisson_probabilities(fixture):
     stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league_id}")
     stats_a = TEAM_STATS_CACHE.get(f"{away_id}_{league_id}")
 
-    if not all([league_stats, stats_h, stats_a]):
-        return {}
+    if not all([league_stats, stats_h, stats_a]): return {}
 
     try:
         home_attack = float(stats_h['goals']['for']['average']['home']) / league_stats['avg_goals_home']
@@ -136,42 +116,45 @@ def calculate_poisson_probabilities(fixture):
                 if h_goals > a_goals: prob_home_win += prob
                 elif h_goals < a_goals: prob_away_win += prob
                 else: prob_draw += prob
-
+        
+        # Normalizálás, hogy a végösszeg 100% legyen
+        total_prob = prob_home_win + prob_draw + prob_away_win
         return {
-            'Home': round(prob_home_win * 100, 2),
-            'Draw': round(prob_draw * 100, 2),
-            'Away': round(prob_away_win * 100, 2)
+            'Home': round((prob_home_win/total_prob) * 100, 2),
+            'Draw': round((prob_draw/total_prob) * 100, 2),
+            'Away': round((prob_away_win/total_prob) * 100, 2)
         }
-    except (KeyError, TypeError, ValueError) as e:
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
         print(f"Hiba a Poisson számítás során (fixture_id: {fixture['fixture']['id']}): {e}")
         return {}
 
-# --- VÁRHATÓ ÉRTÉK (EV) SZÁMÍTÁS ---
-def find_positive_ev_bets(fixture):
-    """Felkutatja azokat a fogadási lehetőségeket, ahol a várható érték (EV) pozitív."""
-    positive_ev_bets = []
+# --- VÁRHATÓ ÉRTÉK (EV) SZÁMÍTÁS ÉS KIVÁLASZTÁS ---
+def find_best_value_bets(fixture):
+    valuable_bets = []
     
     odds_data = get_api_data("odds", {"fixture": str(fixture['fixture']['id'])})
-    if not odds_data or not odds_data[0].get('bookmakers'):
-        return []
+    if not odds_data or not odds_data[0].get('bookmakers'): return []
     
     try:
         bets = odds_data[0]['bookmakers'][0].get('bets', [])
         match_winner_odds = {v['value']: float(v['odd']) for v in bets[0]['values']}
-    except (IndexError, KeyError, TypeError):
-        return []
+    except (IndexError, KeyError, TypeError): return []
 
     probabilities = calculate_poisson_probabilities(fixture)
-    if not probabilities:
-        return []
+    if not probabilities: return []
     
     for outcome, prob in probabilities.items():
         if outcome in match_winner_odds:
             odds = match_winner_odds[outcome]
+            
+            # --- SZŰRÉS: Csak a minimum 33% esélyű tippekkel foglalkozunk ---
+            if prob < 33.0:
+                continue
+
             expected_value = (prob / 100 * odds) - 1
             
-            if expected_value > 0.10 and odds < 7.0:
-                positive_ev_bets.append({
+            if expected_value > 0.05 and odds < 4.0: # 5% EV küszöb, és reális odds-határ
+                valuable_bets.append({
                     "fixture_id": fixture['fixture']['id'],
                     "csapat_H": fixture['teams']['home']['name'],
                     "csapat_V": fixture['teams']['away']['name'],
@@ -180,23 +163,22 @@ def find_positive_ev_bets(fixture):
                     "tipp": outcome,
                     "odds": odds,
                     "becsult_proba": prob,
-                    "expected_value": expected_value
+                    "expected_value": expected_value,
+                    "ranking_score": expected_value * prob # Új rangsorolási pontszám
                 })
                 
-    return positive_ev_bets
+    return valuable_bets
 
 # --- MENTÉSI ÉS STÁTUSZKEZELŐ FÜGGVÉNYEK ---
 def save_bets_to_supabase(best_bets):
-    """Elmenti a legjobb, pozitív EV-vel rendelkező tippeket az adatbázisba."""
     if not best_bets: return
-
     try:
         tips_to_insert = [{
             "fixture_id": tip['fixture_id'], "csapat_H": tip['csapat_H'], "csapat_V": tip['csapat_V'],
             "kezdes": tip['kezdes'], "liga_nev": tip['liga_nev'], "tipp": tip['tipp'],
             "odds": tip['odds'], "eredmeny": "Tipp leadva",
-            "confidence_score": round(tip['expected_value'] * 100),
-            "indoklas": f"A bot Poisson-modell alapján {tip['becsult_proba']}% esélyt becsül, ami {tip['odds']} oddsszal párosítva +{round(tip['expected_value']*100, 1)}% várható értéket (EV) eredményez."
+            "confidence_score": tip['becsult_proba'], # Most már a valószínűséget tároljuk
+            "indoklas": f"A bot Poisson-modell alapján {tip['becsult_proba']}% esélyt becsül a kimenetelre, ami {tip['odds']} oddsszal párosítva pozitív várható értéket (EV) eredményez."
         } for tip in best_bets]
 
         saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
@@ -209,12 +191,11 @@ def save_bets_to_supabase(best_bets):
 
         if slips_to_insert:
             supabase.table("napi_tuti").insert(slips_to_insert).execute()
-            print(f"Sikeresen elmentve {len(slips_to_insert)} darab, pozitív EV-vel rendelkező tipp.")
+            print(f"Sikeresen elmentve {len(slips_to_insert)} darab, értékalapú tipp.")
     except Exception as e:
         print(f"!!! HIBA a tippek Supabase-be mentése során: {e}")
 
 def record_daily_status(date_str, status, reason=""):
-    """Rögzíti a futás napi státuszát az adatbázisban."""
     try:
         print(f"Napi státusz rögzítése: {date_str} - {status}")
         supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
@@ -225,7 +206,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Value Bet Generátor (V19.0 - API Fix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Value Bet Generátor (V20.0 - Esély Alapú Szűrés) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
     
     today_str = start_time.strftime("%Y-%m-%d")
     all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
@@ -240,30 +221,31 @@ def main():
         record_daily_status(today_str, "Nincs megfelelő tipp", "Nincs több releváns meccs a mai napon."); return
 
     prefetch_data_for_fixtures(future_fixtures)
-    all_positive_ev_bets = []
+    all_value_bets = []
     
-    print("\n--- Meccsek elemzése pozitív várható érték (EV) alapján ---")
+    print("\n--- Meccsek elemzése érték és valószínűség alapján ---")
     for fixture in future_fixtures:
-        ev_bets = find_positive_ev_bets(fixture)
-        if ev_bets:
-            all_positive_ev_bets.extend(ev_bets)
+        bets = find_best_value_bets(fixture)
+        if bets:
+            all_value_bets.extend(bets)
             
-    if all_positive_ev_bets:
-        best_bets = sorted(all_positive_ev_bets, key=lambda x: x['expected_value'], reverse=True)[:3]
+    if all_value_bets:
+        # Rangsorolás az új pontszám alapján
+        best_bets = sorted(all_value_bets, key=lambda x: x['ranking_score'], reverse=True)[:3]
         
-        print(f"\n✅ A nap legjobb, pozitív EV-vel rendelkező tippjei ({len(best_bets)} db):")
+        print(f"\n✅ A nap legjobb tippjei ({len(best_bets)} db):")
         for bet in best_bets:
-            print(f"  - {bet['csapat_H']} vs {bet['csapat_V']} -> Tipp: {bet['tipp']}, Odds: {bet['odds']}, EV: {bet['expected_value']:.3f}")
+            print(f"  - {bet['csapat_H']} vs {bet['csapat_V']} -> Tipp: {bet['tipp']}, Odds: {bet['odds']}, Becsült Esély: {bet['becsult_proba']}%")
         
         if is_test_mode:
-            test_slips = [{"tipp_neve": f"Value Tipp #{i+1}", "eredo_odds": tip['odds'], "combo": [tip], "expected_value": tip['expected_value']} for i, tip in enumerate(best_bets)]
+            test_slips = [{"tipp_neve": f"Value Tipp #{i+1}", "eredo_odds": tip['odds'], "combo": [tip], "becsult_proba": tip['becsult_proba']} for i, tip in enumerate(best_bets)]
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Tippek generálva', 'slips': test_slips}, f, ensure_ascii=False, indent=4)
             print("Teszt eredmények a 'test_results.json' fájlba írva.")
         else:
             save_bets_to_supabase(best_bets)
-            record_daily_status(today_str, "Jóváhagyásra vár", f"{len(best_bets)} darab, pozitív EV-vel rendelkező tipp vár jóváhagyásra.")
+            record_daily_status(today_str, "Jóváhagyásra vár", f"{len(best_bets)} darab, értékalapú tipp vár jóváhagyásra.")
     else:
-        reason = "Az algoritmus nem talált a kritériumoknak megfelelő, pozitív várható értékű fogadást a mai napra."
+        reason = "Az algoritmus nem talált a szigorú kritériumoknak (min. 33% esély, +5% EV) megfelelő fogadást a mai napra."
         print(f"\n{reason}")
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
