@@ -1,4 +1,4 @@
-# send_admin_summary.py (V4.6 - Esély % Megjelenítés)
+# send_admin_summary.py (V4.3 - Hibakezelés Javítva)
 import os
 import asyncio
 import telegram
@@ -12,7 +12,13 @@ ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 def get_tip_details(tip_text):
-    return tip_text.replace('_', ' ').replace('&', 'és')
+    tip_map = {
+        "Home & Over 1.5": "Hazai nyer és 1.5 gól felett",
+        "Away & Over 1.5": "Vendég nyer és 1.5 gól felett",
+        "Over 2.5": "Gólok 2.5 felett",
+        "BTTS": "Mindkét csapat szerez gólt"
+    }
+    return tip_map.get(tip_text, tip_text.replace('_', ' ').replace('&', 'és'))
 
 async def send_summary():
     if not all([TELEGRAM_TOKEN, ADMIN_CHAT_ID]):
@@ -36,13 +42,9 @@ async def send_summary():
             if status == "Tippek generálva":
                 slips = results.get('slips', [])
                 if slips:
-                    message_to_admin += "✅ *Sikeres generálás!* A következő tippek jöttek volna létre:\n\n"
+                    message_to_admin += "✅ *Sikeres generálás!* A következő szelvények jöttek volna létre:\n\n"
                     for i, slip in enumerate(slips):
-                        # --- JAVÍTÁS ITT: 'becsult_proba' használata ---
-                        probability = slip.get('becsult_proba', 0.0)
-                        message_to_admin += f"*{slip['tipp_neve']}* (Becsült Esély: {probability}%)\n\n"
-                        # --- JAVÍTÁS VÉGE ---
-
+                        message_to_admin += f"*{slip['tipp_neve']}* (Megbízhatóság: {slip['confidence_percent']}%)\n\n"
                         for meccs in slip.get('combo', []):
                             local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
                             kezdes_str = local_time.strftime('%b %d. %H:%M')
@@ -55,7 +57,7 @@ async def send_summary():
                         if i < len(slips) - 1:
                             message_to_admin += "\n-----------------------------------\n\n"
                 else:
-                    message_to_admin += "ℹ️ *Nincs szelvény.*\n"
+                    message_to_admin += "ℹ️ *Nincs szelvény.* Bár a rendszer talált tippeket, nem tudott belőlük a szabályoknak megfelelő szelvényt összeállítani.\n"
             
             elif status == "Nincs megfelelő tipp":
                 reason = results.get('reason', 'Ismeretlen ok.')
