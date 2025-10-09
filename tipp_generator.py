@@ -1,4 +1,4 @@
-# tipp_generator.py (V14.1 - Single Tipp Stratégia, Helyes Hibajavítással)
+# tipp_generator.py (V14.2 - Bővített Liga & Időablak Javítás)
 
 import os
 import requests
@@ -21,9 +21,9 @@ BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 # --- Globális Gyorsítótárak ---
 TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE = {}, {}, {}, {}
 
-# --- LIGA PROFILOK ---
+# --- LIGA PROFILOK (BŐVÍTETT LISTA) ---
 RELEVANT_LEAGUES = {
-     # --- Top Európai Ligák (meglévők) ---
+    # --- Top Európai Ligák ---
     39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
     78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga",
     2: "Bajnokok Ligája", 3: "Európa-liga", 848: "UEFA Conference League",
@@ -38,6 +38,8 @@ RELEVANT_LEAGUES = {
     253: "USA MLS", 262: "Argentin Liga Profesional", 71: "Brazil Serie A",
     98: "Japán J1 League", 292: "Dél-koreai K League 1", 281: "Szaúd-arábiai Profi Liga"
 }
+DERBY_LIST = [(50, 66), (85, 106)]
+
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
 def get_api_data(endpoint, params, retries=3, delay=5):
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
@@ -192,39 +194,47 @@ def record_daily_status(date_str, status, reason=""):
     except Exception as e:
         print(f"!!! HIBA a napi státusz rögzítése során: {e}")
 
-# --- FŐ VEZÉRLŐ ---
+# --- FŐ VEZÉRLŐ (JAVÍTOTT LOGIKÁVAL) ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Single Tipp Generátor (V14.1) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
-    
+    print(f"Single Tipp Generátor (V14.2) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+
     today_str = start_time.strftime("%Y-%m-%d")
-    all_fixtures_raw = get_api_data("fixtures", {"date": today_str})
+    tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    fixtures_today = get_api_data("fixtures", {"date": today_str})
+    fixtures_tomorrow = get_api_data("fixtures", {"date": tomorrow_str})
+    all_fixtures_raw = (fixtures_today or []) + (fixtures_tomorrow or [])
 
     if not all_fixtures_raw:
-        reason = "Az API nem adott vissza meccseket a mai napra."
+        reason = "Az API nem adott vissza meccseket a következő 48 órára."
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
         record_daily_status(today_str, "Nincs megfelelő tipp", reason); return
-        
+
     now_utc = datetime.now(pytz.utc)
-    future_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc]
-    
-    print(f"Összesen {len(future_fixtures)} releváns és jövőbeli meccs van a mai napon.")
+    future_fixtures = [
+        f for f in all_fixtures_raw
+        if f['league']['id'] in RELEVANT_LEAGUES and
+           datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc
+    ]
+
+    print(f"Összesen {len(future_fixtures)} releváns és jövőbeli meccs van a következő ~48 órában.")
     if not future_fixtures:
-        reason = "Nincs több meccs a mai napon a figyelt ligákból."
+        reason = "Nincs több meccs a vizsgált időszakban a figyelt ligákból."
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
         record_daily_status(today_str, "Nincs megfelelő tipp", reason); return
-        
+
     prefetch_data_for_fixtures(future_fixtures)
     all_potential_tips = []
-    
+
     print("\n--- Meccsek elemzése a bővített stratégia alapján ---")
     for fixture in future_fixtures:
         valuable_tips = analyze_fixture_for_new_strategy(fixture)
         if valuable_tips: all_potential_tips.extend(valuable_tips)
-        
+
     if all_potential_tips:
         best_tips = select_best_single_tips(all_potential_tips)
         if best_tips:
@@ -242,10 +252,11 @@ def main():
                 with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
             record_daily_status(today_str, "Nincs megfelelő tipp", reason)
     else:
-        reason = "Az algoritmus nem talált a kritériumoknak megfelelő tippet a mai napra."
+        reason = "Az algoritmus nem talált a kritériumoknak megfelelő tippet a mai és holnapi napra."
         if is_test_mode:
             with open('test_results.json', 'w', encoding='utf-8') as f: json.dump({'status': 'Nincs megfelelő tipp', 'reason': reason}, f, ensure_ascii=False, indent=4)
         record_daily_status(today_str, "Nincs megfelelő tipp", reason)
+
 
 if __name__ == "__main__":
     main()
