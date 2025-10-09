@@ -1,4 +1,4 @@
-# gemini_data_exporter.py (V2.0 - 24 órás adatgyűjtés)
+# gemini_data_exporter.py (V2.1 - 48 órás adatgyűjtés, bővített ligákkal)
 import os
 import requests
 from datetime import datetime, timedelta
@@ -11,13 +11,22 @@ RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- Releváns ligák listája ---
+# --- Releváns ligák listája (BŐVÍTETT VERZIÓ) ---
 RELEVANT_LEAGUES = {
-    39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A", 
-    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League", 
-    94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan", 
-    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
+    # --- Top Európai Ligák ---
+    39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
+    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga",
+    2: "Bajnokok Ligája", 3: "Európa-liga", 848: "UEFA Conference League",
+
+    # --- Erős Másodvonalú Európai Ligák ---
+    141: "Spanyol La Liga 2", 136: "Olasz Serie B", 79: "Német 2. Bundesliga", 62: "Francia Ligue 2",
+    144: "Belga Jupiler Pro League", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
+    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
+    283: "Görög Super League", 244: "Horvát HNL",
+
+    # --- Európán Kívüli Népszerű Ligák ---
+    253: "USA MLS", 262: "Argentin Liga Profesional", 71: "Brazil Serie A",
+    98: "Japán J1 League", 292: "Dél-koreai K League 1", 281: "Szaúd-arábiai Profi Liga"
 }
 
 # --- API HÍVÓ FÜGGVÉNY ---
@@ -38,26 +47,29 @@ def get_api_data(endpoint, params, retries=3, delay=5):
                 print(f"Sikertelen API hívás ennyi próba után: {endpoint}. Hiba: {e}")
                 return None
 
-# --- FŐ VEZÉRLŐ ---
+# --- FŐ VEZÉRLŐ (JAVÍTOTT LOGIKÁVAL) ---
 def main():
     start_time = datetime.now(BUDAPEST_TZ)
     today_str = start_time.strftime("%Y-%m-%d")
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     output_filename = "gemini_analysis_data.json"
-    print(f"Adatgyűjtés indítása a következő 24 órára ({today_str} és {tomorrow_str}) a Gemini számára...")
+    print(f"Adatgyűjtés indítása a következő ~48 órára ({today_str} és {tomorrow_str}) a Gemini számára...")
 
     fixtures_today = get_api_data("fixtures", {"date": today_str})
     fixtures_tomorrow = get_api_data("fixtures", {"date": tomorrow_str})
     all_fixtures_raw = (fixtures_today or []) + (fixtures_tomorrow or [])
 
     if not all_fixtures_raw:
-        print("Hiba: Nem sikerült lekérni a meccseket.")
+        print("Hiba: Nem sikerült lekérni a meccseket a következő 48 órára.")
+        # Hiba esetén is hozzunk létre egy üres JSON fájlt, hogy a következő lépés ne szálljon el
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            json.dump([], f)
         return
 
-    # Csak a jövőbeli, releváns meccsek
+    # Csak a jövőbeli, releváns meccsek szűrése
     now_utc = datetime.now(pytz.utc)
     relevant_fixtures = [
-        f for f in all_fixtures_raw 
+        f for f in all_fixtures_raw
         if f['league']['id'] in RELEVANT_LEAGUES
         and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc
     ]
