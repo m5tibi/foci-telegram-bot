@@ -23,14 +23,21 @@ TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE = {}, {}, {}, {}
 
 # --- LIGA PROFILOK ---
 RELEVANT_LEAGUES = {
+     # --- Top Európai Ligák (meglévők) ---
     39: "Angol Premier League", 40: "Angol Championship", 140: "Spanyol La Liga", 135: "Olasz Serie A",
-    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 144: "Belga Jupiler Pro League",
-    94: "Portugál Primeira Liga", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
-    79: "Német 2. Bundesliga", 2: "Bajnokok Ligája", 3: "Európa-liga"
-}
-DERBY_LIST = [(50, 66), (85, 106)]
+    78: "Német Bundesliga", 61: "Francia Ligue 1", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga",
+    2: "Bajnokok Ligája", 3: "Európa-liga", 848: "UEFA Conference League",
 
+    # --- Erős Másodvonalú Európai Ligák ---
+    141: "Spanyol La Liga 2", 136: "Olasz Serie B", 79: "Német 2. Bundesliga", 62: "Francia Ligue 2",
+    144: "Belga Jupiler Pro League", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 218: "Svájci Super League",
+    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan",
+    283: "Görög Super League", 244: "Horvát HNL",
+
+    # --- Európán Kívüli Népszerű Ligák ---
+    253: "USA MLS", 262: "Argentin Liga Profesional", 71: "Brazil Serie A",
+    98: "Japán J1 League", 292: "Dél-koreai K League 1", 281: "Szaúd-arábiai Profi Liga"
+}
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
 def get_api_data(endpoint, params, retries=3, delay=5):
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
