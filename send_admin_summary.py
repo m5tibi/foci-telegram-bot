@@ -1,4 +1,4 @@
-# send_admin_summary.py (V4.3 - Hibakezelés Javítva)
+# send_admin_summary.py (V5.0 - Napi Bontású Teszt Eredmények Kezelése)
 import os
 import asyncio
 import telegram
@@ -20,6 +20,26 @@ def get_tip_details(tip_text):
     }
     return tip_map.get(tip_text, tip_text.replace('_', ' ').replace('&', 'és'))
 
+def format_slips_for_day(day_name, day_results):
+    """Egy adott nap eredményeit formázza szöveggé."""
+    if not day_results or day_results.get('status') == 'Nincs megfelelő tipp':
+        return f"*{day_name}* (Nincs tipp)\n\n"
+
+    message = f"*{day_name}*\n"
+    slips = day_results
+    
+    for slip in slips:
+        combo = slip.get('combo', [])
+        if not combo: continue
+        
+        message += f"*{slip.get('tipp_neve', 'Szelvény')}* (Megbízhatóság: {combo[0].get('confidence', 'N/A')}%)\n"
+        for meccs in combo:
+            local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+            kezdes_str = local_time.strftime('%b %d. %H:%M')
+            tipp_str = get_tip_details(meccs['tipp'])
+            message += f"  - _{meccs['csapat_H']} vs {meccs['csapat_V']}_ ({tipp_str} @ {'%.2f' % meccs['odds']})\n"
+    return message + "\n"
+
 async def send_summary():
     if not all([TELEGRAM_TOKEN, ADMIN_CHAT_ID]):
         print("Hiba: Telegram token vagy Admin Chat ID hiányzik.")
@@ -32,39 +52,18 @@ async def send_summary():
 
     try:
         if not os.path.exists('test_results.json'):
-            message_to_admin += "⚠️ *Kritikus Hiba:* A `test_results.json` fájl nem jött létre. A generátor valószínűleg hibával leállt."
+            message_to_admin += "⚠️ *Kritikus Hiba:* A `test_results.json` fájl nem jött létre."
         else:
             with open('test_results.json', 'r', encoding='utf-8') as f:
                 results = json.load(f)
             
-            status = results.get('status')
+            # Mai nap feldolgozása
+            today_results = results.get('today')
+            message_to_admin += format_slips_for_day("--- Mai nap ---", today_results)
 
-            if status == "Tippek generálva":
-                slips = results.get('slips', [])
-                if slips:
-                    message_to_admin += "✅ *Sikeres generálás!* A következő szelvények jöttek volna létre:\n\n"
-                    for i, slip in enumerate(slips):
-                        message_to_admin += f"*{slip['tipp_neve']}* (Megbízhatóság: {slip['confidence_percent']}%)\n\n"
-                        for meccs in slip.get('combo', []):
-                            local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-                            kezdes_str = local_time.strftime('%b %d. %H:%M')
-                            tipp_str = get_tip_details(meccs['tipp'])
-                            message_to_admin += f"⚽️ *{meccs['csapat_H']} vs {meccs['csapat_V']}*\n"
-                            message_to_admin += f"🏆 {meccs['liga_nev']}\n"
-                            message_to_admin += f"⏰ Kezdés: {kezdes_str}\n"
-                            message_to_admin += f"💡 Tipp: {tipp_str} *@{'%.2f' % meccs['odds']}*\n\n"
-                        message_to_admin += f"🎯 Eredő odds: *{'%.2f' % slip['eredo_odds']}*\n"
-                        if i < len(slips) - 1:
-                            message_to_admin += "\n-----------------------------------\n\n"
-                else:
-                    message_to_admin += "ℹ️ *Nincs szelvény.* Bár a rendszer talált tippeket, nem tudott belőlük a szabályoknak megfelelő szelvényt összeállítani.\n"
-            
-            elif status == "Nincs megfelelő tipp":
-                reason = results.get('reason', 'Ismeretlen ok.')
-                message_to_admin += f"ℹ️ *Nincs tipp a mai napra.*\nIndoklás: {reason}"
-            
-            else:
-                message_to_admin += f"⚠️ *Ismeretlen státusz:* `{status}`"
+            # Holnapi nap feldolgozása
+            tomorrow_results = results.get('tomorrow')
+            message_to_admin += format_slips_for_day("--- Holnapi nap ---", tomorrow_results)
 
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message_to_admin, parse_mode='Markdown')
         print("Admin összefoglaló sikeresen elküldve.")
