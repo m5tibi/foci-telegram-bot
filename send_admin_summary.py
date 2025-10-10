@@ -1,4 +1,4 @@
-# send_admin_summary.py (V5.0 - Napi Bontású Teszt Eredmények Kezelése)
+# send_admin_summary.py (V5.1 - Helyes Eredménykezelés)
 import os
 import asyncio
 import telegram
@@ -22,23 +22,31 @@ def get_tip_details(tip_text):
 
 def format_slips_for_day(day_name, day_results):
     """Egy adott nap eredményeit formázza szöveggé."""
-    if not day_results or day_results.get('status') == 'Nincs megfelelő tipp':
+    # --- JAVÍTOTT RÉSZ KEZDETE ---
+    # Kezeli, ha nincs tipp (None vagy status dictionary)
+    if not day_results or (isinstance(day_results, dict) and day_results.get('status') == 'Nincs megfelelő tipp'):
         return f"*{day_name}* (Nincs tipp)\n\n"
-
-    message = f"*{day_name}*\n"
-    slips = day_results
     
-    for slip in slips:
-        combo = slip.get('combo', [])
-        if not combo: continue
+    # Kezeli, ha vannak tippek (ami egy lista)
+    if isinstance(day_results, list):
+        message = f"*{day_name}*\n"
+        slips = day_results
         
-        message += f"*{slip.get('tipp_neve', 'Szelvény')}* (Megbízhatóság: {combo[0].get('confidence', 'N/A')}%)\n"
-        for meccs in combo:
-            local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
-            kezdes_str = local_time.strftime('%b %d. %H:%M')
-            tipp_str = get_tip_details(meccs['tipp'])
-            message += f"  - _{meccs['csapat_H']} vs {meccs['csapat_V']}_ ({tipp_str} @ {'%.2f' % meccs['odds']})\n"
-    return message + "\n"
+        for slip in slips:
+            combo = slip.get('combo', [])
+            if not combo: continue
+            
+            message += f"*{slip.get('tipp_neve', 'Szelvény')}* (Megbízhatóság: {combo[0].get('confidence', 'N/A')}%)\n"
+            for meccs in combo:
+                local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
+                kezdes_str = local_time.strftime('%b %d. %H:%M')
+                tipp_str = get_tip_details(meccs['tipp'])
+                message += f"  - _{meccs['csapat_H']} vs {meccs['csapat_V']}_ ({tipp_str} @ {'%.2f' % meccs['odds']})\n"
+        return message + "\n"
+    # --- JAVÍTOTT RÉSZ VÉGE ---
+
+    # Ha valami más, ismeretlen formátum van
+    return f"*{day_name}* (Ismeretlen eredmény formátum)\n\n"
 
 async def send_summary():
     if not all([TELEGRAM_TOKEN, ADMIN_CHAT_ID]):
@@ -57,11 +65,9 @@ async def send_summary():
             with open('test_results.json', 'r', encoding='utf-8') as f:
                 results = json.load(f)
             
-            # Mai nap feldolgozása
             today_results = results.get('today')
             message_to_admin += format_slips_for_day("--- Mai nap ---", today_results)
 
-            # Holnapi nap feldolgozása
             tomorrow_results = results.get('tomorrow')
             message_to_admin += format_slips_for_day("--- Holnapi nap ---", tomorrow_results)
 
