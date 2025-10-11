@@ -332,61 +332,48 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
-            
-            # --- JAVÍTOTT RÉSZ KEZDETE ---
-            price_id = None
-            try:
-                # Ellenőrizzük, hogy a 'lines' és 'data' létezik és nem üres
-                if invoice.get('lines') and invoice['lines'].get('data'):
-                    price_id = invoice['lines']['data'][0].get('price', {}).get('id')
+            subscription_id = invoice.get('subscription')
+
+            # Csak akkor folytatjuk, ha a számla nem egy egyszeri fizetés, hanem egy előfizetéshez tartozik
+            if subscription_id and stripe_customer_id:
+                try:
+                    # 1. Kérjük le a teljes előfizetési objektumot, hogy biztosan a helyes adatokat kapjuk
+                    subscription = stripe.Subscription.retrieve(subscription_id)
+                    price_id = subscription['items']['data'][0]['price']['id']
+
+                    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
+                    
+                    if user_res.data:
+                        user = user_res.data
+                        duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
+                        
+                        # Kezeli azt az esetet is, ha a felhasználónak már van jövőbeli lejárata
+                        current_expires_at_str = user.get("subscription_expires_at")
+                        start_date = datetime.now(pytz.utc)
+                        if current_expires_at_str:
+                            current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
+                            if current_expires_at > start_date:
+                                start_date = current_expires_at
+                        
+                        new_expires_at = start_date + timedelta(days=duration_days)
+                        
+                        supabase_admin.table("felhasznalok").update({
+                            "subscription_status": "active",
+                            "subscription_expires_at": new_expires_at.isoformat()
+                        }).eq("id", user['id']).execute()
+
+                        plan_type = "Havi" if duration_days == 30 else "Heti"
+                        notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
+                        await send_admin_notification(notification_message)
+                    else:
+                        print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
                 
-                # Ha a price_id még mindig hiányzik, megpróbáljuk a subscription-ből kiolvasni
-                if not price_id and invoice.get('subscription'):
-                    print(f"Price ID nem található a 'lines'-ban, lekérdezés a subscription-ből: {invoice.get('subscription')}") # LOG
-                    subscription_details = stripe.Subscription.retrieve(invoice['subscription'])
-                    if subscription_details.get('items', {}).get('data'):
-                         price_id = subscription_details['items']['data'][0].get('price', {}).get('id')
-                
-                print(f"Sikeresen azonosított Price ID: {price_id}") # LOG
-
-            except Exception as e:
-                print(f"!!! KRITIKUS HIBA a price_id kiolvasása közben: {e}")
-            # --- JAVÍTOTT RÉSZ VÉGE ---
-
-
-            if stripe_customer_id and price_id:
-                supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
-                
-                if user_res.data:
-                    user = user_res.data
-                    duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-                    
-                    current_expires_at_str = user.get("subscription_expires_at")
-                    start_date = datetime.now(pytz.utc)
-                    if current_expires_at_str:
-                        current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
-                        if current_expires_at > start_date:
-                            start_date = current_expires_at
-                    
-                    new_expires_at = start_date + timedelta(days=duration_days)
-                    
-                    update_response = supabase_admin.table("felhasznalok").update({
-                        "subscription_status": "active",
-                        "subscription_expires_at": new_expires_at.isoformat()
-                    }).eq("id", user['id']).execute()
-
-                    if not update_response.data:
-                         print(f"!!! ADATBÁZIS FRISSÍTÉSI HIBA a {user['email']} felhasználónál!")
-                    
-                    plan_type = "Havi" if duration_days == 30 else "Heti"
-                    notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
-                    await send_admin_notification(notification_message)
-                else:
-                    print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
+                except Exception as e:
+                    print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
             else:
-                print(f"!!! WEBHOOK HIBA: Hiányzó stripe_customer_id vagy price_id. Customer ID: {stripe_customer_id}, Price ID: {price_id}")
-
+                # Ez a log segít, ha olyan "invoice" esemény jön, ami nem előfizetéshez tartozik
+                print(f"INFO: 'invoice.payment_succeeded' esemény figyelmen kívül hagyva (nem előfizetéshez kapcsolódik). Customer ID: {stripe_customer_id}")
 
         return {"status": "success"}
     except Exception as e:
