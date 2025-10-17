@@ -385,7 +385,7 @@
             if (splideList) {
                 for (let i = 1; i <= totalImages; i++) {
                     const number = String(i).padStart(2, '0');
-                    const imageUrl = `${basePath}win${i}.jpg`;
+                    const imageUrl = `${basePath}win${number}.jpg`;
                     const slide = document.createElement('li');
                     slide.className = 'splide__slide';
                     const img = document.createElement('img');
