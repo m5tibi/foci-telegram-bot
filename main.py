@@ -213,15 +213,36 @@ async def create_portal_session(request: Request):
 @api.post("/create-checkout-session-web")
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    if not user: 
+        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+
+    # --- JAVÍTÁS KEZDETE ---
+    # Ellenőrizzük, hogy a felhasználónak van-e már aktív előfizetése
+    if is_web_user_subscribed(user):
+        # Ha igen, ne engedjük vásárolni, hanem irányítsuk a profiljára
+        return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
+    # --- JAVÍTÁS VÉGE ---
+
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
-        params = {'payment_method_types': ['card'], 'line_items': [{'price': price_id, 'quantity': 1}], 'mode': 'subscription', 'billing_address_collection': 'required', 'success_url': f"{RENDER_APP_URL}/vip?payment=success", 'cancel_url': f"{RENDER_APP_URL}/vip", 'metadata': {'user_id': user['id']}}
-        if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
-        else: params['customer_email'] = user['email']
+        params = {
+            'payment_method_types': ['card'], 
+            'line_items': [{'price': price_id, 'quantity': 1}], 
+            'mode': 'subscription', 
+            'billing_address_collection': 'required', 
+            'success_url': f"{RENDER_APP_URL}/vip?payment=success", 
+            'cancel_url': f"{RENDER_APP_URL}/vip", 
+            'metadata': {'user_id': user['id']}
+        }
+        if user.get('stripe_customer_id'): 
+            params['customer'] = user['stripe_customer_id']
+        else: 
+            params['customer_email'] = user['email']
+        
         checkout_session = stripe.checkout.Session.create(**params)
         return RedirectResponse(checkout_session.url, status_code=303)
-    except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
+    except Exception as e: 
+        return HTMLResponse(f"Hiba: {e}", status_code=500)
 
 @api.get("/admin/upload", response_class=HTMLResponse)
 async def upload_form(request: Request):
@@ -379,3 +400,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
