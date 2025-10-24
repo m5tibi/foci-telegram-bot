@@ -99,16 +99,16 @@ async def handle_registration(request: Request, email: str = Form(...), password
         if existing_user.data:
             # Ha a felhasználó már létezik, egyszerűen csak irányítsuk a bejelentkezéshez hibaüzenettel
             return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
-        
+
         hashed_password = get_password_hash(password)
         insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
-        
+
         if insert_response.data:
             # SIKERES ÚJ REGISZTRÁCIÓ ESETÉN IRÁNYÍTÁS A KÖSZÖNŐOLDALRA
             return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
-        else: 
+        else:
             raise Exception("Insert failed")
-            
+
     except Exception as e:
         print(f"!!! KRITIKUS HIBA A REGISZTRÁCIÓ SORÁN: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
@@ -213,7 +213,7 @@ async def create_portal_session(request: Request):
 @api.post("/create-checkout-session-web")
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
-    if not user: 
+    if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
     # --- JAVÍTÁS KEZDETE ---
@@ -226,22 +226,22 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
         params = {
-            'payment_method_types': ['card'], 
-            'line_items': [{'price': price_id, 'quantity': 1}], 
-            'mode': 'subscription', 
-            'billing_address_collection': 'required', 
-            'success_url': f"{RENDER_APP_URL}/vip?payment=success", 
-            'cancel_url': f"{RENDER_APP_URL}/vip", 
+            'payment_method_types': ['card'],
+            'line_items': [{'price': price_id, 'quantity': 1}],
+            'mode': 'subscription',
+            'billing_address_collection': 'required',
+            'success_url': f"{RENDER_APP_URL}/vip?payment=success",
+            'cancel_url': f"{RENDER_APP_URL}/vip",
             'metadata': {'user_id': user['id']}
         }
-        if user.get('stripe_customer_id'): 
+        if user.get('stripe_customer_id'):
             params['customer'] = user['stripe_customer_id']
-        else: 
+        else:
             params['customer_email'] = user['email']
-        
+
         checkout_session = stripe.checkout.Session.create(**params)
         return RedirectResponse(checkout_session.url, status_code=303)
-    except Exception as e: 
+    except Exception as e:
         return HTMLResponse(f"Hiba: {e}", status_code=500)
 
 @api.get("/admin/upload", response_class=HTMLResponse)
@@ -276,20 +276,20 @@ async def handle_upload(
         if tip_type == "vip":
             bucket_name = "slips"
             file_name = f"{target_date}_{timestamp}.{file_extension}"
-            
+
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
-            
+
             params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
             admin_supabase_client.rpc('add_manual_slip', params).execute()
 
         elif tip_type == "free":
             bucket_name = "free-slips"
             file_name = f"free_{timestamp}.{file_extension}"
-            
+
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
-            
+
             admin_supabase_client.table("free_slips").insert({
                 "tipp_neve": tipp_neve,
                 "image_url": public_url,
@@ -331,19 +331,19 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
-        
+
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             user_id = session.get('metadata', {}).get('user_id')
             stripe_customer_id = session.get('customer')
-            
+
             if user_id and stripe_customer_id:
                 line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
                 price_id = line_items.data[0].price.id
                 duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-                
+
                 await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
-                
+
                 customer_details = stripe.Customer.retrieve(stripe_customer_id)
                 customer_email = customer_details.get('email', 'Ismeretlen e-mail')
                 plan_type = "Havi" if duration_days == 30 else "Heti"
@@ -353,22 +353,30 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
-            subscription_id = invoice.get('subscription')
+            
+            # --- JAVÍTOTT RÉSZ KEZDETE ---
+            # Próbáljuk meg kinyerni a subscription ID-t a mélyebb struktúrából
+            subscription_details = invoice.get('parent', {}).get('subscription_details', {})
+            subscription_id = subscription_details.get('subscription') if subscription_details else None
+
+            print(f"DEBUG: Kinyert Subscription ID: {subscription_id}") # Adjunk hozzá egy logot a teszteléshez
+            # --- JAVÍTOTT RÉSZ VÉGE ---
 
             # Csak akkor folytatjuk, ha a számla nem egy egyszeri fizetés, hanem egy előfizetéshez tartozik
             if subscription_id and stripe_customer_id:
                 try:
                     # 1. Kérjük le a teljes előfizetési objektumot, hogy biztosan a helyes adatokat kapjuk
                     subscription = stripe.Subscription.retrieve(subscription_id)
+                    # Itt most már biztosak lehetünk benne, hogy van 'items' és 'data'
                     price_id = subscription['items']['data'][0]['price']['id']
 
                     supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
                     user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
-                    
+
                     if user_res.data:
                         user = user_res.data
                         duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-                        
+
                         # Kezeli azt az esetet is, ha a felhasználónak már van jövőbeli lejárata
                         current_expires_at_str = user.get("subscription_expires_at")
                         start_date = datetime.now(pytz.utc)
@@ -376,9 +384,9 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                             current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
                             if current_expires_at > start_date:
                                 start_date = current_expires_at
-                        
+
                         new_expires_at = start_date + timedelta(days=duration_days)
-                        
+
                         supabase_admin.table("felhasznalok").update({
                             "subscription_status": "active",
                             "subscription_expires_at": new_expires_at.isoformat()
@@ -389,7 +397,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         await send_admin_notification(notification_message)
                     else:
                         print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
-                
+
                 except Exception as e:
                     print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
             else:
@@ -400,4 +408,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
