@@ -216,12 +216,10 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # --- JAVÍTÁS KEZDETE ---
     # Ellenőrizzük, hogy a felhasználónak van-e már aktív előfizetése
     if is_web_user_subscribed(user):
         # Ha igen, ne engedjük vásárolni, hanem irányítsuk a profiljára
         return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
-    # --- JAVÍTÁS VÉGE ---
 
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
@@ -362,53 +360,59 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             print(f"DEBUG: Kinyert Subscription ID: {subscription_id}") # Adjunk hozzá egy logot a teszteléshez
             # --- JAVÍTOTT RÉSZ VÉGE ---
 
-            # Csak akkor folytatjuk, ha a számla nem egy egyszeri fizetés, hanem egy előfizetéshez tartozik
+            # Csak akkor folytatjuk, ha a számla egy előfizetéshez tartozik
             if subscription_id and stripe_customer_id:
-                try:
-                    # 1. Kérjük le a teljes előfizetési objektumot, hogy biztosan a helyes adatokat kapjuk
-                    subscription = stripe.Subscription.retrieve(subscription_id)
-                    # Itt most már biztosak lehetünk benne, hogy van 'items' és 'data'
-                    price_id = subscription['items']['data'][0]['price']['id']
 
-                    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
+                # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
+                billing_reason = invoice.get('billing_reason')
+                print(f"DEBUG: Billing Reason: {billing_reason}") # Segít a hibakeresésben
 
-                    if user_res.data:
-                        user = user_res.data
-                        duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
+                if billing_reason == 'subscription_cycle':
+                    # Csak akkor dolgozzuk fel a dátumfrissítést és küldünk értesítést, ha ez egy ciklikus megújítás
+                    try:
+                        # 1. Kérjük le a teljes előfizetési objektumot
+                        subscription = stripe.Subscription.retrieve(subscription_id)
+                        price_id = subscription['items']['data'][0]['price']['id']
 
-                        # Kezeli azt az esetet is, ha a felhasználónak már van jövőbeli lejárata
-                        current_expires_at_str = user.get("subscription_expires_at")
-                        start_date = datetime.now(pytz.utc)
-                        if current_expires_at_str:
-                            current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
-                            if current_expires_at > start_date:
-                                start_date = current_expires_at
+                        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                        user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
 
-                        new_expires_at = start_date + timedelta(days=duration_days)
+                        if user_res.data:
+                            user = user_res.data
+                            duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
 
-                        supabase_admin.table("felhasznalok").update({
-                            "subscription_status": "active",
-                            "subscription_expires_at": new_expires_at.isoformat()
-                        }).eq("id", user['id']).execute()
+                            # Kezeli azt az esetet is, ha a felhasználónak már van jövőbeli lejárata
+                            current_expires_at_str = user.get("subscription_expires_at")
+                            start_date = datetime.now(pytz.utc)
+                            if current_expires_at_str:
+                                current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
+                                if current_expires_at > start_date:
+                                    start_date = current_expires_at
 
-                        plan_type = "Havi" if duration_days == 30 else "Heti"
+                            new_expires_at = start_date + timedelta(days=duration_days)
 
-                        # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
-                        # Csak akkor küldjünk "Megújulás" értesítést, ha ez valóban egy ciklikus megújítás
-                        if invoice.get('billing_reason') == 'subscription_cycle':
+                            supabase_admin.table("felhasznalok").update({
+                                "subscription_status": "active",
+                                "subscription_expires_at": new_expires_at.isoformat()
+                            }).eq("id", user['id']).execute()
+
+                            plan_type = "Havi" if duration_days == 30 else "Heti"
                             notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
                             await send_admin_notification(notification_message)
                         else:
-                            # Ha 'subscription_create' vagy más az ok, akkor már küldtünk "Új Előfizető" üzenetet, itt nem kell
-                            print(f"INFO: 'invoice.payment_succeeded' értesítés kihagyva (Billing Reason: {invoice.get('billing_reason')}), mert ez az első fizetés volt.")
-                        # --- JAVÍTÁS VÉGE ---
+                            print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
 
-                    else:
-                        print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
+                    except Exception as e:
+                        print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
 
-                except Exception as e:
-                    print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
+                elif billing_reason == 'subscription_create':
+                    # Ha 'subscription_create' az ok, akkor már kezeli a checkout.session.completed, itt csak logolunk
+                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: subscription_create). Ezt a checkout.session.completed kezeli.")
+                else:
+                    # Ha más az ok (pl. manuális számla), azt is logoljuk és kihagyjuk
+                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: {billing_reason}).")
+                # --- JAVÍTÁS VÉGE ---
+
             else:
                 # Ez a log segít, ha olyan "invoice" esemény jön, ami nem előfizetéshez tartozik
                 print(f"INFO: 'invoice.payment_succeeded' esemény figyelmen kívül hagyva (nem előfizetéshez kapcsolódik). Customer ID: {stripe_customer_id}")
