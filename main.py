@@ -353,8 +353,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
-            
-            # --- JAVÍTOTT RÉSZ KEZDETE ---
+
+            # --- JAVÍTOTT RÉSZ KEZDETE (Subscription ID kinyerése) ---
             # Próbáljuk meg kinyerni a subscription ID-t a mélyebb struktúrából
             subscription_details = invoice.get('parent', {}).get('subscription_details', {})
             subscription_id = subscription_details.get('subscription') if subscription_details else None
@@ -393,8 +393,17 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         }).eq("id", user['id']).execute()
 
                         plan_type = "Havi" if duration_days == 30 else "Heti"
-                        notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
-                        await send_admin_notification(notification_message)
+
+                        # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
+                        # Csak akkor küldjünk "Megújulás" értesítést, ha ez valóban egy ciklikus megújítás
+                        if invoice.get('billing_reason') == 'subscription_cycle':
+                            notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
+                            await send_admin_notification(notification_message)
+                        else:
+                            # Ha 'subscription_create' vagy más az ok, akkor már küldtünk "Új Előfizető" üzenetet, itt nem kell
+                            print(f"INFO: 'invoice.payment_succeeded' értesítés kihagyva (Billing Reason: {invoice.get('billing_reason')}), mert ez az első fizetés volt.")
+                        # --- JAVÍTÁS VÉGE ---
+
                     else:
                         print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
 
