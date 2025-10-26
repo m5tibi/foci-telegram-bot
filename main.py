@@ -1,4 +1,4 @@
-# main.py (V8.3 - Stripe Webhook javítás)
+# main.py (V8.3 - Stripe Webhook javítás + Duplikáció ellenőrzés)
 
 import os
 import asyncio
@@ -267,6 +267,26 @@ async def handle_upload(
 
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        # --- DUPLIKÁCIÓ ELLENŐRZÉS KEZDETE ---
+        if tip_type == "free":
+            existing_slip = admin_supabase_client.table("free_slips") \
+                .select("id", count='exact') \
+                .eq("tipp_neve", tipp_neve) \
+                .eq("target_date", target_date) \
+                .limit(1) \
+                .execute()
+
+            if existing_slip.count > 0:
+                print(f"INFO: Duplikált 'free_slip' feltöltési kísérlet megakadályozva. Név: {tipp_neve}, Dátum: {target_date}")
+                return templates.TemplateResponse("admin_upload.html", {
+                    "request": request,
+                    "user": user,
+                    "error": f"Hiba: Már létezik '{tipp_neve}' nevű ingyenes tipp a(z) {target_date} napra."
+                })
+        # Itt lehetne hozzáadni a 'vip' (manual_slips) duplikáció ellenőrzését is, ha szükséges
+        # --- DUPLIKÁCIÓ ELLENŐRZÉS VÉGE ---
+
         file_extension = slip_image.filename.split('.')[-1]
         timestamp = int(time.time())
         file_content = await slip_image.read()
