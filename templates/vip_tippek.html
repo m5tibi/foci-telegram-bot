@@ -46,7 +46,13 @@
             <h3>Mai Aktív Szelvények (Bot által generált)</h3>
             {% for szelveny in todays_slips %}
                 <div class="szelveny-card">
-                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                    {# --- MÓDOSÍTÁS ITT: Kiírás cseréje --- #}
+                    {% if szelveny.confidence_percent %} {# Ebbe mentettük a valószínűséget #}
+                    <h4>{{ szelveny.tipp_neve }} (Becsült Esély: {{ szelveny.confidence_percent }}%)</h4>
+                    {% else %}
+                    <h4>{{ szelveny.tipp_neve }}</h4> {# Ha nincs valószínűség (pl. régi kombi tipp) #}
+                    {% endif %}
+
                     {% for meccs in szelveny.meccsek %}
                         <div class="meccs">
                             <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
@@ -66,7 +72,13 @@
             <h3>Holnapi Szelvények (Bot által generált)</h3>
             {% for szelveny in tomorrows_slips %}
                 <div class="szelveny-card tomorrow">
-                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
+                    {# --- MÓDOSÍTÁS ITT: Kiírás cseréje --- #}
+                     {% if szelveny.confidence_percent %}
+                    <h4>{{ szelveny.tipp_neve }} (Becsült Esély: {{ szelveny.confidence_percent }}%)</h4>
+                    {% else %}
+                    <h4>{{ szelveny.tipp_neve }}</h4>
+                    {% endif %}
+
                      {% for meccs in szelveny.meccsek %}
                         <div class="meccs">
                            <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
@@ -130,7 +142,12 @@
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
-        fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+        // Ellenőrizzük, hogy a fbq objektum létezik-e, mielőtt használnánk
+        if (typeof fbq === 'function') {
+            fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+        } else {
+            console.log("Facebook Pixel (fbq) nem található a sikeres fizetési eseményhez.");
+        }
     }
 </script>
 
