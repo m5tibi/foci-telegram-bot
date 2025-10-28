@@ -259,7 +259,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
 
                 print(f"DEBUG O2.5 - Meccs: {fixture_id}, Odds: {over_2_5_odds:.2f}, SajátProb: {our_prob_over_2_5:.2f}, BukiProb: {bookie_prob:.2f}, Value: {value_score:.2f}")
 
-                if value_score > 1.05: # Még alacsonyabb küszöb
+                if value_score > 1.20: # Még alacsonyabb küszöb
                     confidence = int((value_score - 1.0) * 100) + 70 # Alap konfidencia + value bónusz
                     confidence = max(50, min(100, confidence)) # Korlátozzuk 50-100 közé
                     found_tips.append({
@@ -288,7 +288,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
 
                     print(f"DEBUG BTTS - Meccs: {fixture_id}, Odds: {btts_yes_odds:.2f}, SajátProb: {our_prob_btts:.2f}, BukiProb: {bookie_prob:.2f}, Value: {value_score:.2f}")
 
-                    if value_score > 1.05: # Még alacsonyabb küszöb
+                    if value_score > 1.20: # Még alacsonyabb küszöb
                         confidence = int((value_score - 1.0) * 100) + 70 # Alap konfidencia + value bónusz
                         confidence = max(50, min(100, confidence)) # Korlátozzuk 50-100 közé
                         found_tips.append({
