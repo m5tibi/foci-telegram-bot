@@ -1,4 +1,4 @@
-# bot.py (V6.7 - Javítva: V8.3 kompatibilitás + Helyes gombkezelő patternek)
+# bot.py (V6.7 - Javítva: V8.3 kompatibilitás + Helyes gombkezelő patternek + 'callback_gombata' elírás javítva)
 
 import os
 import telegram
@@ -276,8 +276,10 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
             for slip in pending_manual:
                 slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
                 keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
+                
+                # --- JAVÍTVA ('callback_gombata' -> 'callback_data') ---
                 keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_vip_{slip['id']}_Nyert"),
-                                 InlineKeyboardButton("❌ Veszített", callback_gombata=f"manual_result_vip_{slip['id']}_Veszített")])
+                                 InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_vip_{slip['id']}_Veszített")])
         
         if pending_free:
             keyboard.append([InlineKeyboardButton("--- Ingyenes Tippek ---", callback_data="noop_0")])
@@ -622,5 +624,5 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
     
     application.add_handler(CallbackQueryHandler(button_handler))
-    print("Minden parancs- és gombkezelő sikeresen hozzáadva (V6.7 + V8.3 Patch).")
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva (V6.7 + V8.3 Patch + Typo Fix).")
     return application
