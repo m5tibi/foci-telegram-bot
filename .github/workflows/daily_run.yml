@@ -1,5 +1,5 @@
 # .github/workflows/daily_run.yml
-# JAVÍTVA (V1.7) - A 3. feladat (send_admin_alert) eltávolítva, mert a 2. feladat már kezeli.
+# JAVÍTVA (V1.7) - A 3. feladat (send_admin_alert) eltávolítva, és a helyes TELEGRAM_TOKEN név használatban
 
 name: Napi Tippgenerálás és Adatgyűjtés
 
@@ -60,6 +60,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} 
+          # A Python kód 'TELEGRAM_TOKEN'-ként keresi
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
 
   # A 3. FELADAT (send_admin_alert) TÖRÖLVE, MERT MÁR NINCS RÁ SZÜKSÉG
