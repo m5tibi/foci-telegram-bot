@@ -18,7 +18,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
-# A V1.2-es módosítás óta a helyes Secret nevet használjuk
+# A helyes Secret nevet használjuk (ahogy a YML fájlban beállítottuk)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 
@@ -409,6 +409,7 @@ def send_admin_approval_message(tip_count, date_str):
     )
     
     # Gombok (Callback adatokkal, ahogy a bot.py várja)
+    # FONTOS: Az új bot.py (V6.8) már a ':' formátumot várja
     keyboard = {
         "inline_keyboard": [
             [
