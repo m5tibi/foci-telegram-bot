@@ -70,7 +70,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} 
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }} 
 
   # 3. FELADAT: Admin értesítés küldése
   send_admin_alert:
@@ -97,6 +97,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           # --- ITT A VALÓDI JAVÍTÁS ---
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           # --- JAVÍTÁS VÉGE ---
