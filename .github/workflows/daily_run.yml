@@ -69,8 +69,8 @@ jobs:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} # Ide is kell az admin ID, hogy a generátor naplózni tudja a hibákat
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} # Ide is kell
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} 
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} 
 
   # 3. FELADAT: Admin értesítés küldése
   send_admin_alert:
@@ -96,7 +96,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          # --- EZ A KÉT SOR HIÁNYZOTT ---
+          # --- ITT A VALÓDI JAVÍTÁS ---
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           # --- JAVÍTÁS VÉGE ---
