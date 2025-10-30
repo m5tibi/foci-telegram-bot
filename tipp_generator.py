@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.8 - Csak Holnapi Futtatás a Stabilitásért)
+# tipp_generator.py (V17.9 - Egységesített TELEGRAM_TOKEN)
 
 import os
 import requests
@@ -18,6 +18,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
+
+# --- JAVÍTÁS: Egységesítés a TELEGRAM_TOKEN névre ---
+# (Bár ez a szkript (V17.8+) már nem küld üzenetet,
+# a hibakezeléshez és a jövőbeli konzisztenciához szükséges lehet.)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+# --- JAVÍTÁS VÉGE ---
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("!!! KRITIKUS HIBA: SUPABASE_URL vagy SUPABASE_KEY hiányzik!")
@@ -388,11 +395,11 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V17.8 - Csak Holnapi Futtatás) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    # Verziószám frissítve V17.9-re
+    print(f"Tipp Generátor (V17.9 - Csak Holnapi Futtatás) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
 
     if not supabase and not is_test_mode: print("!!! KRITIKUS HIBA: Supabase kliens nem inicializálódott, leállás."); return
     
-    # --- MÓDOSÍTÁS ---
     # Csak a holnapi napot definiáljuk
     today_str = start_time.strftime("%Y-%m-%d") # A 'daily_status' rögzítéséhez kell
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -400,12 +407,10 @@ def main():
     # Csak a holnapi meccseket kérjük le
     fixtures_tomorrow = get_api_data("fixtures", {"date": tomorrow_str})
     all_fixtures_raw = (fixtures_tomorrow or [])
-    # --- MÓDOSÍTÁS VÉGE ---
 
     if not all_fixtures_raw:
         print("Nincs meccs a holnapi napra.")
         if not is_test_mode: 
-            # A mai napra rögzítjük, hogy holnapra nincs tipp
             record_daily_status(tomorrow_str, "Nincs megfelelő tipp", "API nem adott vissza meccset holnapra")
         return
 
@@ -417,7 +422,6 @@ def main():
              league_id = f.get('league', {}).get('id')
              if fixture_time_str and league_id in RELEVANT_LEAGUES:
                  fixture_time = datetime.fromisoformat(fixture_time_str.replace('Z', '+00:00'))
-                 # Biztosítjuk, hogy csak a jövőbeli meccseket nézzük (bár a 'tomorrow' lekérdezés ezt már szinte garantálja)
                  if fixture_time > now_utc: future_fixtures.append(f)
          except (ValueError, TypeError) as e: print(f"Hiba fixture idő feldolgozásakor: {e}")
 
@@ -429,11 +433,8 @@ def main():
 
     prefetch_data_for_fixtures(future_fixtures)
     
-    # Csak a 'tomorrow_fixtures' maradt meg, a 'today_fixtures' törölve
     tomorrow_fixtures = [f for f in future_fixtures if f.get('fixture', {}).get('date', '')[:10] == tomorrow_str]
-    test_results = {'today': None, 'tomorrow': None} # A teszt kimenetet meghagyjuk
-
-    # --- MÓDOSÍTÁS: 'today_fixtures' blokk eltávolítva ---
+    test_results = {'today': None, 'tomorrow': None} 
 
     if tomorrow_fixtures:
         print(f"\n--- Holnapi nap ({tomorrow_str}) elemzése ---")
@@ -445,7 +446,6 @@ def main():
             if is_test_mode: 
                 test_results['tomorrow'] = [{'tipp_neve': f"Holnapi Single #{i+1}", 'combo': [tip]} for i, tip in enumerate(best_tips_tomorrow)]
             else: 
-                # A tippeket a 'tomorrow_str'-re mentjük, de a 'daily_status'-t is a holnapi napra rögzítjük
                 save_tips_for_day(best_tips_tomorrow, tomorrow_str)
                 record_daily_status(tomorrow_str, "Jóváhagyásra vár", f"{len(best_tips_tomorrow)} tipp vár")
         else:
