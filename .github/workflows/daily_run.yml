@@ -1,5 +1,5 @@
 # .github/workflows/daily_run.yml
-# JAVÍTVA (V1.3) - Hozzáadva a hiányzó Telegram titkok a 'send_admin_alert' feladathoz
+# JAVÍTVA (V1.5) - A 'TELEGRAM_TOKEN' secret nevet használja (a 'TELEGRAM_BOT_TOKEN' helyett)
 
 name: Napi Tippgenerálás és Adatgyűjtés
 
@@ -70,7 +70,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} 
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }} 
+          # --- JAVÍTÁS ITT ---
+          # A Python kód 'TELEGRAM_BOT_TOKEN'-ként keresi, de a te titkod neve 'TELEGRAM_TOKEN'
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
 
   # 3. FELADAT: Admin értesítés küldése
   send_admin_alert:
@@ -96,7 +98,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          # --- ITT A VALÓDI JAVÍTÁS ---
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-          # --- JAVÍTÁS VÉGE ---
+          # --- JAVÍTÁS ITT ---
+          # A Python kód 'TELEGRAM_BOT_TOKEN'-ként keresi, de a te titkod neve 'TELEGRAM_TOKEN'
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
