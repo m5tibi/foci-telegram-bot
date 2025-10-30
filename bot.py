@@ -1,4 +1,4 @@
-# bot.py (V6.7 - Javítva a main.py V8.3 kompatibilitás érdekében)
+# bot.py (V6.7 - Javítva: V8.3 kompatibilitás + Helyes gombkezelő patternek)
 
 import os
 import telegram
@@ -31,7 +31,7 @@ def get_db_client():
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
-# --- JAVÍTOTT FÜGGVÉNY KEZDETE ---
+# --- JAVÍTOTT FÜGGVÉNY KEZDETE (main.py V8.3 kompatibilitás) ---
 def get_tip_details(tip_name: str):
     """
     JAVÍTVA: A main.py V8.3 által a 'meccsek' táblából küldött
@@ -172,13 +172,18 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
-    date_str = query.data.split("_")[-1]
+    
+    # --- JAVÍTVA (Aláhúzásról kettőspontra) ---
+    date_str = query.data.split(":")[-1] 
+    
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
     confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
                        "A tippek mostantól láthatóak a weboldalon.\n\n"
                        "Biztosan kiküldöd az értesítést a VIP tagoknak?")
+    
+    # Ez a belső gomb (confirm_send_) továbbra is aláhúzást használ, ami helyes.
     keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
                 [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -187,7 +192,7 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
-    date_str = query.data.split("_")[-1]
+    date_str = query.data.split("_")[-1] # Ez helyesen aláhúzás
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
     successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
@@ -198,7 +203,10 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
-    date_str = query.data.split("_")[-1]
+    
+    # --- JAVÍTVA (Aláhúzásról kettőspontra) ---
+    date_str = query.data.split(":")[-1] 
+    
     def sync_delete_rejected_tips(date_to_delete):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         slips_to_delete = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
@@ -269,7 +277,7 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
                 slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
                 keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
                 keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_vip_{slip['id']}_Nyert"),
-                                 InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_vip_{slip['id']}_Veszített")])
+                                 InlineKeyboardButton("❌ Veszített", callback_gombata=f"manual_result_vip_{slip['id']}_Veszített")])
         
         if pending_free:
             keyboard.append([InlineKeyboardButton("--- Ingyenes Tippek ---", callback_data="noop_0")])
@@ -607,9 +615,12 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
-    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
-    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_'))
-    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
+    
+    # --- JAVÍTVA (Patternek kettőspontra cserélve) ---
+    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
+    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_')) # Ez marad aláhúzás, mert belső gomb
+    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
+    
     application.add_handler(CallbackQueryHandler(button_handler))
-    print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva (V6.7 + V8.3 Patch).")
     return application
