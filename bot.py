@@ -1,4 +1,4 @@
-# bot.py (V6.8 - Visszaállított gombok, törlési logika és /start javítás)
+# bot.py (V6.9 - Helyreállított Stripe funkciók, új admin gombok, törlési logika)
 
 import os
 import telegram
@@ -186,8 +186,7 @@ async def format_free_tip_statistics(supabase_client: Client):
 async def start(update: Update, context: CallbackContext):
     """
     Kezeli a /start parancsot.
-    JAVÍTVA: A 'felhasznalok' táblát 'profiles'-ra cseréltük,
-    és a 'telegram_connect_token'-t 'id'-re (a telegram_links táblában).
+    JAVÍTVA: A /start hiba (a logban látható) javítva.
     """
     chat_id = update.message.chat_id
     user_id_str = str(chat_id)
@@ -209,12 +208,10 @@ async def start(update: Update, context: CallbackContext):
             return
 
         # Ha nincs regisztrálva, ellenőrizzük, hogy ez egy /link parancs-e
-        # (A felhasználók gyakran csak a tokent küldik be /start után)
         args = context.args
         if args:
             token = args[0]
-            # Itt futott hibára a régi kód (felhasznalok helyett profiles, .single() hiba)
-            # Az új logika a /link parancsra épül
+            # A /start parancs nem /link parancs, ezért átirányítjuk
             await context.bot.send_message(chat_id=chat_id, text=f"Kérlek, a kapott kódot a /link paranccsal küldd be:\n\n`/link {token}`", parse_mode=telegram.constants.ParseMode.MARKDOWN)
             return
 
@@ -303,7 +300,6 @@ async def stats_menu(update: Update, context: CallbackContext):
         [InlineKeyboardButton("📊 Ingyenes Tippek (Havi)", callback_data="stats_free_tips")],
         [InlineKeyboardButton("Bezárás", callback_data="admin_close")]
     ]
-    # Kezeljük, ha parancsból (/stats) vagy gombból (admin_stats_menu) jön
     if update.callback_query:
         await update.callback_query.message.reply_text("Melyik időszak statisztikáját kéred?", reply_markup=InlineKeyboardMarkup(keyboard))
     else:
@@ -414,9 +410,8 @@ async def test_service_key(update: Update, context: CallbackContext):
     except Exception as e:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ Service Key HIBA: {e}")
 
-
 # ---
-# --- MÓDOSÍTOTT GOMBKEZELŐK (ÚJ LOGIKA) ---
+# --- ÚJ/MÓDOSÍTOTT FUNKCIÓK (V6.9) ---
 # ---
 
 async def handle_approve_tips(update: Update, context: CallbackContext):
@@ -448,13 +443,13 @@ async def handle_approve_tips(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=query.message.chat_id, text=text)
         
     except Exception as e:
-        print(f"Hiba a tippek jóváhagyásakor (V6.8): {e}")
+        print(f"Hiba a tippek jóváhagyásakor (V6.9): {e}")
         await context.bot.send_message(chat_id=query.message.chat_id, text=f"Hiba a jóváhagyás során: {e}")
 
 async def handle_reject_tips(update: Update, context: CallbackContext):
     """
     Kezeli az új, dátum-alapú 'reject_tips:DATUM' callback-et.
-    Frissíti a státuszt ÉS TÖRÖL minden kapcsolódó tippet.
+    Frissíti a státuszt ÉS TÖRÖL minden kapcsolódó tippet (a kérésed alapján).
     """
     await update.callback_query.answer()
     query = update.callback_query
@@ -507,13 +502,75 @@ async def handle_reject_tips(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=query.message.chat_id, text=text)
 
     except Exception as e:
-        print(f"Hiba a tippek elutasításakor/törlésekor (V6.8): {e}")
+        print(f"Hiba a tippek elutasításakor/törlésekor (V6.9): {e}")
         await context.bot.send_message(chat_id=query.message.chat_id, text=f"Hiba az elutasítás/törlés során: {e}")
 
-async def confirm_and_send_notification(update: Update, context: CallbackContext):
-    # Ez a régi függvény (V6.7-ből), amit már nem használunk
-    await update.callback_query.answer()
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Ez a funkció frissítés alatt áll. A jóváhagyás most már a 'Jóváhagyás' gombbal történik.")
+# --- HELYREÁLLÍTOTT FUNKCIÓK (a main.py miatt kellenek) ---
+
+async def activate_subscription_and_notify_web(customer_id: str, plan_name: str, expires_at: datetime):
+    """
+    A Stripe webhook hívja meg. Aktiválja az előfizetést és üzenetet küld a felhasználónak.
+    EZ A FÜGGVÉNY HIÁNYZOTT (V6.9).
+    """
+    supabase = get_db_client()
+    print(f"Stripe webhook: Előfizetés aktiválása a {customer_id} ügyfélnek.")
+    
+    try:
+        # 1. Keressük meg a felhasználót a customer_id alapján
+        profile_response = supabase.table("profiles").select("id, telegram_chat_id").eq("stripe_customer_id", customer_id).single().execute()
+        
+        if not profile_response.data:
+            print(f"HIBA: Nem található profil a {customer_id} Stripe customer ID-val.")
+            return
+
+        user_data = profile_response.data
+        user_uuid = user_data["id"]
+        chat_id = user_data.get("telegram_chat_id")
+
+        # 2. Frissítsük az előfizetés lejárati idejét
+        supabase.table("profiles").update({"subscription_expires_at": expires_at.isoformat()}).eq("id", user_uuid).execute()
+        
+        print(f"Sikeres frissítés a {user_uuid} felhasználónak. Lejárat: {expires_at}")
+
+        # 3. Értesítsük a felhasználót Telegramon (ha kapcsolt fiókot)
+        if chat_id:
+            plan_translation = {
+                "Havi": "Havi csomag",
+                "Heti": "Heti csomag",
+            }
+            plan_display_name = plan_translation.get(plan_name, plan_name)
+            expires_at_hu = expires_at.astimezone(HUNGARY_TZ).strftime('%Y-%m-%d %H:%M')
+            
+            message_text = (
+                f"🎉 Sikeres előfizetés!\n\n"
+                f"Aktív csomagod: *{plan_display_name}*\n"
+                f"Előfizetésed érvényes eddig: *{expires_at_hu}*\n\n"
+                "Köszönjük, hogy a Mondom a Tutit! szolgáltatást választottad!"
+            )
+            # Aszinkron üzenetküldés
+            app = Application.builder().token(TELEGRAM_TOKEN).build()
+            await app.bot.send_message(chat_id=chat_id, text=message_text, parse_mode=telegram.constants.ParseMode.MARKDOWN)
+
+    except Exception as e:
+        print(f"!!! KRITIKUS HIBA az előfizetés aktiválásakor: {e}")
+        # Hiba esetén is próbáljuk meg logolni, de ne akasszuk meg a webhookot
+        pass
+
+async def get_tip_details(tip_name: str) -> dict:
+    """
+    Lekéri a tipp részleteit a Stripe számára (pl. "Havi" -> 9999 HUF).
+    EZ A FÜGGVÉNY HIÁNYZOTT (V6.9).
+    """
+    # Ez a funkció a main.py-ből (Stripe) van hívva, de úgy tűnik,
+    # a V6.7-es bot.py-ban nem volt implementálva. Egy alap implementációt adunk neki.
+    if tip_name == "Havi":
+        return {"price_id": os.environ.get("STRIPE_PRICE_ID_MONTHLY"), "name": "Havi csomag"}
+    elif tip_name == "Heti":
+        return {"price_id": os.environ.get("STRIPE_PRICE_ID_WEEKLY"), "name": "Heti csomag"}
+    else:
+        # Alapértelmezett (vagy hibakezelés)
+        return {"price_id": os.environ.get("STRIPE_PRICE_ID_MONTHLY"), "name": "Ismeretlen csomag"}
+
 
 async def button_handler(update: Update, context: CallbackContext):
     """ Gombkezelő a statikus menükhöz (statisztika, admin menü) """
@@ -546,7 +603,7 @@ async def button_handler(update: Update, context: CallbackContext):
     elif query.data == "admin_stats_menu":
         await stats_menu(query, context)
     elif query.data == "admin_test_key":
-        await test_service_key(update, context)
+        await test_service_key(query, context)
     elif query.data == "admin_close":
         await query.answer()
         await query.message.delete()
@@ -566,7 +623,7 @@ def add_handlers(application: Application):
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
     
-    # --- MÓDOSÍTOTT HANDLEREK ---
+    # --- MÓDOSÍTOTT HANDLEREK (V6.9) ---
     # A régi, ID-alapú kezelők ('_') helyett az új, dátum-alapúakat (':') figyeljük
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
@@ -585,7 +642,7 @@ def main():
         print("!!! KRITIKUS HIBA: TELEGRAM_TOKEN nincs beállítva. A bot nem indul el.")
         return
 
-    print("Bot indítása...")
+    print("Bot indítása (V6.9)...")
     
     persistence = PicklePersistence(filepath="./bot_persistence")
     
