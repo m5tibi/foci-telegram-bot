@@ -1,5 +1,5 @@
 # .github/workflows/daily_run.yml
-# JAVÍTVA (V1.2) - Hozzáadva az admin értesítő feladat ('send_admin_alert')
+# JAVÍTVA (V1.3) - Hozzáadva a hiányzó Telegram titkok a 'send_admin_alert' feladathoz
 
 name: Napi Tippgenerálás és Adatgyűjtés
 
@@ -33,7 +33,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           
       - name: Pillanatkép adatok generálása (V3.0)
-        run: python gemini_data_exporter.py # Futtatjuk a V3.0-ás adatgyűjtőt
+        run: python gemini_data_exporter.py
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
 
@@ -41,9 +41,7 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'github-actions-bot@github.com'
-          # Csak az új snapshot mappát adjuk hozzá
           git add backtest_snapshots/snapshot_data_*.json
-          # Ellenőrizzük, van-e mit commmitelni (ha már létezett a fájl, ne hibázzon)
           git diff --staged --quiet || git commit -m "Automatikus backtest pillanatkép mentése"
           git push
 
@@ -66,25 +64,19 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           
       - name: Tippek generálása adatbázisba (V17.8)
-        run: python tipp_generator.py # Futtatjuk az új V17.8-as, "csak holnapi" generátort
+        run: python tipp_generator.py
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          # A Telegram titkok ide már nem kellenek, de nem ártanak
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} 
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} # Ide is kell az admin ID, hogy a generátor naplózni tudja a hibákat
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} # Ide is kell
 
-  # 3. FELADAT: Admin értesítés küldése (EZ VOLT A HIÁNYZÓ LÉPÉS)
+  # 3. FELADAT: Admin értesítés küldése
   send_admin_alert:
     runs-on: ubuntu-latest
     needs: generate_tips_to_db # Megvárja, amíg a tippek az adatbázisba kerültek
     
-    # Csak akkor fusson le, ha a futtatás nem "teszt" (pl. nem manuális teszt)
-    # Ezt a feltételt egyelőre kivesszük, hogy manuális futtatásnál is tesztelhető legyen
-    # if: github.event_name == 'schedule' 
-
     steps:
       - name: Kód letöltése
         uses: actions/checkout@v3
@@ -104,5 +96,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # --- EZ A KÉT SOR HIÁNYZOTT ---
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          # --- JAVÍTÁS VÉGE ---
