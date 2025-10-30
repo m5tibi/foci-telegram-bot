@@ -1,4 +1,4 @@
-# send_admin_summary.py (V1.1 - Javítva a Supabase lekérdezési hiba)
+# send_admin_summary.py (V1.2 - Javítva a belső token változó neve)
 import os
 import requests
 from supabase import create_client, Client
@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") # <-- Ezt a nevet olvassuk be (helyes)
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 
 supabase: Client = None
@@ -28,7 +28,11 @@ def send_telegram_message(chat_id, text):
         print("Hiba: Telegram token vagy Admin Chat ID hiányzik.")
         return
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    # --- JAVÍTÁS ITT ---
+    # A változó nevének 'TELEGRAM_TOKEN'-nek kell lennie, nem 'TELEGRAM_BOT_TOKEN'-nek
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    # --- JAVÍTÁS VÉGE ---
+    
     payload = {"chat_id": chat_id, "text": text}
     try:
         response = requests.post(url, json=payload, timeout=10)
@@ -39,12 +43,9 @@ def send_telegram_message(chat_id, text):
 def get_tips_for_approval(tomorrow_str):
     """ 
     Ellenőrzi, hány tipp vár jóváhagyásra a holnapi napra.
-    JAVÍTVA: A bonyolult 'meccsek(*)' join helyett egy egyszerű 'count' lekérdezést használ,
-    ami nem törik meg a hiányzó formális adatbázis-kapcsolat miatt.
+    (V1.1-es javított lekérdezés)
     """
     try:
-        # Csak megszámoljuk, hány 'napi_tuti' szelvény létezik a holnapi dátummal
-        # Az 'ilike' (case-insensitive like) biztosítja, hogy megtalálja, pl. "%2025-10-31%"
         response = supabase.table("napi_tuti").select("id", count='exact').ilike("tipp_neve", f"%{tomorrow_str}%").execute()
         
         if response.count is not None:
@@ -53,7 +54,6 @@ def get_tips_for_approval(tomorrow_str):
             return 0
             
     except Exception as e:
-        # Ha hiba történik (pl. a lekérdezés hibás), a hibát továbbítjuk
         raise e
 
 def main():
@@ -98,7 +98,6 @@ def main():
 
     except Exception as e:
         print(f"Hiba az admin összefoglaló készítésekor: {e}")
-        # Próbáljuk meg elküldeni a hibaüzenetet az adminnak
         try:
             send_telegram_message(ADMIN_CHAT_ID, f"!!! KRITIKUS HIBA az admin összefoglaló készítésekor: {e}")
         except Exception as telegram_e:
