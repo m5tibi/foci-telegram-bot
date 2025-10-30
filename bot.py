@@ -37,6 +37,9 @@ def get_db_client():
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
 def is_admin(chat_id: int) -> bool:
+    if not ADMIN_CHAT_ID:
+        print("FIGYELMEZTETÉS: ADMIN_CHAT_ID nincs beállítva!")
+        return False
     return chat_id == ADMIN_CHAT_ID
 
 def check_subscription_status(user_id: str):
@@ -410,6 +413,7 @@ async def test_service_key(update: Update, context: CallbackContext):
     except Exception as e:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ Service Key HIBA: {e}")
 
+
 # ---
 # --- ÚJ/MÓDOSÍTOTT FUNKCIÓK (V6.9) ---
 # ---
@@ -553,7 +557,6 @@ async def activate_subscription_and_notify_web(customer_id: str, plan_name: str,
 
     except Exception as e:
         print(f"!!! KRITIKUS HIBA az előfizetés aktiválásakor: {e}")
-        # Hiba esetén is próbáljuk meg logolni, de ne akasszuk meg a webhookot
         pass
 
 async def get_tip_details(tip_name: str) -> dict:
@@ -561,8 +564,7 @@ async def get_tip_details(tip_name: str) -> dict:
     Lekéri a tipp részleteit a Stripe számára (pl. "Havi" -> 9999 HUF).
     EZ A FÜGGVÉNY HIÁNYZOTT (V6.9).
     """
-    # Ez a funkció a main.py-ből (Stripe) van hívva, de úgy tűnik,
-    # a V6.7-es bot.py-ban nem volt implementálva. Egy alap implementációt adunk neki.
+    # A main.py hívja ezt a Stripe checkout létrehozásakor
     if tip_name == "Havi":
         return {"price_id": os.environ.get("STRIPE_PRICE_ID_MONTHLY"), "name": "Havi csomag"}
     elif tip_name == "Heti":
@@ -603,7 +605,7 @@ async def button_handler(update: Update, context: CallbackContext):
     elif query.data == "admin_stats_menu":
         await stats_menu(query, context)
     elif query.data == "admin_test_key":
-        await test_service_key(query, context)
+        await test_service_key(query, context) # query helyett update-et várt
     elif query.data == "admin_close":
         await query.answer()
         await query.message.delete()
@@ -628,8 +630,6 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
     # --- MÓDOSÍTÁS VÉGE ---
-    
-    # A régi 'confirm_send_' kezelőt eltávolítottuk, mert már nem használjuk
     
     # Az általános gombkezelő (stats, admin menü gombjai)
     application.add_handler(CallbackQueryHandler(button_handler))
