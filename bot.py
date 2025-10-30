@@ -1,4 +1,4 @@
-# bot.py (V6.8 - Visszaállított gombok és törlési logika)
+# bot.py (V6.8 - Visszaállított gombok, törlési logika és /start javítás)
 
 import os
 import telegram
@@ -22,11 +22,11 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-# --- JAVÍTÁS: A helyes környezeti változó nevet használjuk ---
+# A helyes környezeti változó nevet használjuk (ahogy a YML-ben beállítottuk)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-# --- JAVÍTÁS VÉGE ---
+ADMIN_CHAT_ID_STR = os.environ.get("ADMIN_CHAT_ID") # Stringként olvassuk be
+ADMIN_CHAT_ID = int(ADMIN_CHAT_ID_STR) if ADMIN_CHAT_ID_STR else None # Integer-ként tároljuk
 
-ADMIN_CHAT_ID = 1326707238 # A te azonosítód (a V6.7-ből átemelve)
 AWAITING_BROADCAST = 0
 AWAITING_VIP_BROADCAST = 1
 
@@ -34,7 +34,8 @@ AWAITING_VIP_BROADCAST = 1
 def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ... (A többi segédfüggvény: is_admin, check_subscription_status, ... változatlan)
+HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+
 def is_admin(chat_id: int) -> bool:
     return chat_id == ADMIN_CHAT_ID
 
@@ -60,7 +61,7 @@ async def get_bot_username(context: CallbackContext):
     return context.bot_data["bot_username"]
     
 async def format_statistics(supabase_client: Client, period: str, user_id: str = None):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     today = datetime.now(HUNGARY_TZ).date()
     query = supabase_client.table("meccsek").select("eredmeny", "odds")
 
@@ -135,7 +136,7 @@ async def format_statistics(supabase_client: Client, period: str, user_id: str =
         return f"Hiba a statisztika készítésekor: {e}"
 
 async def format_free_tip_statistics(supabase_client: Client):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     today = datetime.now(HUNGARY_TZ).date()
     start_of_month = today.replace(day=1)
     
@@ -180,16 +181,21 @@ async def format_free_tip_statistics(supabase_client: Client):
         print(f"Hiba az ingyenes statisztika készítésekor: {e}")
         return f"Hiba az ingyenes statisztika készítésekor: {e}"
 
-# --- Telegram Parancs Kezelők (Változatlanok) ---
+# --- Telegram Parancs Kezelők (Minimális javításokkal) ---
 
 async def start(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    """
+    Kezeli a /start parancsot.
+    JAVÍTVA: A 'felhasznalok' táblát 'profiles'-ra cseréltük,
+    és a 'telegram_connect_token'-t 'id'-re (a telegram_links táblában).
+    """
     chat_id = update.message.chat_id
     user_id_str = str(chat_id)
     supabase = get_db_client()
     
     try:
-        response = supabase.table("profiles").select("id").eq("telegram_chat_id", user_id_str).execute()
+        # Először ellenőrizzük, hogy a chat_id már regisztrálva van-e
+        response = supabase.table("profiles").select("id, subscription_expires_at").eq("telegram_chat_id", user_id_str).execute()
         
         if response.data:
             user_uuid = response.data[0]["id"]
@@ -197,26 +203,37 @@ async def start(update: Update, context: CallbackContext):
             if subscribed:
                 expires_at_hu = expires_at.astimezone(HUNGARY_TZ).strftime('%Y-%m-%d %H:%M')
                 await update.message.reply_text(f"Üdvözöllek újra! ✅ Aktív előfizetésed van eddig: {expires_at_hu}")
-                await show_main_menu(update, context)
             else:
-                await update.message.reply_text("Üdvözöllek! Sajnos nincs aktív előfizetésed. Látogass el a weboldalra a megújításhoz.")
-                await show_main_menu(update, context)
-        else:
-            bot_username = await get_bot_username(context)
-            await update.message.reply_text(
-                "Üdvözöllek a Mondom a Tutit! Botnál!\n\n"
-                "A bot használatához össze kell kötnöd a Telegram fiókodat a weboldalon regisztrált fiókoddal.\n\n"
-                "1. Látogass el ide: https://mondom-a-tutit.onrender.com/register\n"
-                "2. Regisztráció után a Profil oldalon találsz egy linket.\n"
-                f"3. Küldd el a linket a botnak (pl. `/link 12345-abcde...`) vagy kattints rá a weboldalon (ha mobilon vagy)."
-            )
+                await update.message.reply_text("Üdvözöllek újra! Sajnos nincs aktív előfizetésed.")
+            await show_main_menu(update, context)
+            return
+
+        # Ha nincs regisztrálva, ellenőrizzük, hogy ez egy /link parancs-e
+        # (A felhasználók gyakran csak a tokent küldik be /start után)
+        args = context.args
+        if args:
+            token = args[0]
+            # Itt futott hibára a régi kód (felhasznalok helyett profiles, .single() hiba)
+            # Az új logika a /link parancsra épül
+            await context.bot.send_message(chat_id=chat_id, text=f"Kérlek, a kapott kódot a /link paranccsal küldd be:\n\n`/link {token}`", parse_mode=telegram.constants.ParseMode.MARKDOWN)
+            return
+
+        # Ha se nem regisztrált, se nem link, akkor az üdvözlő üzenet
+        bot_username = await get_bot_username(context)
+        await update.message.reply_text(
+            "Üdvözöllek a Mondom a Tutit! Botnál!\n\n"
+            "A bot használatához össze kell kötnöd a Telegram fiókodat a weboldalon regisztrált fiókoddal.\n\n"
+            "1. Látogass el ide: https://mondom-a-tutit.onrender.com/register\n"
+            "2. Regisztráció után a Profil oldalon találsz egy linket.\n"
+            f"3. Küldd el a linket a botnak (pl. `/link 12345-abcde...`) vagy kattints rá a weboldalon (ha mobilon vagy)."
+        )
             
     except Exception as e:
         print(f"Hiba a /start parancsban: {e}")
         await update.message.reply_text(f"Hiba történt az adatbázis kapcsolatban. Próbáld újra később. {e}")
 
 async def link(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     chat_id = update.message.chat_id
     try:
         user_id_str = context.args[0]
@@ -250,7 +267,7 @@ async def link(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Adatbázis hiba történt az összekapcsolás során. {e}")
 
 async def show_main_menu(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     chat_id = update.message.chat_id
     supabase = get_db_client()
     profile_response = supabase.table("profiles").select("id").eq("telegram_chat_id", str(chat_id)).execute()
@@ -275,7 +292,7 @@ async def show_main_menu(update: Update, context: CallbackContext):
         await update.message.reply_text("❌ Nincs aktív előfizetésed.\nLátogass el a weboldalra a csomagokért.", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def stats_menu(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     keyboard = [
         [
             InlineKeyboardButton("Mai", callback_data="stats_today"),
@@ -286,12 +303,16 @@ async def stats_menu(update: Update, context: CallbackContext):
         [InlineKeyboardButton("📊 Ingyenes Tippek (Havi)", callback_data="stats_free_tips")],
         [InlineKeyboardButton("Bezárás", callback_data="admin_close")]
     ]
-    await update.message.reply_text("Melyik időszak statisztikáját kéred?", reply_markup=InlineKeyboardMarkup(keyboard))
+    # Kezeljük, ha parancsból (/stats) vagy gombból (admin_stats_menu) jön
+    if update.callback_query:
+        await update.callback_query.message.reply_text("Melyik időszak statisztikáját kéred?", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("Melyik időszak statisztikáját kéred?", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # --- Admin Parancsok (Változatlanok) ---
 
 async def admin_menu(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     if not is_admin(update.message.chat_id):
         await update.message.reply_text("Nincs jogosultságod ehhez a parancshoz.")
         return
@@ -306,27 +327,25 @@ async def admin_menu(update: Update, context: CallbackContext):
     await update.message.reply_text("Admin menü:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_broadcast_start(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("Kérlek, küldd el a körlevél szövegét (mindenkinek). Írd be a /cancel parancsot a megszakításhoz.")
     return AWAITING_BROADCAST
     
 async def admin_vip_broadcast_start(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("Kérlek, küldd el a VIP körlevél szövegét. Írd be a /cancel parancsot a megszakításhoz.")
     return AWAITING_VIP_BROADCAST
 
 async def broadcast_message_to_users(context: CallbackContext, message_text: str, vip_only: bool):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     supabase = get_db_client()
     query = supabase.table("profiles").select("telegram_chat_id, id")
     
     if vip_only:
-        # Csak azokat keressük, akiknek van telegram_chat_id ÉS aktív előfizetésük
         query = query.not_.is_("telegram_chat_id", "null")
     else:
-        # Mindenkit, akinek van telegram_chat_id
         query = query.not_.is_("telegram_chat_id", "null")
 
     try:
@@ -355,7 +374,7 @@ async def broadcast_message_to_users(context: CallbackContext, message_text: str
                 except Exception as e:
                     print(f"Hiba küldéskor (Chat ID: {chat_id}): {e}")
                     failed_count += 1
-                await asyncio.sleep(0.1) # Rate limiting
+                await asyncio.sleep(0.1) 
                 
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Körlevél befejezve.\nSikeres: {sent_count}\nSikertelen: {failed_count}")
         return sent_count
@@ -366,24 +385,24 @@ async def broadcast_message_to_users(context: CallbackContext, message_text: str
         return 0
 
 async def admin_broadcast_message_handler(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     message_text = update.message.text
     await broadcast_message_to_users(context, message_text, vip_only=False)
     return ConversationHandler.END
 
 async def admin_vip_broadcast_message_handler(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     message_text = update.message.text
     await broadcast_message_to_users(context, message_text, vip_only=True)
     return ConversationHandler.END
 
 async def cancel_conversation(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     await update.message.reply_text("Művelet megszakítva.")
     return ConversationHandler.END
 
 async def test_service_key(update: Update, context: CallbackContext):
-    # ... (Ez a függvény változatlan marad a V6.7-ből)
+    # ... (Változatlan a V6.7-ből)
     if not SUPABASE_SERVICE_KEY:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Hiba: SUPABASE_SERVICE_KEY nincs beállítva.")
         return
@@ -492,8 +511,7 @@ async def handle_reject_tips(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=query.message.chat_id, text=f"Hiba az elutasítás/törlés során: {e}")
 
 async def confirm_and_send_notification(update: Update, context: CallbackContext):
-    # Ez a régi függvény (V6.7-ből), amit már nem használunk az új logikában,
-    # de itt hagyjuk, hogy ne okozzon hibát, ha valahol még hivatkozva van.
+    # Ez a régi függvény (V6.7-ből), amit már nem használunk
     await update.callback_query.answer()
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Ez a funkció frissítés alatt áll. A jóváhagyás most már a 'Jóváhagyás' gombbal történik.")
 
@@ -526,7 +544,7 @@ async def button_handler(update: Update, context: CallbackContext):
 
     # Admin gombok
     elif query.data == "admin_stats_menu":
-        await stats_menu(query, context) # A stats_menu most már frissített üzenetet küld
+        await stats_menu(query, context)
     elif query.data == "admin_test_key":
         await test_service_key(update, context)
     elif query.data == "admin_close":
@@ -549,7 +567,7 @@ def add_handlers(application: Application):
     application.add_handler(vip_broadcast_conv)
     
     # --- MÓDOSÍTOTT HANDLEREK ---
-    # A régi, ID-alapú kezelők helyett az új, dátum-alapúakat figyeljük
+    # A régi, ID-alapú kezelők ('_') helyett az új, dátum-alapúakat (':') figyeljük
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
     # --- MÓDOSÍTÁS VÉGE ---
@@ -569,7 +587,6 @@ def main():
 
     print("Bot indítása...")
     
-    # Perzisztencia beállítása (a V6.7-ből átemelve)
     persistence = PicklePersistence(filepath="./bot_persistence")
     
     application = Application.builder().token(TELEGRAM_TOKEN).persistence(persistence).build()
