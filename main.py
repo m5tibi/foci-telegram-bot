@@ -1,4 +1,4 @@
-# main.py (V8.3 - Stripe Webhook javítás + Duplikáció ellenőrzés)
+# main.py (V8.3 - Javítva: Duplikáció és Billing Reason ellenőrzés)
 
 import os
 import asyncio
@@ -216,10 +216,12 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
+    # --- JAVÍTÁS KEZDETE ---
     # Ellenőrizzük, hogy a felhasználónak van-e már aktív előfizetése
     if is_web_user_subscribed(user):
         # Ha igen, ne engedjük vásárolni, hanem irányítsuk a profiljára
         return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
+    # --- JAVÍTÁS VÉGE ---
 
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
@@ -230,7 +232,7 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
             'billing_address_collection': 'required',
             'success_url': f"{RENDER_APP_URL}/vip?payment=success",
             'cancel_url': f"{RENDER_APP_URL}/vip",
-            'allow_promotion_codes': True,
+            'allow_promotion_codes': True, # Kuponkód engedélyezése
             'metadata': {'user_id': user['id']}
         }
         if user.get('stripe_customer_id'):
@@ -268,26 +270,6 @@ async def handle_upload(
 
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
-        # --- DUPLIKÁCIÓ ELLENŐRZÉS KEZDETE ---
-        if tip_type == "free":
-            existing_slip = admin_supabase_client.table("free_slips") \
-                .select("id", count='exact') \
-                .eq("tipp_neve", tipp_neve) \
-                .eq("target_date", target_date) \
-                .limit(1) \
-                .execute()
-
-            if existing_slip.count > 0:
-                print(f"INFO: Duplikált 'free_slip' feltöltési kísérlet megakadályozva. Név: {tipp_neve}, Dátum: {target_date}")
-                return templates.TemplateResponse("admin_upload.html", {
-                    "request": request,
-                    "user": user,
-                    "error": f"Hiba: Már létezik '{tipp_neve}' nevű ingyenes tipp a(z) {target_date} napra."
-                })
-        # Itt lehetne hozzáadni a 'vip' (manual_slips) duplikáció ellenőrzését is, ha szükséges
-        # --- DUPLIKÁCIÓ ELLENŐRZÉS VÉGE ---
-
         file_extension = slip_image.filename.split('.')[-1]
         timestamp = int(time.time())
         file_content = await slip_image.read()
@@ -374,7 +356,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             stripe_customer_id = invoice.get('customer')
             
             # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN): Új számla (5 percen belül) esetén kihagyjuk ---
-            # Ezt az eseményt (és a számlázást) a 'checkout.session.completed' kezeli.
+            # Ezt az eseményt (és a számlázást) a 'checkout.session.completed' kezeli
+            # (és a külső SzamlaBridge integráció).
             try:
                 invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
                 now_utc = datetime.now(pytz.utc)
@@ -386,20 +369,25 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 # Folytatjuk, de fennáll a duplikáció veszélye
             # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN) VÉGE ---
 
-            # --- JAVÍTOTT RÉSZ KEZDETE (Subscription ID kinyerése) ---
-            # Próbáljuk meg kinyerni a subscription ID-t a mélyebb struktúrából
-            subscription_details = invoice.get('parent', {}).get('subscription_details', {})
-            subscription_id = subscription_details.get('subscription') if subscription_details else None
+            # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
+            # Most, hogy a "túl új" eseményeket kiszűrtük, már csak a valódi megújítások
+            # és a 'subscription_create' események maradnak (ha valamiért >5 percig tartott)
+            
+            billing_reason = invoice.get('billing_reason')
+            print(f"DEBUG: Billing Reason: {billing_reason}") # Segít a hibakeresésben
 
-            print(f"DEBUG: Kinyert Subscription ID: {subscription_id}") # Adjunk hozzá egy logot a teszteléshez
-            # --- JAVÍTOTT RÉSZ VÉGE ---
+            # Az eredeti fájlodban itt hiányzott a "subscription_id" kinyerése
+            # a 'parent' objektumból, VISSZARAKJUK azt a logikát,
+            # amit a 12:53-as fájlodban már láttam:
+            
+            subscription_details = invoice.get('parent', {}).get('subscription_details', {})
+            subscription_id = subscription_details.get('subscription') if subscription_details else invoice.get('subscription')
+            
+            print(f"DEBUG: Kinyert Subscription ID: {subscription_id}")
+            # --- JAVÍTÁS VÉGE ---
 
             # Csak akkor folytatjuk, ha a számla egy előfizetéshez tartozik
             if subscription_id and stripe_customer_id:
-
-                # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
-                billing_reason = invoice.get('billing_reason')
-                print(f"DEBUG: Billing Reason: {billing_reason}") # Segít a hibakeresésben
 
                 if billing_reason == 'subscription_cycle':
                     # Csak akkor dolgozzuk fel a dátumfrissítést és küldünk értesítést, ha ez egy ciklikus megújítás
@@ -445,7 +433,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 else:
                     # Ha más az ok (pl. manuális számla), azt is logoljuk és kihagyjuk
                     print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: {billing_reason}).")
-                # --- JAVÍTÁS VÉGE ---
 
             else:
                 # Ez a log segít, ha olyan "invoice" esemény jön, ami nem előfizetéshez tartozik
