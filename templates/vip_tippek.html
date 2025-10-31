@@ -55,20 +55,30 @@
         <h2><i class="fas fa-lock me-2"></i>A tartalom zárolva</h2>
         <p class="lead">Ahhoz, hogy lásd a tippeket, <strong>válaszd ki az egyik csomagot</strong> és fizess elő a szolgáltatásra.</p>
         
-        <form action="/create-checkout-session-web" method="POST" class="d-inline-block m-2">
-            <input type="hidden" name="plan" value="weekly">
-            <button type="submit" class="btn btn-primary btn-lg shadow-lg" id="checkout-button-weekly">
-                <i class="fas fa-calendar-week me-2"></i>Heti Csomag (3,490 Ft)
-            </button>
-        </form>
-        <form action="/create-checkout-session-web" method="POST" class="d-inline-block m-2">
-            <input type="hidden" name="plan" value="monthly">
-            <button type="submit" class="btn btn-success btn-lg shadow-lg" id="checkout-button-monthly">
-                <i class="fas fa-calendar-alt me-2"></i>Havi Csomag (9,999 Ft)
-            </button>
-        </form>
-    </div>
+        <div class="row justify-content-center g-3 mt-3">
+            
+            <div class="col-md-5">
+                <form action="/create-checkout-session-web" method="POST" class="d-grid">
+                    <input type="hidden" name="plan" value="weekly">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-lg" id="checkout-button-weekly">
+                        <i class="fas fa-calendar-week me-2"></i>Heti Csomag (3,490 Ft)
+                    </button>
+                </form>
+                <p class="text-muted mt-2">Ideális, ha kipróbálnád a szolgáltatást.</p>
+            </div>
+            
+            <div class="col-md-5">
+                <form action="/create-checkout-session-web" method="POST" class="d-grid">
+                    <input type="hidden" name="plan" value="monthly">
+                    <button type="submit" class="btn btn-success btn-lg shadow-lg" id="checkout-button-monthly">
+                        <i class="fas fa-calendar-alt me-2"></i>Havi Csomag (9,999 Ft)
+                    </button>
+                </form>
+                <p class="text-muted mt-2">A legjobb ár-érték arányú választás.</p>
+            </div>
 
+        </div>
+    </div>
     {% else %}
     <h2 class="mb-3">Aktuális Tippek</h2>
 
