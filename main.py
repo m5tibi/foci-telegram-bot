@@ -372,6 +372,19 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
+            
+            # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN): Új számla (5 percen belül) esetén kihagyjuk ---
+            # Ezt az eseményt (és a számlázást) a 'checkout.session.completed' kezeli.
+            try:
+                invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
+                now_utc = datetime.now(pytz.utc)
+                if (now_utc - invoice_created_time) < timedelta(minutes=5):
+                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Túl új, <5 perc). Ezt a 'checkout.session.completed' kezeli.")
+                    return {"status": "success"}
+            except Exception as e:
+                print(f"FIGYELEM: Nem sikerült az 'invoice.payment_succeeded' időbélyeg ellenőrzése: {e}")
+                # Folytatjuk, de fennáll a duplikáció veszélye
+            # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN) VÉGE ---
 
             # --- JAVÍTOTT RÉSZ KEZDETE (Subscription ID kinyerése) ---
             # Próbáljuk meg kinyerni a subscription ID-t a mélyebb struktúrából
@@ -442,5 +455,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
-
-
