@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block title %}VIP Tippek - Mondom a Tutit!{% endblock %}
+
 {% block content %}
 <div class="container glass-container mt-5 p-4">
 
@@ -35,6 +37,16 @@
         <h4 class="alert-heading"><i class="fas fa-check-circle me-2"></i>Sikeres Fizetés!</h4>
         <p>Köszönjük az előfizetésed! A VIP tippek mostantól elérhetőek számodra.</p>
     </div>
+    
+    <script>
+        try {
+            console.log("Facebook Pixel 'Purchase' esemény indítása.");
+            fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+            console.log("Facebook Pixel 'Purchase' esemény elküldve.");
+        } catch (e) {
+            console.error("Hiba történt a Facebook Pixel esemény küldése közben:", e);
+        }
+    </script>
     {% endif %}
 
 
@@ -46,13 +58,13 @@
         <form action="/create-checkout-session-web" method="POST" class="d-inline-block m-2">
             <input type="hidden" name="plan" value="weekly">
             <button type="submit" class="btn btn-primary btn-lg shadow-lg" id="checkout-button-weekly">
-                <i class="fas fa-calendar-week me-2"></i>Heti Csomag
+                <i class="fas fa-calendar-week me-2"></i>Heti Csomag (3,490 Ft)
             </button>
         </form>
         <form action="/create-checkout-session-web" method="POST" class="d-inline-block m-2">
             <input type="hidden" name="plan" value="monthly">
             <button type="submit" class="btn btn-success btn-lg shadow-lg" id="checkout-button-monthly">
-                <i class="fas fa-calendar-alt me-2"></i>Havi Csomag
+                <i class="fas fa-calendar-alt me-2"></i>Havi Csomag (9,999 Ft)
             </button>
         </form>
     </div>
@@ -91,7 +103,10 @@
     <div class="slip-container mb-4 p-3 rounded shadow-sm" style="background-color: rgba(255, 255, 255, 0.05);">
         <h5 class="border-bottom pb-2 mb-3 d-flex justify-content-between">
             <span>{{ slip.tipp_neve }}</span>
-            <span class="badge bg-primary">Eredő Odds: {{ "%.2f"|format(slip.eredo_odds) }}</span>
+            <div>
+                <span class="badge bg-info me-2">Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%</span>
+                <span class="badge bg-primary">Eredő Odds: {{ "%.2f"|format(slip.eredo_odds) }}</span>
+            </div>
         </h5>
         {% for meccs in slip.meccsek %}
         <div class="match-row p-2 mb-2 rounded" style="background-color: rgba(0, 0, 0, 0.2);">
@@ -140,7 +155,10 @@
     <div class="slip-container mb-4 p-3 rounded shadow-sm" style="background-color: rgba(255, 255, 255, 0.05);">
         <h5 class="border-bottom pb-2 mb-3 d-flex justify-content-between">
             <span>{{ slip.tipp_neve }}</span>
-            <span class="badge bg-primary">Eredő Odds: {{ "%.2f"|format(slip.eredo_odds) }}</span>
+             <div>
+                <span class="badge bg-info me-2">Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%</span>
+                <span class="badge bg-primary">Eredő Odds: {{ "%.2f"|format(slip.eredo_odds) }}</span>
+            </div>
         </h5>
         {% for meccs in slip.meccsek %}
         <div class="match-row p-2 mb-2 rounded" style="background-color: rgba(0, 0, 0, 0.2);">
