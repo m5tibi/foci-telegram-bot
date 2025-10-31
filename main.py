@@ -231,6 +231,7 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
             'success_url': f"{RENDER_APP_URL}/vip?payment=success",
             'cancel_url': f"{RENDER_APP_URL}/vip",
             'metadata': {'user_id': user['id']}
+            'allow_promotion_codes': True
         }
         if user.get('stripe_customer_id'):
             params['customer'] = user['stripe_customer_id']
@@ -441,3 +442,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
         return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+
