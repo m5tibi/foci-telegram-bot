@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.9 - Interaktív Admin Üzenet Gombokkal)
+# tipp_generator.py (V17.16 - Tiszta Statisztikai Hibrid)
 
 import os
 import requests
@@ -18,7 +18,6 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
-# A helyes Secret nevet használjuk (ahogy a YML fájlban beállítottuk)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 
@@ -91,17 +90,16 @@ def prefetch_data_for_fixtures(fixtures):
                 TEAM_STATS_CACHE[stats_key] = stats if stats else {}
                 if not stats: print(f"Figyelmeztetés: Nincs stat a(z) {team_id} ({league_id}) csapathoz.")
                 processed_teams.add(stats_key)
-    print("Adatok előtöltése befejezve.")
+    print("Adatok előtöltése befejeve.")
 
 # ---
-# --- TISZTA ELEMZŐ LOGIKA (V17.7 logika - változatlan) ---
+# --- TISZTA ELEMZŐ LOGIKA (V17.16 - Tiszta Statisztikai Hibrid) ---
 # ---
 def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, h2h_data, injuries, odds_data):
     """ Elemzi a meccset, value-t keres, és visszaadja a tippeket javított becsült valószínűséggel. """
     fixture_id = fixture_data.get('fixture', {}).get('id', 'ISMERETLEN')
     try:
-        # ... (A teljes analyze_fixture_logic függvény kódja változatlan marad) ...
-        # ... (Beleértve a V17.7-es szűréseket, value_threshold = 1.20, stb.) ...
+        # ... (Változatlan alapfeltételek) ...
         
         if not all([fixture_data, fixture_data.get('teams'), fixture_data.get('league')]): return []
         teams, league = fixture_data['teams'], fixture_data['league']
@@ -121,18 +119,21 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         except (IndexError, TypeError, ValueError) as e: return []
 
         found_tips = []
-        confidence_modifiers = 0
-        
-        value_threshold = 1.20
-        min_confidence_threshold = 50
+        min_confidence_threshold = 60 # (V17.13 óta)
 
         # ... (1. FORMA ELEMZÉSE) ...
         home_form_str, away_form_str = "", ""
+        home_rank, away_rank = 99, 99
         if standings_data and isinstance(standings_data, list):
             for team_standing in standings_data:
-                 if team_standing.get('team', {}).get('id') == home_id: home_form_str = team_standing.get('form', '')
-                 if team_standing.get('team', {}).get('id') == away_id: away_form_str = team_standing.get('form', '')
+                 if team_standing.get('team', {}).get('id') == home_id: 
+                     home_form_str = team_standing.get('form', '')
+                     home_rank = team_standing.get('rank', 99)
+                 if team_standing.get('team', {}).get('id') == away_id: 
+                     away_form_str = team_standing.get('form', '')
+                     away_rank = team_standing.get('rank', 99)
                  if home_form_str and away_form_str: break
+        
         def get_form_points(form_str):
             points = 0;
             if not form_str or not isinstance(form_str, str): return 0
@@ -140,149 +141,144 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
                 if char == 'W': points += 3
                 if char == 'D': points += 1
             return points
+            
         home_form_points = get_form_points(home_form_str)
         away_form_points = get_form_points(away_form_str)
-        if home_form_points > 10: confidence_modifiers += 5
-        if away_form_points > 10: confidence_modifiers += 5
-        if home_form_points < 4: confidence_modifiers -= 5
-        if away_form_points < 4: confidence_modifiers -= 5
+        form_difference = home_form_points - away_form_points # Pozitív, ha a hazai jobb
+        rank_difference = away_rank - home_rank # Pozitív, ha a hazai jobb
 
-        # ... (2. H2H ELEMZÉSE) ...
+        # H2H adatok kinyerése (Gól-tippekhez kell)
+        over_2_5_count_h2h, btts_count_h2h = 0, 0
         if h2h_data and isinstance(h2h_data, list):
-            over_2_5_count = sum(1 for m in h2h_data if isinstance(m.get('goals'), dict) and m['goals'].get('home') is not None and m['goals'].get('away') is not None and (m['goals']['home'] + m['goals']['away']) > 2.5)
-            btts_count = sum(1 for m in h2h_data if isinstance(m.get('goals'), dict) and m['goals'].get('home') is not None and m['goals'].get('away') is not None and m['goals']['home'] > 0 and m['goals']['away'] > 0)
-            if over_2_5_count >= 3: confidence_modifiers += 5
-            if btts_count >= 3: confidence_modifiers += 5
+            over_2_5_count_h2h = sum(1 for m in h2h_data if isinstance(m.get('goals'), dict) and m['goals'].get('home') is not None and m['goals'].get('away') is not None and (m['goals']['home'] + m['goals']['away']) > 2.5)
+            btts_count_h2h = sum(1 for m in h2h_data if isinstance(m.get('goals'), dict) and m['goals'].get('home') is not None and m['goals'].get('away') is not None and m['goals']['home'] > 0 and m['goals']['away'] > 0)
 
-        # ... (3. GÓLÁTLAGOK ÉS xG BECSLÉSE) ...
+        # ... (3. GÓLÁTLAGOK ÉS xG BECSLÉSE - DE CSAK A DC SZŰRÉSHEZ) ...
+        expected_total_goals = 0.0 # Alapértelmezett
         try:
+            # (V17.11-es xG logika megtartva)
+            def get_stat(stats, metric, default=0):
+                try: 
+                    stat_value = stats.get('goals', {}).get(metric, {}).get('expected', {}).get('total')
+                    if stat_value is None:
+                        stat_value = stats.get('goals', {}).get(metric, {}).get('total', {}).get('total')
+                    return float(stat_value or default)
+                except: 
+                    return float(default)
+
             stats_h_played = float(home_stats.get('fixtures', {}).get('played', {}).get('total') or 1)
             stats_v_played = float(away_stats.get('fixtures', {}).get('played', {}).get('total') or 1)
-            h_avg_for = float(home_stats.get('goals', {}).get('for', {}).get('total', {}).get('total') or 0) / stats_h_played
-            h_avg_against = float(home_stats.get('goals', {}).get('against', {}).get('total', {}).get('total') or 0) / stats_h_played
-            v_avg_for = float(away_stats.get('goals', {}).get('for', {}).get('total', {}).get('total') or 0) / stats_v_played
-            v_avg_against = float(away_stats.get('goals', {}).get('against', {}).get('total', {}).get('total') or 0) / stats_v_played
+            h_avg_for = get_stat(home_stats, 'for') / stats_h_played
+            h_avg_against = get_stat(home_stats, 'against') / stats_h_played
+            v_avg_for = get_stat(away_stats, 'for') / stats_v_played
+            v_avg_against = get_stat(away_stats, 'against') / stats_v_played
+            
             expected_home_goals = max(0.1, (h_avg_for + v_avg_against) / 2)
             expected_away_goals = max(0.1, (v_avg_for + h_avg_against) / 2)
             expected_total_goals = expected_home_goals + expected_away_goals
-        except (TypeError, ValueError, ZeroDivisionError) as e: return []
+        except (TypeError, ValueError, ZeroDivisionError) as e: 
+            return [] # Ha a gólbecslés hibás, a DC szűrő sem megy
 
-        # ... (SEGÉDFÜGGVÉNYEK VALÓSZÍNŰSÉG SZÁMÍTÁSHOZ) ...
-        def poisson_prob(lmbda, k):
-            try: return (lmbda**k * math.exp(-lmbda)) / math.factorial(k)
-            except (ValueError, OverflowError): return 0
+        # --- JAVÍTÁS V17.16: Poisson és "Value" számítások TÖRÖLVE ---
 
-        diff = expected_home_goals - expected_away_goals
-        prob_home_win = max(0.05, min(0.95, 0.5 + diff * 0.1))
-        prob_away_win = max(0.05, min(0.95, 0.5 - diff * 0.1))
-        prob_draw = max(0.05, 1.0 - prob_home_win - prob_away_win)
-        total_prob = prob_home_win + prob_away_win + prob_draw
-        if total_prob > 0:
-            prob_home_win /= total_prob; prob_away_win /= total_prob; prob_draw /= total_prob
-
-        prob_1X = prob_home_win + prob_draw
-        prob_X2 = prob_away_win + prob_draw
-
-        def prob_total_goals_over(limit):
-            prob_under_or_equal = 0
-            for hg in range(6):
-                for ag in range(6):
-                    if hg + ag <= limit:
-                        prob_under_or_equal += poisson_prob(expected_home_goals, hg) * poisson_prob(expected_away_goals, ag)
-            return max(0.05, min(0.95, 1.0 - prob_under_or_equal))
-
-        prob_U25 = 1.0 - prob_total_goals_over(2)
-        prob_U25 = max(0.05, min(0.95, prob_U25)) 
-
-        def calculate_value_confidence(value_score, modifiers):
-            base_confidence = max(50, min(100, int((value_score - 1.0) * 100) + 70))
-            return base_confidence + modifiers
-
-        # ... (4. TIPP-LOGIKA - V17.7 szerint) ...
-        # "Home & Over 1.5"
-        home_win_odds = odds_markets.get("Match Winner_Home")
-        over_1_5_odds = odds_markets.get("Goals Over/Under_Over 1.5")
-        if over_1_5_odds and home_win_odds and home_win_odds < 1.55:
-            combined_odds = home_win_odds * (1 + (over_1_5_odds - 1) * 0.4)
-            if 1.35 <= combined_odds <= 1.90:
-                prob_over_1_5 = prob_total_goals_over(1)
-                adjustment_factor = 0.5
-                estimated_prob = prob_home_win * (1 + (prob_over_1_5 - 0.5) * adjustment_factor)
+        # ... (4. TIPP-LOGIKA - V17.16) ...
+        
+        # --- TÖRÖLVE: A "Home/Away & Over 1.5" heurisztika (MEGBUKOTT) ---
+        
+        # --- MEGTARTVA (V17.13): Szuper-Szigorú Dupla Esély (1X) ---
+        dc_1X_odds = odds_markets.get("Double Chance_Home/Draw")
+        if dc_1X_odds and 1.40 <= dc_1X_odds <= 1.90:
+            # 1. Szigorúbb forma diff (>= 9)
+            # 2. ÚJ SZŰRŐ: Ellenfél (Away) formája gyenge (<= 5)
+            # 3. ÚJ SZŰRŐ: Nem "káosz" meccs (expected_total_goals < 3.0)
+            if (form_difference >= 9 and 
+                away_form_points <= 5 and 
+                expected_total_goals < 3.0):
+                
+                # Alap megbízhatóság 75
+                confidence = 75 + (form_difference - 9) * 2 + (rank_difference // 2)
                 found_tips.append({
-                    "tipp": "Home & Over 1.5", "odds": combined_odds,
-                    "confidence": 80 + confidence_modifiers, 
-                    "estimated_probability": max(0.05, min(0.95, estimated_prob)),
+                    "tipp": "DC 1X", "odds": dc_1X_odds,
+                    "confidence": confidence,
+                    "estimated_probability": 0.70, # Becslés
                     "value_score": 0 
                 })
 
-        # "Away & Over 1.5"
-        away_win_odds = odds_markets.get("Match Winner_Away")
-        if over_1_5_odds and away_win_odds and away_win_odds < 1.55:
-            combined_odds = away_win_odds * (1 + (over_1_5_odds - 1) * 0.4)
-            if 1.35 <= combined_odds <= 1.90:
-                prob_over_1_5 = prob_total_goals_over(1)
-                adjustment_factor = 0.5
-                estimated_prob = prob_away_win * (1 + (prob_over_1_5 - 0.5) * adjustment_factor)
+        # --- MEGTARTVA (V17.13): Szuper-Szigorú Dupla Esély (X2) ---
+        dc_X2_odds = odds_markets.get("Double Chance_Draw/Away")
+        if dc_X2_odds and 1.40 <= dc_X2_odds <= 1.90:
+            # 1. Szigorúbb forma diff (<= -9)
+            # 2. ÚJ SZŰRŐ: Ellenfél (Home) formája gyenge (<= 5)
+            # 3. ÚJ SZŰRŐ: Nem "káosz" meccs (expected_total_goals < 3.0)
+            if (form_difference <= -9 and 
+                home_form_points <= 5 and 
+                expected_total_goals < 3.0):
+                
+                # Alap megbízhatóság 75
+                confidence = 75 + (abs(form_difference) - 9) * 2 + (abs(rank_difference) // 2)
                 found_tips.append({
-                    "tipp": "Away & Over 1.5", "odds": combined_odds,
-                    "confidence": 80 + confidence_modifiers, 
-                    "estimated_probability": max(0.05, min(0.95, estimated_prob)),
+                    "tipp": "DC X2", "odds": dc_X2_odds,
+                    "confidence": confidence,
+                    "estimated_probability": 0.70, # Becslés
                     "value_score": 0
                 })
-
-        # --- VALUE LOGIKA: "Over 2.5" ---
+        
+        # --- JAVÍTOTT LOGIKA (V17.16): "Over 2.5" (TISZTA STATISZTIKAI) ---
         over_2_5_odds = odds_markets.get("Goals Over/Under_Over 2.5")
         if over_2_5_odds and 1.50 <= over_2_5_odds <= 2.20:
             try:
-                our_prob_over_2_5 = prob_total_goals_over(2)
-                bookie_prob = 1 / over_2_5_odds
-                value_score = our_prob_over_2_5 / bookie_prob
-                if value_score > value_threshold:
-                    found_tips.append({
-                        "tipp": "Over 2.5", "odds": over_2_5_odds,
-                        "confidence": calculate_value_confidence(value_score, confidence_modifiers),
-                        "estimated_probability": our_prob_over_2_5,
-                        "value_score": value_score
-                    })
+                # 1. STATISZTIKAI SZŰRŐ: Csak akkor, ha mindkét csapat gólátlaga magas!
+                home_avg_goals_for = float(home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total') or 0)
+                away_avg_goals_for = float(away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total') or 0)
+                # Szigorítás: 1.3 -> 1.5
+                if home_avg_goals_for > 1.5 and away_avg_goals_for > 1.5:
+                    # 2. H2H SZŰRŐ: Támogassa a H2H is
+                    if over_2_5_count_h2h >= 3:
+                        # Alap megbízhatóság 65 (DC alatt marad)
+                        confidence = 65 + (over_2_5_count_h2h - 3) * 5
+                        found_tips.append({
+                            "tipp": "Over 2.5", "odds": over_2_5_odds,
+                            "confidence": confidence,
+                            "estimated_probability": 0.60, # Becslés
+                            "value_score": 0
+                        })
             except Exception as e: pass
 
-        # --- VALUE LOGIKA: "Under 2.5" ---
-        under_2_5_odds = odds_markets.get("Goals Over/Under_Under 2.5")
-        if under_2_5_odds and 1.60 <= under_2_5_odds <= 2.20:
-            try:
-                bookie_prob = 1 / under_2_5_odds
-                value_score = prob_U25 / bookie_prob
-                if value_score > value_threshold:
-                    found_tips.append({
-                        "tipp": "Under 2.5", "odds": under_2_5_odds,
-                        "confidence": calculate_value_confidence(value_score, confidence_modifiers),
-                        "estimated_probability": prob_U25,
-                        "value_score": value_score
-                    })
-            except Exception as e: pass
+        # --- JAVÍTÁS V17.15: "Under 2.5" logika törölve a felhasználó kérésére ---
+        
 
-        # --- VALUE LOGIKA: "BTTS" ---
+        # --- JAVÍTOTT LOGIKA (V17.16): "BTTS" (TISZTA STATISZTIKAI) ---
         btts_yes_odds = odds_markets.get("Both Teams to Score_Yes")
         if btts_yes_odds and 1.40 <= btts_yes_odds <= 2.00:
             try:
-                prob_home_not_scores = poisson_prob(expected_home_goals, 0)
-                prob_away_not_scores = poisson_prob(expected_away_goals, 0)
-                prob_at_least_one_not_scores = prob_home_not_scores + prob_away_not_scores - (prob_home_not_scores * prob_away_not_scores)
-                our_prob_btts = max(0.05, min(0.95, 1.0 - prob_at_least_one_not_scores))
-                bookie_prob = 1 / btts_yes_odds
-                value_score = our_prob_btts / bookie_prob
-                if value_score > value_threshold:
-                    found_tips.append({
-                        "tipp": "BTTS", "odds": btts_yes_odds,
-                        "confidence": calculate_value_confidence(value_score, confidence_modifiers),
-                        "estimated_probability": our_prob_btts,
-                        "value_score": value_score
-                    })
+                # 1. STATISZTIKAI SZŰRŐ: Csak akkor, ha mindkét csapat BTTS %-a magas!
+                def get_btts_pct(stats):
+                    try: return float(stats.get('btts', {}).get('yes', {}).get('percentage', {}).get('total') or 0)
+                    except: return 0
+                
+                home_btts_pct = get_btts_pct(home_stats)
+                away_btts_pct = get_btts_pct(away_stats)
+                
+                # Szigorítás: 50 -> 55
+                if home_btts_pct > 55 and away_btts_pct > 55:
+                    # 2. H2H SZŰRŐ: Támogassa a H2H is
+                    if btts_count_h2h >= 3:
+                        # Alap megbízhatóság 60 (legalacsonyabb)
+                        confidence = 60 + (btts_count_h2h - 3) * 5
+                        found_tips.append({
+                            "tipp": "BTTS", "odds": btts_yes_odds,
+                            "confidence": confidence,
+                            "estimated_probability": 0.55, # Becslés
+                            "value_score": 0
+                        })
             except Exception as e: pass
         
         # --- 5. LEGJOBB TIPP KIVÁLASZTÁSA ---
         if not found_tips: return []
         for tip in found_tips: tip['confidence'] = max(0, min(100, tip.get('confidence', 0))) 
+        
+        # A sorbarendezés most már automatikusan a DC tippeket fogja előre venni (mert 75+ conf)
+        # A Gól tippek (60-65 conf) csak akkor jönnek, ha nincs DC tipp.
         best_tip = sorted(found_tips, key=lambda x: x['confidence'], reverse=True)[0]
 
         if best_tip['confidence'] < min_confidence_threshold: return [] 
@@ -394,22 +390,20 @@ def record_daily_status(date_str, status, reason=""):
         if hasattr(response, 'error') and response.error: print(f"!!! HIBA státusz rögzítésekor: {response.error}")
     except Exception as e: print(f"!!! VÁRATLAN HIBA státusz rögzítésekor: {e}")
 
-# --- ÚJ FUNKCIÓ: ADMIN ÜZENET KÜLDÉSE GOMBOKKAL ---
+# --- ADMIN ÜZENET KÜLDÉSE GOMBOKKAL ---
 def send_admin_approval_message(tip_count, date_str):
+    # ... (Változatlan)
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         print("!!! HIBA: Admin üzenet küldése sikertelen. TELEGRAM_TOKEN vagy ADMIN_CHAT_ID hiányzik.")
         return
 
     print(f"Admin értesítő küldése gombokkal a(z) {date_str} napra...")
     
-    # Üzenet összeállítása
     message_text = (
         f"✅ Siker! {tip_count} db új tipp vár jóváhagyásra a holnapi ({date_str}) napra.\n\n"
         f"Kérlek, ellenőrizd a weboldalon, majd hagyd jóvá vagy utasítsd el a tippeket."
     )
     
-    # Gombok (Callback adatokkal, ahogy a bot.py várja)
-    # FONTOS: Az új bot.py (V6.8) már a ':' formátumot várja
     keyboard = {
         "inline_keyboard": [
             [
@@ -425,7 +419,7 @@ def send_admin_approval_message(tip_count, date_str):
         "reply_markup": json.dumps(keyboard) # Gombok csatolása
     }
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https.api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
     try:
         response = requests.post(url, data=payload, timeout=10)
@@ -433,14 +427,13 @@ def send_admin_approval_message(tip_count, date_str):
         print("Admin értesítő gombokkal sikeresen elküldve.")
     except requests.exceptions.RequestException as e:
         print(f"!!! HIBA az admin üzenet küldésekor: {e}")
-        # Hiba esetén megpróbáljuk elküldeni a hibaüzenetet gombok nélkül
         send_telegram_message_fallback(f"!!! KRITIKUS HIBA az interaktív admin üzenet küldésekor: {e}")
 
 def send_telegram_message_fallback(text):
-    """ Egyszerű üzenetküldő, ha a gombos küldés hibára fut. """
+    # ... (Változatlan)
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https.api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": text}
     try:
         requests.post(url, json=payload, timeout=10)
@@ -448,11 +441,12 @@ def send_telegram_message_fallback(text):
         print(f"Hiba a fallback Telegram üzenet küldésekor is: {e}")
 
 
-# --- FŐ VEZÉRLŐ (MÓDOSÍTVA: CSAK HOLNAPRA, ÉS GOMBOS ÜZENETKÜLDÉSSEL) ---
+# --- FŐ VEZÉRLŐ ---
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V17.9 - Interaktív Admin Gombok) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    # Verzió frissítve
+    print(f"Tipp Generátor (V17.16 - Tiszta Statisztikai Hibrid) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
 
     if not supabase and not is_test_mode: print("!!! KRITIKUS HIBA: Supabase kliens nem inicializálódott, leállás."); return
     
