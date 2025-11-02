@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.16 - Tiszta Statisztikai Hibrid)
+# tipp_generator.py (V17.17 - Telegram URL Fix + API Timeout Növelés)
 
 import os
 import requests
@@ -49,14 +49,15 @@ RELEVANT_LEAGUES = { # ... (Változatlan)
 DERBY_LIST = [(50, 66), (85, 106)]
 
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
-# ... (Változatlan kód) ...
-def get_api_data(endpoint, params, retries=3, delay=5):
+# --- JAVÍTÁS V17.17: Stabilabb API hívás (hosszabb timeout és retry delay) ---
+def get_api_data(endpoint, params, retries=3, delay=10): # Delay 5-ről 10-re növelve
     if not RAPIDAPI_KEY: print(f"!!! HIBA: RAPIDAPI_KEY hiányzik! ({endpoint} hívás kihagyva)"); return []
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     for i in range(retries):
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=25); response.raise_for_status(); time.sleep(0.7)
+            # Timeout 25-ről 40-re növelve
+            response = requests.get(url, headers=headers, params=params, timeout=40); response.raise_for_status(); time.sleep(0.7)
             return response.json().get('response', [])
         except requests.exceptions.RequestException as e:
             print(f"API hívás hiba ({endpoint}), újrapróbálkozás {delay}s múlva... ({i+1}/{retries}) Hiba: {e}")
@@ -179,7 +180,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         except (TypeError, ValueError, ZeroDivisionError) as e: 
             return [] # Ha a gólbecslés hibás, a DC szűrő sem megy
 
-        # --- JAVÍTÁS V17.16: Poisson és "Value" számítások TÖRÖLVE ---
+        # --- (V17.16 logika - VÁLTOZATLAN) ---
 
         # ... (4. TIPP-LOGIKA - V17.16) ...
         
@@ -188,14 +189,10 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         # --- MEGTARTVA (V17.13): Szuper-Szigorú Dupla Esély (1X) ---
         dc_1X_odds = odds_markets.get("Double Chance_Home/Draw")
         if dc_1X_odds and 1.40 <= dc_1X_odds <= 1.90:
-            # 1. Szigorúbb forma diff (>= 9)
-            # 2. ÚJ SZŰRŐ: Ellenfél (Away) formája gyenge (<= 5)
-            # 3. ÚJ SZŰRŐ: Nem "káosz" meccs (expected_total_goals < 3.0)
             if (form_difference >= 9 and 
                 away_form_points <= 5 and 
                 expected_total_goals < 3.0):
                 
-                # Alap megbízhatóság 75
                 confidence = 75 + (form_difference - 9) * 2 + (rank_difference // 2)
                 found_tips.append({
                     "tipp": "DC 1X", "odds": dc_1X_odds,
@@ -207,14 +204,10 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         # --- MEGTARTVA (V17.13): Szuper-Szigorú Dupla Esély (X2) ---
         dc_X2_odds = odds_markets.get("Double Chance_Draw/Away")
         if dc_X2_odds and 1.40 <= dc_X2_odds <= 1.90:
-            # 1. Szigorúbb forma diff (<= -9)
-            # 2. ÚJ SZŰRŐ: Ellenfél (Home) formája gyenge (<= 5)
-            # 3. ÚJ SZŰRŐ: Nem "káosz" meccs (expected_total_goals < 3.0)
             if (form_difference <= -9 and 
                 home_form_points <= 5 and 
                 expected_total_goals < 3.0):
                 
-                # Alap megbízhatóság 75
                 confidence = 75 + (abs(form_difference) - 9) * 2 + (abs(rank_difference) // 2)
                 found_tips.append({
                     "tipp": "DC X2", "odds": dc_X2_odds,
@@ -227,14 +220,11 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         over_2_5_odds = odds_markets.get("Goals Over/Under_Over 2.5")
         if over_2_5_odds and 1.50 <= over_2_5_odds <= 2.20:
             try:
-                # 1. STATISZTIKAI SZŰRŐ: Csak akkor, ha mindkét csapat gólátlaga magas!
                 home_avg_goals_for = float(home_stats.get('goals', {}).get('for', {}).get('average', {}).get('total') or 0)
                 away_avg_goals_for = float(away_stats.get('goals', {}).get('for', {}).get('average', {}).get('total') or 0)
-                # Szigorítás: 1.3 -> 1.5
+                
                 if home_avg_goals_for > 1.5 and away_avg_goals_for > 1.5:
-                    # 2. H2H SZŰRŐ: Támogassa a H2H is
                     if over_2_5_count_h2h >= 3:
-                        # Alap megbízhatóság 65 (DC alatt marad)
                         confidence = 65 + (over_2_5_count_h2h - 3) * 5
                         found_tips.append({
                             "tipp": "Over 2.5", "odds": over_2_5_odds,
@@ -244,14 +234,13 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
                         })
             except Exception as e: pass
 
-        # --- JAVÍTÁS V17.15: "Under 2.5" logika törölve a felhasználó kérésére ---
+        # --- JAVÍTÁS V17.15: "Under 2.5" logika törölve ---
         
 
         # --- JAVÍTOTT LOGIKA (V17.16): "BTTS" (TISZTA STATISZTIKAI) ---
         btts_yes_odds = odds_markets.get("Both Teams to Score_Yes")
         if btts_yes_odds and 1.40 <= btts_yes_odds <= 2.00:
             try:
-                # 1. STATISZTIKAI SZŰRŐ: Csak akkor, ha mindkét csapat BTTS %-a magas!
                 def get_btts_pct(stats):
                     try: return float(stats.get('btts', {}).get('yes', {}).get('percentage', {}).get('total') or 0)
                     except: return 0
@@ -259,11 +248,8 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
                 home_btts_pct = get_btts_pct(home_stats)
                 away_btts_pct = get_btts_pct(away_stats)
                 
-                # Szigorítás: 50 -> 55
                 if home_btts_pct > 55 and away_btts_pct > 55:
-                    # 2. H2H SZŰRŐ: Támogassa a H2H is
                     if btts_count_h2h >= 3:
-                        # Alap megbízhatóság 60 (legalacsonyabb)
                         confidence = 60 + (btts_count_h2h - 3) * 5
                         found_tips.append({
                             "tipp": "BTTS", "odds": btts_yes_odds,
@@ -277,8 +263,6 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         if not found_tips: return []
         for tip in found_tips: tip['confidence'] = max(0, min(100, tip.get('confidence', 0))) 
         
-        # A sorbarendezés most már automatikusan a DC tippeket fogja előre venni (mert 75+ conf)
-        # A Gól tippek (60-65 conf) csak akkor jönnek, ha nincs DC tipp.
         best_tip = sorted(found_tips, key=lambda x: x['confidence'], reverse=True)[0]
 
         if best_tip['confidence'] < min_confidence_threshold: return [] 
@@ -392,7 +376,6 @@ def record_daily_status(date_str, status, reason=""):
 
 # --- ADMIN ÜZENET KÜLDÉSE GOMBOKKAL ---
 def send_admin_approval_message(tip_count, date_str):
-    # ... (Változatlan)
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         print("!!! HIBA: Admin üzenet küldése sikertelen. TELEGRAM_TOKEN vagy ADMIN_CHAT_ID hiányzik.")
         return
@@ -419,7 +402,8 @@ def send_admin_approval_message(tip_count, date_str):
         "reply_markup": json.dumps(keyboard) # Gombok csatolása
     }
     
-    url = f"https.api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    # --- JAVÍTÁS V17.17: HIÁNYZÓ // HOZZÁADVA ---
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
     try:
         response = requests.post(url, data=payload, timeout=10)
@@ -427,13 +411,16 @@ def send_admin_approval_message(tip_count, date_str):
         print("Admin értesítő gombokkal sikeresen elküldve.")
     except requests.exceptions.RequestException as e:
         print(f"!!! HIBA az admin üzenet küldésekor: {e}")
+        # Hiba esetén megpróbáljuk elküldeni a hibaüzenetet gombok nélkül
         send_telegram_message_fallback(f"!!! KRITIKUS HIBA az interaktív admin üzenet küldésekor: {e}")
 
 def send_telegram_message_fallback(text):
-    # ... (Változatlan)
+    """ Egyszerű üzenetküldő, ha a gombos küldés hibára fut. """
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         return
-    url = f"https.api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
+    # --- JAVÍTÁS V17.17: HIÁNYZÓ // HOZZÁADVA ---
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": text}
     try:
         requests.post(url, json=payload, timeout=10)
@@ -446,7 +433,7 @@ def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
     # Verzió frissítve
-    print(f"Tipp Generátor (V17.16 - Tiszta Statisztikai Hibrid) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V17.17 - URL Fix + API Timeout) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
 
     if not supabase and not is_test_mode: print("!!! KRITIKUS HIBA: Supabase kliens nem inicializálódott, leállás."); return
     
