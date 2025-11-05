@@ -1,4 +1,4 @@
-# bot.py (V6.8 - Javítva: is_admin_only=False javítás a jóváhagyásnál)
+# bot.py (V6.7 - Javítva: V8.3 kompatibilitás + Helyes gombkezelő patternek + 'callback_gombata' elírás javítva)
 
 import os
 import telegram
@@ -173,33 +173,21 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
     
+    # --- JAVÍTVA (Aláhúzásról kettőspontra) ---
     date_str = query.data.split(":")[-1] 
     
-    try:
-        supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-        
-        # 1. Státusz frissítése (Ez eddig is megvolt)
-        supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
-        
-        # --- JAVÍTÁS HOZZÁADVA (V6.8) ---
-        # 2. A 'napi_tuti' tábla frissítése: is_admin_only = False
-        #    Ez teszi láthatóvá a tippeket a felhasználók számára.
-        supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{date_str}%").execute()
-        # --- JAVÍTÁS VÉGE ---
-
-        original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
-        confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
-                           "A tippek mostantól láthatóak a weboldalon.\n\n"
-                           "Biztosan kiküldöd az értesítést a VIP tagoknak?")
-        
-        keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
-                    [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text=confirmation_text, parse_mode='Markdown', reply_markup=reply_markup)
-
-    except Exception as e:
-        await query.answer(f"Hiba történt a jóváhagyás során: {e}")
-        await query.message.edit_text(f"{query.message.text_markdown}\n\n*HIBA:* {e}")
+    supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
+    original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
+    confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
+                       "A tippek mostantól láthatóak a weboldalon.\n\n"
+                       "Biztosan kiküldöd az értesítést a VIP tagoknak?")
+    
+    # Ez a belső gomb (confirm_send_) továbbra is aláhúzást használ, ami helyes.
+    keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
+                [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=confirmation_text, parse_mode='Markdown', reply_markup=reply_markup)
 
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
