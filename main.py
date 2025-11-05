@@ -1,4 +1,4 @@
-# main.py (V8.3 - Javítva: Duplikáció és Billing Reason ellenőrzés)
+# main.py (V8.4 - Javítva: RLS olvasási hiba a /vip végponton)
 
 import os
 import asyncio
@@ -154,7 +154,23 @@ async def vip_area(request: Request):
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
-                        meccsek_map = {m['id']: m for m in supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute().data}
+                        
+                        # --- JAVÍTÁS V8.4 KEZDETE: RLS Probléma Megoldása ---
+                        # Ideiglenes admin klienst hozunk létre, hogy biztosan olvashassuk a meccseket,
+                        # még akkor is, ha a 'meccsek' táblán szigorú RLS van beállítva.
+                        try:
+                            # Biztosítjuk, hogy a SERVICE_KEY létezik, mielőtt klienst hoznánk létre
+                            if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
+                                raise Exception("SUPABASE_SERVICE_KEY vagy SUPABASE_URL nincs beállítva")
+                                
+                            supabase_admin_client: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                            meccsek_res = supabase_admin_client.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+                            meccsek_map = {m['id']: m for m in meccsek_res.data}
+                        except Exception as e:
+                            print(f"!!! KRITIKUS HIBA: Admin kliens nem tudta olvasni a 'meccsek' táblát: {e}")
+                            meccsek_map = {}
+                        # --- JAVÍTÁS V8.4 VÉGE ---
+
                         for sz_data in slips_to_process:
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
@@ -197,7 +213,7 @@ async def generate_telegram_link(request: Request):
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     token = secrets.token_hex(16)
     supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
-    link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
+    link = f"https_://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
 @api.post("/create-portal-session", response_class=RedirectResponse)
@@ -356,8 +372,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             stripe_customer_id = invoice.get('customer')
             
             # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN): Új számla (5 percen belül) esetén kihagyjuk ---
-            # Ezt az eseményt (és a számlázást) a 'checkout.session.completed' kezeli
-            # (és a külső SzamlaBridge integráció).
             try:
                 invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
                 now_utc = datetime.now(pytz.utc)
@@ -366,33 +380,22 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     return {"status": "success"}
             except Exception as e:
                 print(f"FIGYELEM: Nem sikerült az 'invoice.payment_succeeded' időbélyeg ellenőrzése: {e}")
-                # Folytatjuk, de fennáll a duplikáció veszélye
             # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN) VÉGE ---
 
             # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
-            # Most, hogy a "túl új" eseményeket kiszűrtük, már csak a valódi megújítások
-            # és a 'subscription_create' események maradnak (ha valamiért >5 percig tartott)
-            
             billing_reason = invoice.get('billing_reason')
-            print(f"DEBUG: Billing Reason: {billing_reason}") # Segít a hibakeresésben
+            print(f"DEBUG: Billing Reason: {billing_reason}") 
 
-            # Az eredeti fájlodban itt hiányzott a "subscription_id" kinyerése
-            # a 'parent' objektumból, VISSZARAKJUK azt a logikát,
-            # amit a 12:53-as fájlodban már láttam:
-            
             subscription_details = invoice.get('parent', {}).get('subscription_details', {})
             subscription_id = subscription_details.get('subscription') if subscription_details else invoice.get('subscription')
             
             print(f"DEBUG: Kinyert Subscription ID: {subscription_id}")
             # --- JAVÍTÁS VÉGE ---
 
-            # Csak akkor folytatjuk, ha a számla egy előfizetéshez tartozik
             if subscription_id and stripe_customer_id:
 
                 if billing_reason == 'subscription_cycle':
-                    # Csak akkor dolgozzuk fel a dátumfrissítést és küldünk értesítést, ha ez egy ciklikus megújítás
                     try:
-                        # 1. Kérjük le a teljes előfizetési objektumot
                         subscription = stripe.Subscription.retrieve(subscription_id)
                         price_id = subscription['items']['data'][0]['price']['id']
 
@@ -403,7 +406,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                             user = user_res.data
                             duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
 
-                            # Kezeli azt az esetet is, ha a felhasználónak már van jövőbeli lejárata
                             current_expires_at_str = user.get("subscription_expires_at")
                             start_date = datetime.now(pytz.utc)
                             if current_expires_at_str:
@@ -428,14 +430,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
 
                 elif billing_reason == 'subscription_create':
-                    # Ha 'subscription_create' az ok, akkor már kezeli a checkout.session.completed, itt csak logolunk
                     print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: subscription_create). Ezt a checkout.session.completed kezeli.")
                 else:
-                    # Ha más az ok (pl. manuális számla), azt is logoljuk és kihagyjuk
                     print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: {billing_reason}).")
 
             else:
-                # Ez a log segít, ha olyan "invoice" esemény jön, ami nem előfizetéshez tartozik
                 print(f"INFO: 'invoice.payment_succeeded' esemény figyelmen kívül hagyva (nem előfizetéshez kapcsolódik). Customer ID: {stripe_customer_id}")
 
         return {"status": "success"}
