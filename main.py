@@ -1,4 +1,4 @@
-# main.py (V8.4 - Javítva: RLS olvasási hiba a /vip végponton)
+# main.py (V8.5 - Javítva: Minden /vip olvasás Service Kulccsal)
 
 import os
 import asyncio
@@ -97,14 +97,12 @@ async def handle_registration(request: Request, email: str = Form(...), password
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            # Ha a felhasználó már létezik, egyszerűen csak irányítsuk a bejelentkezéshez hibaüzenettel
             return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
 
         hashed_password = get_password_hash(password)
         insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
 
         if insert_response.data:
-            # SIKERES ÚJ REGISZTRÁCIÓ ESETÉN IRÁNYÍTÁS A KÖSZÖNŐOLDALRA
             return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
         else:
             raise Exception("Insert failed")
@@ -139,40 +137,57 @@ async def vip_area(request: Request):
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     if is_subscribed:
         try:
+            # --- JAVÍTÁS V8.5 KEZDETE: Admin kliens használata ---
+            # Létrehozunk egy admin klienst, ami megkerüli az RLS-t
+            # Ez biztosítja, hogy az előfizetett felhasználó lássa a tippeket.
+            
+            supabase_client_to_use = supabase # Alapértelmezett (public kulcs)
+            
+            if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+                try:
+                    supabase_admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    supabase_client_to_use = supabase_admin_client # Felülírjuk az admin klienssel
+                    print("INFO: /vip Service Kulcs sikeresen betöltve.")
+                except Exception as e:
+                    print(f"!!! FIGYELEM: /vip Service Kulcs kliens létrehozása sikertelen, RLS problémák lehetnek: {e}")
+            else:
+                print("!!! FIGYELEM: /vip SERVICE KEY hiányzik, RLS problémák lehetnek.")
+            # --- JAVÍTÁS V8.5 VÉGE ---
+
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             approved_dates = set()
-            status_response = supabase.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
+            
+            # JAVÍTÁS V8.5: Admin klienst használunk
+            status_response = supabase_client_to_use.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
+            
             if status_response.data:
                 for record in status_response.data:
                     if record['status'] == 'Kiküldve': approved_dates.add(record['date'])
+            
             if user_is_admin: approved_dates.add(today_str); approved_dates.add(tomorrow_str)
+            
             if approved_dates:
                 filter_value = ",".join([f"tipp_neve.ilike.%{date}%" for date in approved_dates])
-                response = supabase.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
+                
+                # JAVÍTÁS V8.5: Admin klienst használunk
+                response = supabase_client_to_use.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
+                
                 slips_to_process = [s for s in (response.data or []) if not s.get('is_admin_only') or user_is_admin]
+                
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
                         
-                        # --- JAVÍTÁS V8.4 KEZDETE: RLS Probléma Megoldása ---
-                        # Ideiglenes admin klienst hozunk létre, hogy biztosan olvashassuk a meccseket,
-                        # még akkor is, ha a 'meccsek' táblán szigorú RLS van beállítva.
-                        try:
-                            # Biztosítjuk, hogy a SERVICE_KEY létezik, mielőtt klienst hoznánk létre
-                            if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
-                                raise Exception("SUPABASE_SERVICE_KEY vagy SUPABASE_URL nincs beállítva")
-                                
-                            supabase_admin_client: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                            meccsek_res = supabase_admin_client.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-                            meccsek_map = {m['id']: m for m in meccsek_res.data}
-                        except Exception as e:
-                            print(f"!!! KRITIKUS HIBA: Admin kliens nem tudta olvasni a 'meccsek' táblát: {e}")
-                            meccsek_map = {}
-                        # --- JAVÍTÁS V8.4 VÉGE ---
+                        # JAVÍTÁS V8.5: Admin klienst használunk
+                        meccsek_res = supabase_client_to_use.table("meccsek").select("*").in_("id", all_tip_ids).execute()
+                        meccsek_map = {m['id']: m for m in meccsek_res.data}
 
                         for sz_data in slips_to_process:
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
+                            
+                            # Most már a 'meccsek_map'-nak tartalmaznia kell az adatot, 
+                            # így ennek az ellenőrzésnek sikeresnek kell lennie.
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 if 'Veszített' in [m.get('eredmeny') for m in sz_meccsei]: continue
                                 for m in sz_meccsei:
@@ -181,15 +196,24 @@ async def vip_area(request: Request):
                                 sz_data['meccsek'] = sz_meccsei
                                 if today_str in sz_data['tipp_neve']: todays_slips.append(sz_data)
                                 elif tomorrow_str in sz_data['tipp_neve']: tomorrows_slips.append(sz_data)
-            manual_res = supabase.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
+                            else:
+                                print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható RLS-sel (Még V8.5 javítás mellett is!)")
+
+            # JAVÍTÁS V8.5: Admin klienst használunk
+            manual_res = supabase_client_to_use.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
+            
             if manual_res.data:
                 for m_slip in manual_res.data:
                     if m_slip['target_date'] == today_str: manual_slips_today.append(m_slip)
                     elif m_slip['target_date'] == tomorrow_str: manual_slips_tomorrow.append(m_slip)
+            
             if not any([todays_slips, tomorrows_slips, manual_slips_today, manual_slips_tomorrow]):
                 target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
                 status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
-                status_res = supabase.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
+                
+                # JAVÍTÁS V8.5: Admin klienst használunk
+                status_res = supabase_client_to_use.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
+                
                 status = status_res.data[0].get('status') if status_res.data else "Nincs adat"
                 if status == "Nincs megfelelő tipp": daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet."
                 elif status == "Jóváhagyásra vár": daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak."
@@ -213,7 +237,7 @@ async def generate_telegram_link(request: Request):
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     token = secrets.token_hex(16)
     supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
-    link = f"https_://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
+    link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
 @api.post("/create-portal-session", response_class=RedirectResponse)
@@ -232,12 +256,8 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # --- JAVÍTÁS KEZDETE ---
-    # Ellenőrizzük, hogy a felhasználónak van-e már aktív előfizetése
     if is_web_user_subscribed(user):
-        # Ha igen, ne engedjük vásárolni, hanem irányítsuk a profiljára
         return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
-    # --- JAVÍTÁS VÉGE ---
 
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
@@ -371,7 +391,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
             
-            # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN): Új számla (5 percen belül) esetén kihagyjuk ---
             try:
                 invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
                 now_utc = datetime.now(pytz.utc)
@@ -380,9 +399,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     return {"status": "success"}
             except Exception as e:
                 print(f"FIGYELEM: Nem sikerült az 'invoice.payment_succeeded' időbélyeg ellenőrzése: {e}")
-            # --- JAVÍTÁS (DUPLIKÁCIÓ ELLEN) VÉGE ---
-
-            # --- JAVÍTÁS KEZDETE (Billing Reason Check) ---
+            
             billing_reason = invoice.get('billing_reason')
             print(f"DEBUG: Billing Reason: {billing_reason}") 
 
@@ -390,7 +407,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             subscription_id = subscription_details.get('subscription') if subscription_details else invoice.get('subscription')
             
             print(f"DEBUG: Kinyert Subscription ID: {subscription_id}")
-            # --- JAVÍTÁS VÉGE ---
 
             if subscription_id and stripe_customer_id:
 
