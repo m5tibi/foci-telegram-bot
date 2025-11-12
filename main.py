@@ -1,4 +1,4 @@
-# main.py (V8.5 - Javítva: Minden /vip olvasás Service Kulccsal)
+# main.py (V8.6 - Javítva: Multi-day manuális szelvények kezelése a /vip oldalon)
 
 import os
 import asyncio
@@ -133,20 +133,20 @@ async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
-    todays_slips, tomorrows_slips, manual_slips_today, manual_slips_tomorrow, daily_status_message = [], [], [], [], ""
+    
+    # --- JAVÍTÁS V8.6: A manuális listák átalakítva ---
+    todays_slips, tomorrows_slips, active_manual_slips, daily_status_message = [], [], [], ""
+    # A 'manual_slips_today' és 'manual_slips_tomorrow' listákat egy 'active_manual_slips' váltja fel
+    
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     if is_subscribed:
         try:
-            # --- JAVÍTÁS V8.5 KEZDETE: Admin kliens használata ---
-            # Létrehozunk egy admin klienst, ami megkerüli az RLS-t
-            # Ez biztosítja, hogy az előfizetett felhasználó lássa a tippeket.
-            
-            supabase_client_to_use = supabase # Alapértelmezett (public kulcs)
-            
+            # --- JAVÍTÁS V8.5 (MEGTARTVA): Admin kliens használata ---
+            supabase_client_to_use = supabase
             if SUPABASE_URL and SUPABASE_SERVICE_KEY:
                 try:
                     supabase_admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    supabase_client_to_use = supabase_admin_client # Felülírjuk az admin klienssel
+                    supabase_client_to_use = supabase_admin_client
                     print("INFO: /vip Service Kulcs sikeresen betöltve.")
                 except Exception as e:
                     print(f"!!! FIGYELEM: /vip Service Kulcs kliens létrehozása sikertelen, RLS problémák lehetnek: {e}")
@@ -158,7 +158,6 @@ async def vip_area(request: Request):
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             approved_dates = set()
             
-            # JAVÍTÁS V8.5: Admin klienst használunk
             status_response = supabase_client_to_use.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
             
             if status_response.data:
@@ -170,25 +169,20 @@ async def vip_area(request: Request):
             if approved_dates:
                 filter_value = ",".join([f"tipp_neve.ilike.%{date}%" for date in approved_dates])
                 
-                # JAVÍTÁS V8.5: Admin klienst használunk
                 response = supabase_client_to_use.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
                 
-                # Ez a szűrés biztosítja, hogy a normál felhasználó ne lássa a "Jóváhagyásra vár" tippeket
                 slips_to_process = [s for s in (response.data or []) if not s.get('is_admin_only') or user_is_admin]
                 
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
                         
-                        # JAVÍTÁS V8.5: Admin klienst használunk (ez a kulcs)
                         meccsek_res = supabase_client_to_use.table("meccsek").select("*").in_("id", all_tip_ids).execute()
                         meccsek_map = {m['id']: m for m in meccsek_res.data}
 
                         for sz_data in slips_to_process:
                             sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
                             
-                            # Most már a 'meccsek_map'-nak tartalmaznia kell az adatot, 
-                            # így ennek az ellenőrzésnek sikeresnek kell lennie.
                             if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
                                 if 'Veszített' in [m.get('eredmeny') for m in sz_meccsei]: continue
                                 for m in sz_meccsei:
@@ -200,19 +194,17 @@ async def vip_area(request: Request):
                             else:
                                 print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható (RLS probléma)")
 
-            # JAVÍTÁS V8.5: Admin klienst használunk
-            manual_res = supabase_client_to_use.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
-            
+            # --- JAVÍTÁS V8.6: Manuális szelvények lekérdezése ---
+            # Lekérünk minden olyan szelvényt, aminek a target_date-e a mai nap vagy későbbi
+            manual_res = supabase_client_to_use.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if manual_res.data:
-                for m_slip in manual_res.data:
-                    if m_slip['target_date'] == today_str: manual_slips_today.append(m_slip)
-                    elif m_slip['target_date'] == tomorrow_str: manual_slips_tomorrow.append(m_slip)
+                active_manual_slips = manual_res.data
+            # --- JAVÍTÁS V8.6 VÉGE ---
             
-            if not any([todays_slips, tomorrows_slips, manual_slips_today, manual_slips_tomorrow]):
+            if not any([todays_slips, tomorrows_slips, active_manual_slips]):
                 target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
                 status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
                 
-                # JAVÍTÁS V8.5: Admin klienst használunk
                 status_res = supabase_client_to_use.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
                 
                 status = status_res.data[0].get('status') if status_res.data else "Nincs adat"
@@ -223,7 +215,17 @@ async def vip_area(request: Request):
         except Exception as e:
             print(f"Hiba a tippek lekérdezésekor: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben."
-    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, "manual_slips_today": manual_slips_today, "manual_slips_tomorrow": manual_slips_tomorrow, "daily_status_message": daily_status_message})
+    
+    # --- JAVÍTÁS V8.6: A sablonnak átadott kontextus frissítése ---
+    return templates.TemplateResponse("vip_tippek.html", {
+        "request": request, 
+        "user": user, 
+        "is_subscribed": is_subscribed, 
+        "todays_slips": todays_slips, 
+        "tomorrows_slips": tomorrows_slips, 
+        "active_manual_slips": active_manual_slips, # ÚJ VÁLTOZÓ
+        "daily_status_message": daily_status_message
+    })
 
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
@@ -318,8 +320,16 @@ async def handle_upload(
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
 
-            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
-            admin_supabase_client.rpc('add_manual_slip', params).execute()
+            # --- JAVÍTÁS V8.6: Az RPC-t egy sima insertre cseréljük, hogy támogassa a jövőbeli bővítést ---
+            # (Bár a V8.6-os logika még a target_date-et használja, ez előkészíti a start/end date-et)
+            admin_supabase_client.table("manual_slips").insert({
+                "tipp_neve": tipp_neve,
+                "eredo_odds": eredo_odds,
+                "target_date": target_date,
+                "image_url": public_url,
+                "status": "Folyamatban"
+            }).execute()
+            # --- JAVÍTÁS VÉGE ---
 
         elif tip_type == "free":
             bucket_name = "free-slips"
