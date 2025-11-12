@@ -10,17 +10,15 @@
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
-                <p class="manual-subtext">Válogatott tippek. Az itt látható szelvények a lejárati dátumig aktívak.</p>
                 
                 <div class="manual-slips-grid">
                 {% for slip in active_manual_slips %}
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                             <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                            <div class="manual-card-footer">
+                            <div class="manual-card-footer" style="text-align: center;">
                                 <span class="manual-card-title">{{ slip.tipp_neve }}</span>
                                 <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
-                                <div class="manual-card-footer" style="text-align: center;">
                             </div>
                         </a>
                     {% endif %}
@@ -32,7 +30,7 @@
             <h3>Bot Által Javasolt Napi Tippek</h3>
             
             {% if todays_slips %}
-                <h4>Mai Szelvény(ek)</h4>
+                <h4>Mai Napi Tuti Szelvény(ek)</h4>
                 <div class="slips-container">
                     {% for slip in todays_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -63,7 +61,7 @@
             {% endif %}
 
             {% if tomorrows_slips %}
-                <h4 style="margin-top: 30px;">Holnapi Szelvény(ek)</h4>
+                <h4 style="margin-top: 30px;">Holnapi Napi Tuti Szelvény(ek)</h4>
                 <div class="slips-container">
                     {% for slip in tomorrows_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -110,8 +108,7 @@
                 <li>A szelvényeket gondosan válogatjuk, de a sportfogadásban nincs 100%. Mindig felelősségteljesen játssz!</li>
             </ul>
         </div>
-
-    {% else %}
+        {% else %}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
         <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
         <div class="pricing-grid" style="margin-top: 30px;">
