@@ -139,11 +139,12 @@
             const today = `${year}-${month}-${day}`;
 
             try {
-                // A lekérdezés ugyanaz marad (minden, ami a mai naptól érvényes)
+                // A lekérdezés ugyanaz marad (minden, ami a mai naptól érvényes ÉS Folyamatban van)
                 const { data, error } = await supabase
                     .from('free_slips')
                     .select('*')
                     .gte('target_date', today)
+                    .eq('status', 'Folyamatban') // Csak az aktívakat mutatjuk
                     .order('target_date', { ascending: true });
 
                 if (error) {
