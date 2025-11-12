@@ -173,13 +173,14 @@ async def vip_area(request: Request):
                 # JAVÍTÁS V8.5: Admin klienst használunk
                 response = supabase_client_to_use.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
                 
+                # Ez a szűrés biztosítja, hogy a normál felhasználó ne lássa a "Jóváhagyásra vár" tippeket
                 slips_to_process = [s for s in (response.data or []) if not s.get('is_admin_only') or user_is_admin]
                 
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
                         
-                        # JAVÍTÁS V8.5: Admin klienst használunk
+                        # JAVÍTÁS V8.5: Admin klienst használunk (ez a kulcs)
                         meccsek_res = supabase_client_to_use.table("meccsek").select("*").in_("id", all_tip_ids).execute()
                         meccsek_map = {m['id']: m for m in meccsek_res.data}
 
@@ -197,7 +198,7 @@ async def vip_area(request: Request):
                                 if today_str in sz_data['tipp_neve']: todays_slips.append(sz_data)
                                 elif tomorrow_str in sz_data['tipp_neve']: tomorrows_slips.append(sz_data)
                             else:
-                                print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható RLS-sel (Még V8.5 javítás mellett is!)")
+                                print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható (RLS probléma)")
 
             # JAVÍTÁS V8.5: Admin klienst használunk
             manual_res = supabase_client_to_use.table("manual_slips").select("*").in_("target_date", [today_str, tomorrow_str]).execute()
