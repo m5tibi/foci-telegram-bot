@@ -40,7 +40,28 @@
         }
         .slip-card:hover { transform: translateY(-5px); box-shadow: 0 6px 15px rgba(0,0,0,0.15); }
         .slip-card img { width: 100%; height: auto; display: block; }
-        .slip-card p { padding: 15px; margin: 0; font-weight: bold; text-align: center; color: var(--text-color); }
+        
+        /* JAVÍTÁS V8.8: A régi <p> elrejtése és az új footer stílusok hozzáadása */
+        .slip-card p { display: none; } /* Elrejti a régi, JS által generált <p>-t (ha még létezne) */
+
+        .manual-card-footer {
+            padding: 15px;
+            /* A középre igazítás JS-ből jön (style.textAlign) */
+        }
+        .manual-card-title {
+            display: block;
+            font-weight: bold;
+            color: var(--text-color);
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+        .manual-card-date {
+            display: block;
+            font-size: 0.9rem;
+            color: #777;
+        }
+        /* JAVÍTÁS V8.8 VÉGE */
+
         #loading-state { text-align: center; padding: 40px; font-size: 1.2rem; color: #555; }
         footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; margin-top: 60px; }
         footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
@@ -118,6 +139,7 @@
             const today = `${year}-${month}-${day}`;
 
             try {
+                // A lekérdezés ugyanaz marad (minden, ami a mai naptól érvényes)
                 const { data, error } = await supabase
                     .from('free_slips')
                     .select('*')
@@ -141,12 +163,26 @@
                         img.alt = slip.tipp_neve;
                         img.loading = 'lazy';
 
-                        const p = document.createElement('p');
-                        p.textContent = slip.tipp_neve;
+                        // --- JAVÍTÁS V8.8: Kártya lábléc létrehozása (ahogy a vip_tippek.html-ben) ---
+                        const footer = document.createElement('div');
+                        footer.className = 'manual-card-footer';
+                        footer.style.textAlign = 'center'; // Kérésnek megfelelően középre igazítva
 
+                        const titleSpan = document.createElement('span');
+                        titleSpan.className = 'manual-card-title';
+                        titleSpan.textContent = slip.tipp_neve;
+
+                        const dateSpan = document.createElement('span');
+                        dateSpan.className = 'manual-card-date';
+                        dateSpan.textContent = 'Lejárat: ' + slip.target_date; // Lejárat dátumának kiírása
+
+                        footer.appendChild(titleSpan);
+                        footer.appendChild(dateSpan);
+                        
                         card.appendChild(img);
-                        card.appendChild(p);
+                        card.appendChild(footer); // A régi <p> helyett a footert adjuk hozzá
                         container.appendChild(card);
+                        // --- JAVÍTÁS V8.8 VÉGE ---
                     });
                 } else {
                     loadingState.innerHTML = '<p>Jelenleg nincsenek aktív ingyenes tippek. Nézz vissza később!</p>';
