@@ -7,98 +7,106 @@
 
     {% if is_subscribed %}
 
-        {% if manual_slips_today or manual_slips_tomorrow %}
+        {% if active_manual_slips %}
             <div class="manual-slips-section">
-                <h3>Szerkesztői Tippek</h3>
+                <h3>Szerkesztői Szelvények</h3>
+                <p class="manual-subtext">Több napra szóló, manuálisan válogatott szelvények. Az itt látható szelvények a 'Lejárat' oszlopban jelzett nap végéig aktívak.</p>
                 
-                {% if manual_slips_today %}
-                    <h4>Mai Manuális Szelvény(ek)</h4>
-                    <div class="manual-slips-grid">
-                    {% for slip in manual_slips_today %}
-                        {% if slip.image_url %}
-                            <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
-                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                                <p>{{ slip.tipp_neve }}</p>
-                            </a>
-                        {% endif %}
-                    {% endfor %}
-                    </div>
-                {% endif %}
-
-                {% if manual_slips_tomorrow %}
-                    <h4 style="margin-top: 30px;">Holnapi Manuális Szelvény(ek)</h4>
-                     <div class="manual-slips-grid">
-                    {% for slip in manual_slips_tomorrow %}
-                        {% if slip.image_url %}
-                            <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
-                                <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                                <p>{{ slip.tipp_neve }}</p>
-                            </a>
-                        {% endif %}
-                    {% endfor %}
-                    </div>
-                {% endif %}
+                <div class="manual-slips-grid">
+                {% for slip in active_manual_slips %}
+                    {% if slip.image_url %}
+                        <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
+                            <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                            <div class="manual-card-footer">
+                                <span class="manual-card-title">{{ slip.tipp_neve }}</span>
+                                <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
+                            </div>
+                        </a>
+                    {% endif %}
+                {% endfor %}
+                </div>
             </div>
-            <hr style="margin: 30px 0;">
         {% endif %}
-        
-        {% if todays_slips %}
-            <h3>Mai Aktív Szelvények (Bot által generált)</h3>
-            {% for szelveny in todays_slips %}
-                <div class="szelveny-card">
-                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
-                    {% for meccs in szelveny.meccsek %}
-                        <div class="meccs">
-                            <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
-                            <p>🏆 {{ meccs.liga_nev }}</p>
-                            <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
-                            <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+        {% if todays_slips or tomorrows_slips %}
+            <h3>Bot Által Javasolt Napi Tippek</h3>
+            
+            {% if todays_slips %}
+                <h4>Mai Napi Tuti Szelvény(ek)</h4>
+                <div class="slips-container">
+                    {% for slip in todays_slips %}
+                        <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
+                            <div class="slip-header">
+                                <span class="slip-title">{{ slip.tipp_neve }}</span>
+                                <span class="slip-odds">@ {{ "%.2f"|format(slip.eredo_odds) }}</span>
+                                {% if slip.is_admin_only %}
+                                    <span class="admin-badge">CSAK ADMIN</span>
+                                {% endif %}
+                            </div>
+                            <div class="slip-meta">
+                                Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%
+                            </div>
+                            <div class="slip-matches">
+                                {% for meccs in slip.meccsek %}
+                                <div class="match">
+                                    <div class="match-teams">{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</div>
+                                    <div class="match-league">{{ meccs.liga_nev }} | {{ meccs.kezdes_str }}</div>
+                                    <div class="match-tip">
+                                        {{ meccs.tipp_str }} <span>@ {{ "%.2f"|format(meccs.odds) }}</span>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     {% endfor %}
-                    <p class="eredo-odds">
-                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
-                    </p>
                 </div>
-            {% endfor %}
-        {% endif %}
+            {% endif %}
 
-        {% if tomorrows_slips %}
-            <h3>Holnapi Szelvények (Bot által generált)</h3>
-            {% for szelveny in tomorrows_slips %}
-                <div class="szelveny-card tomorrow">
-                    <h4>{{ szelveny.tipp_neve }} (Megbízhatóság: {{ szelveny.confidence_percent }}%)</h4>
-                     {% for meccs in szelveny.meccsek %}
-                        <div class="meccs">
-                           <p>⚽️ <strong>{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</strong></p>
-                           <p>🏆 {{ meccs.liga_nev }}</p>
-                           <p>⏰ Kezdés: {{ meccs.kezdes_str }}</p>
-                           <p>💡 Tipp: {{ meccs.tipp_str }} <strong>@{{ "%.2f"|format(meccs.odds) }}</strong></p>
+            {% if tomorrows_slips %}
+                <h4 style="margin-top: 30px;">Holnapi Napi Tuti Szelvény(ek)</h4>
+                <div class="slips-container">
+                    {% for slip in tomorrows_slips %}
+                        <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
+                            <div class="slip-header">
+                                <span class="slip-title">{{ slip.tipp_neve }}</span>
+                                <span class="slip-odds">@ {{ "%.2f"|format(slip.eredo_odds) }}</span>
+                                {% if slip.is_admin_only %}
+                                    <span class="admin-badge">CSAK ADMIN</span>
+                                {% endif %}
+                            </div>
+                            <div class="slip-meta">
+                                Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%
+                            </div>
+                            <div class="slip-matches">
+                                {% for meccs in slip.meccsek %}
+                                <div class="match">
+                                    <div class="match-teams">{{ meccs.csapat_H }} vs {{ meccs.csapat_V }}</div>
+                                    <div class="match-league">{{ meccs.liga_nev }} | {{ meccs.kezdes_str }}</div>
+                                    <div class="match-tip">
+                                        {{ meccs.tipp_str }} <span>@ {{ "%.2f"|format(meccs.odds) }}</span>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     {% endfor %}
-                    <p class="eredo-odds">
-                        🎯 Eredő odds: <strong>{{ "%.2f"|format(szelveny.eredo_odds) }}</strong>
-                    </p>
                 </div>
-            {% endfor %}
+            {% endif %}
         {% endif %}
 
-        {% if not todays_slips and not tomorrows_slips and not manual_slips_today and not manual_slips_tomorrow %}
-             {% if daily_status_message %}
-                <div class="alert alert-success" style="text-align: center;">
-                    <strong>{{ daily_status_message }}</strong>
-                </div>
-             {% else %}
-                <p>Jelenleg nincsenek aktív szelvények.</p>
-             {% endif %}
+        {% if not todays_slips and not tomorrows_slips and not active_manual_slips %}
+             <div class="alert alert-info">{{ daily_status_message | default("Jelenleg nincsenek aktív szelvények. Nézz vissza később!") }}</div>
         {% endif %}
 
-        <div class="vip-notice" style="margin-top: 40px;">
-            <h3>Figyelmeztetés és Felelősségteljes Játék</h3>
-            <p>A sportfogadás a szerencsejátékok egy formája, amelyben a részvétel 18 éven aluliak számára a magyar jogszabályok szerint tilos.</p>
+        <div class="disclaimer">
+            <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Kérjük, csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippjeink nem garantálnak nyereséget.</p>
             <ul>
-                <li><strong>Kockázatok:</strong> Tudomásul veszed, hogy a szolgáltatásunkban közölt információk felhasználásával végzett sportfogadás pénzügyi kockázattal jár. Az oldal üzemeltetője semmilyen anyagi vagy egyéb felelősséget nem vállal a tippek felhasználásából eredő esetleges veszteségekért.</li>
-                <li><strong>Nincs garancia:</strong> A múltban elért eredmények nem garantálják a jövőbeli sikereket.</li>
-                <li><strong>Játssz felelősen:</strong> A szerencsejáték függőséget okozhat. Kérünk, hogy mindig mértékletesen és felelősségteljesen játssz!</li>
+                <li>Ne próbálj meg visszanyerni veszteségeket.</li>
+                <li>Csak szórakozásból játssz, ne a megélhetésért.</li>
+                <li>Soha ne játssz alkoholos vagy egyéb befolyásoltság alatt.</li>
+                <li>Ismerd a saját határaidat, és soha ne lépd túl őket.</li>
+                <li>Csak 18 éven felülieknek. Kérj segítséget, ha úgy érzed, problémáid vannak!</li>
+                <li>A tippek felhasználása kizárólag a te felelősséged, az oldal semmilyen anyagi felelősséget nem vállal.</li>
+                <li>A szelvényeket gondosan válogatjuk, de a sportfogadásban nincs 100%. Mindig felelősségteljesen játssz!</li>
             </ul>
         </div>
 
@@ -130,7 +138,16 @@
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
-        fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+        const modal = document.createElement('div');
+        modal.className = 'modal-success';
+        modal.innerHTML = '<h2>Sikeres Fizetés!</h2><p>Köszönjük az előfizetésed! A VIP tippek mostantól elérhetőek számodra.</p><button onclick="this.parentElement.remove()">Bezárás</button>';
+        document.body.appendChild(modal);
+    }
+    if (urlParams.has('error') && urlParams.get('error') === 'active_subscription') {
+        const modal = document.createElement('div');
+        modal.className = 'modal-error';
+        modal.innerHTML = '<h2>Már van előfizetésed!</h2><p>A rendszerünk szerint már rendelkezel aktív előfizetéssel. Újabb vásárlásra nincs szükség.</p><button onclick="this.parentElement.remove()">Bezárás</button>';
+        document.body.appendChild(modal);
     }
 </script>
 
