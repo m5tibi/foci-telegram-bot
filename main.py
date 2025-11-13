@@ -1,4 +1,4 @@
-# main.py (V8.6 - Javítva: Multi-day manuális szelvények kezelése a /vip oldalon)
+# main.py (V8.7 - Javítva: Form Resubmission / Duplikáció elleni védelem PRG módszerrel)
 
 import os
 import asyncio
@@ -134,14 +134,12 @@ async def vip_area(request: Request):
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
     
-    # --- JAVÍTÁS V8.6: A manuális listák átalakítva ---
     todays_slips, tomorrows_slips, active_manual_slips, daily_status_message = [], [], [], ""
-    # A 'manual_slips_today' és 'manual_slips_tomorrow' listákat egy 'active_manual_slips' váltja fel
     
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     if is_subscribed:
         try:
-            # --- JAVÍTÁS V8.5 (MEGTARTVA): Admin kliens használata ---
+            # Admin kliens használata (RLS bypass)
             supabase_client_to_use = supabase
             if SUPABASE_URL and SUPABASE_SERVICE_KEY:
                 try:
@@ -152,7 +150,6 @@ async def vip_area(request: Request):
                     print(f"!!! FIGYELEM: /vip Service Kulcs kliens létrehozása sikertelen, RLS problémák lehetnek: {e}")
             else:
                 print("!!! FIGYELEM: /vip SERVICE KEY hiányzik, RLS problémák lehetnek.")
-            # --- JAVÍTÁS V8.5 VÉGE ---
 
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -176,7 +173,6 @@ async def vip_area(request: Request):
                 if slips_to_process:
                     all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
                     if all_tip_ids:
-                        
                         meccsek_res = supabase_client_to_use.table("meccsek").select("*").in_("id", all_tip_ids).execute()
                         meccsek_map = {m['id']: m for m in meccsek_res.data}
 
@@ -194,12 +190,10 @@ async def vip_area(request: Request):
                             else:
                                 print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható (RLS probléma)")
 
-            # --- JAVÍTÁS V8.6: Manuális szelvények lekérdezése ---
-            # Lekérünk minden olyan szelvényt, aminek a target_date-e a mai nap vagy későbbi
+            # Manuális szelvények lekérdezése (Mai vagy későbbi)
             manual_res = supabase_client_to_use.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if manual_res.data:
                 active_manual_slips = manual_res.data
-            # --- JAVÍTÁS V8.6 VÉGE ---
             
             if not any([todays_slips, tomorrows_slips, active_manual_slips]):
                 target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
@@ -216,14 +210,13 @@ async def vip_area(request: Request):
             print(f"Hiba a tippek lekérdezésekor: {e}")
             daily_status_message = "Hiba történt a tippek betöltése közben."
     
-    # --- JAVÍTÁS V8.6: A sablonnak átadott kontextus frissítése ---
     return templates.TemplateResponse("vip_tippek.html", {
         "request": request, 
         "user": user, 
         "is_subscribed": is_subscribed, 
         "todays_slips": todays_slips, 
         "tomorrows_slips": tomorrows_slips, 
-        "active_manual_slips": active_manual_slips, # ÚJ VÁLTOZÓ
+        "active_manual_slips": active_manual_slips,
         "daily_status_message": daily_status_message
     })
 
@@ -259,6 +252,7 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
+    # Ellenőrizzük, hogy a felhasználónak van-e már aktív előfizetése
     if is_web_user_subscribed(user):
         return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
 
@@ -284,12 +278,20 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     except Exception as e:
         return HTMLResponse(f"Hiba: {e}", status_code=500)
 
+# --- JAVÍTOTT ADMIN UPLOAD (PRG Pattern) ---
+
 @api.get("/admin/upload", response_class=HTMLResponse)
-async def upload_form(request: Request):
+async def upload_form(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID:
         return RedirectResponse(url="/vip", status_code=303)
-    return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
+    
+    # Átadjuk az üzeneteket a sablonnak
+    context = {"request": request, "user": user}
+    if message: context["message"] = message
+    if error: context["error"] = error
+    
+    return templates.TemplateResponse("admin_upload.html", context)
 
 @api.post("/admin/upload")
 async def handle_upload(
@@ -305,10 +307,27 @@ async def handle_upload(
         return RedirectResponse(url="/vip", status_code=303)
 
     if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Kritikus hiba: SUPABASE_SERVICE_KEY vagy URL nincs beállítva!"})
+        return RedirectResponse(url="/admin/upload?error=Kritikus hiba: SUPABASE beállítások hiányoznak!", status_code=303)
 
     try:
         admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        # --- DUPLIKÁCIÓ ELLENŐRZÉS ---
+        if tip_type == "free":
+            existing_slip = admin_supabase_client.table("free_slips") \
+                .select("id", count='exact') \
+                .eq("tipp_neve", tipp_neve) \
+                .eq("target_date", target_date) \
+                .limit(1) \
+                .execute()
+
+            if existing_slip.count > 0:
+                print(f"INFO: Duplikált 'free_slip' feltöltési kísérlet megakadályozva.")
+                return RedirectResponse(
+                    url=f"/admin/upload?error=Hiba: Már létezik '{tipp_neve}' nevű ingyenes tipp erre a napra!", 
+                    status_code=303
+                )
+        
         file_extension = slip_image.filename.split('.')[-1]
         timestamp = int(time.time())
         file_content = await slip_image.read()
@@ -320,16 +339,8 @@ async def handle_upload(
             admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
             public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
 
-            # --- JAVÍTÁS V8.6: Az RPC-t egy sima insertre cseréljük, hogy támogassa a jövőbeli bővítést ---
-            # (Bár a V8.6-os logika még a target_date-et használja, ez előkészíti a start/end date-et)
-            admin_supabase_client.table("manual_slips").insert({
-                "tipp_neve": tipp_neve,
-                "eredo_odds": eredo_odds,
-                "target_date": target_date,
-                "image_url": public_url,
-                "status": "Folyamatban"
-            }).execute()
-            # --- JAVÍTÁS VÉGE ---
+            params = {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': public_url}
+            admin_supabase_client.rpc('add_manual_slip', params).execute()
 
         elif tip_type == "free":
             bucket_name = "free-slips"
@@ -347,13 +358,14 @@ async def handle_upload(
             }).execute()
 
         else:
-            return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Érvénytelen tipp típus."})
+            return RedirectResponse(url="/admin/upload?error=Érvénytelen tipp típus.", status_code=303)
 
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
+        # SIKERES FELTÖLTÉS -> ÁTIRÁNYÍTÁS
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
 
     except Exception as e:
         print(f"Hiba a fájlfeltöltés során: {e}")
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {str(e)}"})
+        return RedirectResponse(url=f"/admin/upload?error=Hiba történt: {str(e)}", status_code=303)
 
 
 @api.on_event("startup")
@@ -402,6 +414,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             invoice = event['data']['object']
             stripe_customer_id = invoice.get('customer')
             
+            # --- IDŐKORLÁT ELLENŐRZÉS (Új vásárlások kiszűrése) ---
             try:
                 invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
                 now_utc = datetime.now(pytz.utc)
@@ -410,7 +423,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     return {"status": "success"}
             except Exception as e:
                 print(f"FIGYELEM: Nem sikerült az 'invoice.payment_succeeded' időbélyeg ellenőrzése: {e}")
-            
+
             billing_reason = invoice.get('billing_reason')
             print(f"DEBUG: Billing Reason: {billing_reason}") 
 
@@ -422,6 +435,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if subscription_id and stripe_customer_id:
 
                 if billing_reason == 'subscription_cycle':
+                    # Csak ciklikus megújításnál hosszabbítunk
                     try:
                         subscription = stripe.Subscription.retrieve(subscription_id)
                         price_id = subscription['items']['data'][0]['price']['id']
