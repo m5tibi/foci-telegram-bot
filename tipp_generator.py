@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.17 - Telegram URL Fix + API Timeout Növelés)
+# tipp_generator.py (V17.18 - Javítva: RLS írási hiba, Service Key használata)
 
 import os
 import requests
@@ -15,22 +15,32 @@ load_dotenv()
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# --- JAVÍTÁS V17.18: A SERVICE KEY betöltése ---
+# A SUPABASE_KEY a public 'anon' kulcs, de nekünk íráshoz a SERVICE KEY kell.
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY") 
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+# --- JAVÍTÁS VÉGE ---
+
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("!!! KRITIKUS HIBA: SUPABASE_URL vagy SUPABASE_KEY hiányzik!")
+
+# --- JAVÍTÁS V17.18: Az ADMIN (SERVICE KEY) kliens használata ---
+if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    print("!!! KRITIKUS HIBA: SUPABASE_URL vagy SUPABASE_SERVICE_KEY hiányzik!")
     supabase = None
 else:
     try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("Supabase kliens sikeresen inicializálva.")
+        # A klienst a SERVICE_KEY-vel hozzuk létre, hogy legyen írási joga
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        print("Supabase ADMIN kliens (Service Key) sikeresen inicializálva.")
     except Exception as e:
-        print(f"!!! HIBA a Supabase kliens inicializálása során: {e}")
+        print(f"!!! HIBA a Supabase admin kliens inicializálása során: {e}")
         supabase = None
+# --- JAVÍTÁS VÉGE ---
+
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 TEAM_STATS_CACHE, STANDINGS_CACHE, H2H_CACHE, INJURIES_CACHE = {}, {}, {}, {}
@@ -49,7 +59,7 @@ RELEVANT_LEAGUES = { # ... (Változatlan)
 DERBY_LIST = [(50, 66), (85, 106)]
 
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
-# --- JAVÍTÁS V17.17: Stabilabb API hívás (hosszabb timeout és retry delay) ---
+# --- JAVÍTÁS V17.17 (MEGTARTVA): Stabilabb API hívás (hosszabb timeout és retry delay) ---
 def get_api_data(endpoint, params, retries=3, delay=10): # Delay 5-ről 10-re növelve
     if not RAPIDAPI_KEY: print(f"!!! HIBA: RAPIDAPI_KEY hiányzik! ({endpoint} hívás kihagyva)"); return []
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
@@ -109,7 +119,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         league_name = league.get('name', 'Ismeretlen Liga')
         if not home_id or not away_id: return []
         if tuple(sorted((home_id, away_id))) in DERBY_LIST or "Cup" in league_name or "Kupa" in league_name: return []
-        if not home_stats or not away_stats or not home_stats.get('goals') or not away_stats.get('goals'): return []
+        if not home_stats or not away_stats or not home_stats.get('goals') or not home_stats.get('goals'): return []
         if not odds_data or not isinstance(odds_data, list) or not odds_data[0].get('bookmakers'): return []
 
         try:
@@ -376,6 +386,7 @@ def record_daily_status(date_str, status, reason=""):
 
 # --- ADMIN ÜZENET KÜLDÉSE GOMBOKKAL ---
 def send_admin_approval_message(tip_count, date_str):
+    # ... (Változatlan)
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         print("!!! HIBA: Admin üzenet küldése sikertelen. TELEGRAM_TOKEN vagy ADMIN_CHAT_ID hiányzik.")
         return
@@ -402,7 +413,7 @@ def send_admin_approval_message(tip_count, date_str):
         "reply_markup": json.dumps(keyboard) # Gombok csatolása
     }
     
-    # --- JAVÍTÁS V17.17: HIÁNYZÓ // HOZZÁADVA ---
+    # --- JAVÍTÁS V17.17 (MEGTARTVA): HIÁNYZÓ // HOZZÁADVA ---
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
     try:
@@ -411,7 +422,6 @@ def send_admin_approval_message(tip_count, date_str):
         print("Admin értesítő gombokkal sikeresen elküldve.")
     except requests.exceptions.RequestException as e:
         print(f"!!! HIBA az admin üzenet küldésekor: {e}")
-        # Hiba esetén megpróbáljuk elküldeni a hibaüzenetet gombok nélkül
         send_telegram_message_fallback(f"!!! KRITIKUS HIBA az interaktív admin üzenet küldésekor: {e}")
 
 def send_telegram_message_fallback(text):
@@ -419,7 +429,7 @@ def send_telegram_message_fallback(text):
     if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
         return
     
-    # --- JAVÍTÁS V17.17: HIÁNYZÓ // HOZZÁADVA ---
+    # --- JAVÍTÁS V17.17 (MEGTARTVA): HIÁNYZÓ // HOZZÁADVA ---
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": text}
     try:
@@ -433,7 +443,7 @@ def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
     # Verzió frissítve
-    print(f"Tipp Generátor (V17.17 - URL Fix + API Timeout) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V17.18 - RLS Fix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
 
     if not supabase and not is_test_mode: print("!!! KRITIKUS HIBA: Supabase kliens nem inicializálódott, leállás."); return
     
