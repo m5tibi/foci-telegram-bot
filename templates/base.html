@@ -159,52 +159,122 @@
             border-top: 1px solid var(--border-color);
             margin: 20px 0;
         }
-        .szelveny-card {
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 25px;
-            background-color: var(--bg-dark);
+
+        /* --- ÚJ MODERN SZELVÉNY STÍLUSOK (SÖTÉT TÉMA) --- */
+        .slips-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        .slip-card {
+            background-color: var(--bg-card);
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
             transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: 1px solid var(--border-color);
+            border-top: 5px solid var(--primary-green);
+            position: relative;
         }
-        .szelveny-card:hover {
+        .slip-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
         }
-        .szelveny-card h4 {
-            color: var(--primary-green);
-            margin-top: 0;
+        .slip-header {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
         }
-        .szelveny-card .meccs {
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 15px;
-            margin-bottom: 15px;
-        }
-        .szelveny-card .meccs:last-of-type {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 0;
-        }
-        .szelveny-card .meccs p {
-            margin: 4px 0;
-            color: var(--text-medium);
-        }
-        .szelveny-card .meccs strong {
+        .slip-title {
+            font-size: 1.1rem;
+            font-weight: 700;
             color: var(--text-light);
-        }
-        .szelveny-card .eredo-odds {
-            text-align: right;
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-top: 15px;
+            margin: 0;
             font-family: 'Poppins', sans-serif;
         }
-        .szelveny-card .eredo-odds strong {
-            color: var(--primary-green);
+        .slip-odds {
+            background: var(--primary-green);
+            color: var(--white);
+            padding: 5px 10px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+        .admin-badge {
+            font-size: 0.7rem;
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 10px;
+            text-transform: uppercase;
+            font-weight: bold;
+            border: 1px solid var(--danger-border);
+        }
+        .slip-meta {
+            background-color: rgba(255, 255, 255, 0.03);
+            color: var(--text-medium);
+            font-size: 0.85rem;
+            padding: 8px 20px;
+            font-weight: 500;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .slip-matches {
+            padding: 0;
+        }
+        .match {
+            padding: 15px 20px;
+            border-bottom: 1px dashed var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .match:last-child {
+            border-bottom: none;
+        }
+        .match-teams {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-light);
+            line-height: 1.3;
+        }
+        .match-league {
+            font-size: 0.8rem;
+            color: var(--text-medium);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .match-tip {
+            margin-top: 5px;
+            background-color: rgba(56, 161, 105, 0.15); /* Áttetsző zöld háttér */
+            border: 1px solid var(--success-border);
+            color: var(--success-text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .match-tip span {
+            background-color: var(--bg-dark);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: var(--white);
+            border: 1px solid var(--border-color);
+        }
+        /* --- MODERN SZELVÉNY VÉGE --- */
+
         .tomorrow {
             opacity: 0.85;
         }
