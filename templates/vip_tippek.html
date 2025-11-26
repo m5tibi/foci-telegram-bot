@@ -30,7 +30,7 @@
             <h3>Bot Által Javasolt Napi Tippek</h3>
             
             {% if todays_slips %}
-                <h4>Mai Napi Tuti Szelvény(ek)</h4>
+                <h4>Mai tippek</h4>
                 <div class="slips-container">
                     {% for slip in todays_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -61,7 +61,7 @@
             {% endif %}
 
             {% if tomorrows_slips %}
-                <h4 style="margin-top: 30px;">Holnapi Napi Tuti Szelvény(ek)</h4>
+                <h4 style="margin-top: 30px;">Holnapi tippek</h4>
                 <div class="slips-container">
                     {% for slip in tomorrows_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -99,10 +99,10 @@
         <div class="disclaimer">
             <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Kérjük, csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippjeink nem garantálnak nyereséget.</p>
             <ul>
-                <li>Ne próbálj meg visszanyerni veszteségeket.</li>
-                <li>Csak szórakozásból játssz, ne a megélhetésért.</li>
-                <li>Soha ne játssz alkoholos vagy egyéb befolyásoltság alatt.</li>
-                <li>Ismerd a saját határaidat, és soha ne lépd túl őket.</li>
+                <li>Ne próbálj meg visszanyerni veszteségeket!</li>
+                <li>Csak szórakozásból játssz, ne a megélhetésért!</li>
+                <li>Soha ne játssz alkoholos vagy egyéb befolyásoltság alatt!</li>
+                <li>Ismerd a saját határaidat, és soha ne lépd túl őket!</li>
                 <li>Csak 18 éven felülieknek. Kérj segítséget, ha úgy érzed, problémáid vannak!</li>
                 <li>A tippek felhasználása kizárólag a te felelősséged, az oldal semmilyen anyagi felelősséget nem vállal.</li>
                 <li>A szelvényeket gondosan válogatjuk, de a sportfogadásban nincs 100%. Mindig felelősségteljesen játssz!</li>
