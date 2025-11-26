@@ -1,4 +1,4 @@
-# tipp_generator.py (V16.1 - Tisztított kód: Hazai/Vendég bontás + Védelmi statisztikák)
+# tipp_generator.py (V16.2 - Javítva: Service Key használata az RLS hiba ellen)
 
 import os
 import requests
@@ -8,11 +8,20 @@ import time
 import pytz
 import sys
 
-# --- Konfiguráció ---
+# --- Konfiguráció (JAVÍTVA) ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# JAVÍTÁS: A Service Key-t használjuk, mert azzal írhatunk a védett táblákba is
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") 
+
+if not SUPABASE_KEY:
+    # Ha véletlenül nincs beállítva a Service Key, próbáljuk meg a simával (de ez hibát dobhat)
+    print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
+
+# Itt hozzuk létre a klienst a megfelelő (Admin) kulccsal
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
@@ -63,7 +72,6 @@ def prefetch_data_for_fixtures(fixtures):
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     season = str(datetime.now(BUDAPEST_TZ).year)
     
-    # Ligák cache-elése nem feltétlenül kell minden futásnál, de a csapatstatisztika igen
     for fixture in fixtures:
         fixture_id, league_id = fixture['fixture']['id'], fixture['league']['id']
         home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
@@ -72,7 +80,7 @@ def prefetch_data_for_fixtures(fixtures):
         if fixture_id not in INJURIES_CACHE: 
             INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
         
-        # Csapat Statisztikák (Ez a legfontosabb az új stratégiához)
+        # Csapat Statisztikák
         for team_id in [home_id, away_id]:
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
@@ -133,12 +141,11 @@ def analyze_fixture_smart_stats(fixture):
     
     # --- STRATÉGIÁK ---
 
-    # 1. OVER 2.5 (Gólzápor) - Otthoni/Idegenbeli átlagok alapján
+    # 1. OVER 2.5 (Gólzápor)
     match_avg_goals = (h_avg_scored + h_avg_conceded + v_avg_scored + v_avg_conceded) / 2
     over_2_5_odds = odds_markets.get("Goals Over/Under_Over 2.5")
     
     if over_2_5_odds and 1.50 <= over_2_5_odds <= 2.10: 
-        # Ha a várható gólok száma magas, ÉS legalább az egyik védelem gyenge (sok gólt kapnak)
         if match_avg_goals > 3.0 and (h_avg_conceded > 1.4 or v_avg_conceded > 1.4):
             confidence = 75 + confidence_modifiers
             if match_avg_goals > 3.5: confidence += 10
@@ -148,9 +155,7 @@ def analyze_fixture_smart_stats(fixture):
     btts_yes_odds = odds_markets.get("Both Teams to Score_Yes")
     
     if btts_yes_odds and 1.55 <= btts_yes_odds <= 2.00:
-        # Hazai otthon lő (átlag > 1.4), Vendég idegenben lő (átlag > 1.2)
         if h_avg_scored >= 1.4 and v_avg_scored >= 1.2:
-            # És a védelmek nem tökéletesek (kapnak is gólt)
             if h_avg_conceded >= 0.8 and v_avg_conceded >= 0.8:
                 found_tips.append({"tipp": "BTTS", "odds": btts_yes_odds, "confidence": 72 + confidence_modifiers})
 
@@ -158,7 +163,6 @@ def analyze_fixture_smart_stats(fixture):
     home_win_odds = odds_markets.get("Match Winner_Home")
     
     if home_win_odds and 1.50 <= home_win_odds <= 2.20:
-        # Hazai domináns otthon (60%+ győzelem), Vendég gyenge idegenben (40%+ vereség)
         if h_win_rate > 0.60 and v_lose_rate_away > 0.40:
             if not h_bad_form: 
                 found_tips.append({"tipp": "Home", "odds": home_win_odds, "confidence": 78 + confidence_modifiers})
@@ -198,7 +202,7 @@ def record_daily_status(date_str, status, reason=""):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V16.1) indítása...")
+    print(f"Tipp Generátor (V16.2) indítása...")
 
     today_str, tomorrow_str = start_time.strftime("%Y-%m-%d"), (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures_raw = (get_api_data("fixtures", {"date": today_str}) or []) + (get_api_data("fixtures", {"date": tomorrow_str}) or [])
