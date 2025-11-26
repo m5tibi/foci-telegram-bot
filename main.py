@@ -1,4 +1,4 @@
-# main.py (V8.9 - Javítva: Kiértékelt tippek (VIP és Manuális) elrejtése)
+# main.py (V9.1 - Live Bot Integráció + Admin Teszt Futtatás)
 
 import os
 import asyncio
@@ -8,8 +8,10 @@ import telegram
 import secrets
 import pytz
 import time
+import io # ÚJ
 from datetime import datetime, timedelta
 from typing import Optional
+from contextlib import redirect_stdout # ÚJ
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -22,6 +24,7 @@ from passlib.context import CryptContext
 from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
+from tipp_generator import main as run_tipp_generator # ÚJ: Importáljuk a generátort
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -36,6 +39,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
+LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID", "-100xxxxxxxxxxxxx") 
 
 # --- FastAPI Alkalmazás és Beállítások ---
 api = FastAPI()
@@ -77,15 +81,11 @@ def is_web_user_subscribed(user: dict) -> bool:
             if expires_at > datetime.now(pytz.utc): return True
     return False
 async def send_admin_notification(message: str):
-    if not TOKEN or not ADMIN_CHAT_ID:
-        print("Telegram token vagy Admin Chat ID hiányzik, az admin értesítés nem küldhető el.")
-        return
+    if not TOKEN or not ADMIN_CHAT_ID: return
     try:
         bot = telegram.Bot(token=TOKEN)
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
-        print("Admin értesítés sikeresen elküldve.")
-    except Exception as e:
-        print(f"Hiba az admin értesítés küldésekor: {e}")
+    except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
 # --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
@@ -96,19 +96,13 @@ async def read_root(request: Request):
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
-        if existing_user.data:
-            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
-
+        if existing_user.data: return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
         hashed_password = get_password_hash(password)
-        insert_response = supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute()
-
-        if insert_response.data:
+        if supabase.table("felhasznalok").insert({"email": email, "hashed_password": hashed_password, "subscription_status": "inactive"}).execute().data:
             return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
-        else:
-            raise Exception("Insert failed")
-
+        else: raise Exception("Insert failed")
     except Exception as e:
-        print(f"!!! KRITIKUS HIBA A REGISZTRÁCIÓ SORÁN: {e}")
+        print(f"Regisztrációs hiba: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
 
 @api.post("/login")
@@ -119,9 +113,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
-    except Exception as e:
-        print(f"!!! KRITIKUS HIBA A BEJELENTKEZÉS SORÁN: {e}")
-        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+    except Exception: return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
 @api.get("/logout")
 async def logout(request: Request):
@@ -135,103 +127,55 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     
     todays_slips, tomorrows_slips, active_manual_slips, daily_status_message = [], [], [], ""
-    
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
+    
     if is_subscribed:
         try:
-            # Admin kliens használata (RLS megkerülése)
-            supabase_client_to_use = supabase
-            if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-                try:
-                    supabase_admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    supabase_client_to_use = supabase_admin_client
-                    print("INFO: /vip Service Kulcs sikeresen betöltve.")
-                except Exception as e:
-                    print(f"!!! FIGYELEM: /vip Service Kulcs kliens létrehozása sikertelen, RLS problémák lehetnek: {e}")
-            else:
-                print("!!! FIGYELEM: /vip SERVICE KEY hiányzik, RLS problémák lehetnek.")
-
+            supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            
             approved_dates = set()
-            
-            status_response = supabase_client_to_use.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
-            
-            if status_response.data:
-                for record in status_response.data:
-                    if record['status'] == 'Kiküldve': approved_dates.add(record['date'])
-            
+            status_res = supabase_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
+            if status_res.data:
+                for r in status_res.data:
+                    if r['status'] == 'Kiküldve': approved_dates.add(r['date'])
             if user_is_admin: approved_dates.add(today_str); approved_dates.add(tomorrow_str)
             
             if approved_dates:
-                filter_value = ",".join([f"tipp_neve.ilike.%{date}%" for date in approved_dates])
+                filter_val = ",".join([f"tipp_neve.ilike.%{d}%" for d in approved_dates])
+                resp = supabase_client.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_val).order('tipp_neve', desc=False).execute()
+                slips = [s for s in (resp.data or []) if not s.get('is_admin_only') or user_is_admin]
                 
-                response = supabase_client_to_use.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_value).order('tipp_neve', desc=False).execute()
-                
-                slips_to_process = [s for s in (response.data or []) if not s.get('is_admin_only') or user_is_admin]
-                
-                if slips_to_process:
-                    all_tip_ids = [tid for sz in slips_to_process for tid in sz.get('tipp_id_k', [])]
-                    if all_tip_ids:
-                        
-                        meccsek_res = supabase_client_to_use.table("meccsek").select("*").in_("id", all_tip_ids).execute()
-                        meccsek_map = {m['id']: m for m in meccsek_res.data}
-
-                        for sz_data in slips_to_process:
-                            sz_meccsei = [meccsek_map.get(tid) for tid in sz_data.get('tipp_id_k', []) if meccsek_map.get(tid)]
-                            
-                            if len(sz_meccsei) == len(sz_data.get('tipp_id_k', [])):
-                                # --- JAVÍTÁS V8.9: Automata szelvények szűrése ---
-                                # Ha bármelyik meccs veszített, VAGY ha az összes meccs eredménye már nem 'Tipp leadva' (tehát ki van értékelve),
-                                # akkor rejtjük el a szelvényt.
-                                match_results = [m.get('eredmeny') for m in sz_meccsei]
-                                if 'Veszített' in match_results: continue # Vesztes szelvény elrejtése
-                                
-                                # ÚJ SOR: Ha minden meccs lezárult (Nyert, Veszített, Érvénytelen), akkor rejtjük.
-                                # Feltételezzük, hogy a 'Tipp leadva' az egyetlen aktív státusz.
-                                if all(status in ['Nyert', 'Veszített', 'Érvénytelen'] for status in match_results): continue
-                                # --- JAVÍTÁS VÉGE ---
-
-                                for m in sz_meccsei:
+                if slips:
+                    all_ids = [tid for sz in slips for tid in sz.get('tipp_id_k', [])]
+                    if all_ids:
+                        mm = {m['id']: m for m in supabase_client.table("meccsek").select("*").in_("id", all_ids).execute().data}
+                        for sz in slips:
+                            meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
+                            if len(meccs_list) == len(sz.get('tipp_id_k', [])):
+                                if 'Veszített' in [m.get('eredmeny') for m in meccs_list]: continue
+                                for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
-                                sz_data['meccsek'] = sz_meccsei
-                                if today_str in sz_data['tipp_neve']: todays_slips.append(sz_data)
-                                elif tomorrow_str in sz_data['tipp_neve']: tomorrows_slips.append(sz_data)
-                            else:
-                                print(f"FIGYELEM: Tipp (ID: {sz_data.get('id')}) kihagyva, mert nem minden meccs adat volt olvasható (RLS probléma)")
+                                sz['meccsek'] = meccs_list
+                                if today_str in sz['tipp_neve']: todays_slips.append(sz)
+                                elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
 
-            # --- JAVÍTÁS V8.9: Manuális szelvények szűrése ---
-            # Most már itt is csak a 'Folyamatban' lévőket kérjük le, plusz a dátum szűrés.
-            manual_res = supabase_client_to_use.table("manual_slips").select("*").gte("target_date", today_str).eq("status", "Folyamatban").order("target_date", desc=False).execute()
-            if manual_res.data:
-                active_manual_slips = manual_res.data
-            # --- JAVÍTÁS VÉGE ---
+            manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
+            if manual.data: active_manual_slips = manual.data
             
             if not any([todays_slips, tomorrows_slips, active_manual_slips]):
-                target_date_for_status = tomorrow_str if now_local.hour >= 19 else today_str
-                status_message_date = "holnapi" if now_local.hour >= 19 else "mai"
-                
-                status_res = supabase_client_to_use.table("daily_status").select("status").eq("date", target_date_for_status).limit(1).execute()
-                
-                status = status_res.data[0].get('status') if status_res.data else "Nincs adat"
-                if status == "Nincs megfelelő tipp": daily_status_message = f"A {status_message_date} napra az algoritmusunk nem talált a szigorú kritériumainknak megfelelő, kellő értékkel bíró tippet."
-                elif status == "Jóváhagyásra vár": daily_status_message = f"A {status_message_date} tippek generálása sikeres volt, adminisztrátori jóváhagyásra várnak."
-                elif status == "Admin által elutasítva": daily_status_message = f"A {status_message_date} tippeket az adminisztrátor minőségi ellenőrzés után elutasította."
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
-        except Exception as e:
-            print(f"Hiba a tippek lekérdezésekor: {e}")
-            daily_status_message = "Hiba történt a tippek betöltése közben."
+                target = tomorrow_str if now_local.hour >= 19 else today_str
+                st_res = supabase_client.table("daily_status").select("status").eq("date", target).limit(1).execute()
+                st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
+                if st == "Nincs megfelelő tipp": daily_status_message = "Az algoritmus nem talált megfelelő tippet."
+                elif st == "Jóváhagyásra vár": daily_status_message = "A tippek jóváhagyásra várnak."
+                elif st == "Admin által elutasítva": daily_status_message = "Az adminisztrátor elutasította a tippeket."
+                else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
+        except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
     
-    return templates.TemplateResponse("vip_tippek.html", {
-        "request": request, 
-        "user": user, 
-        "is_subscribed": is_subscribed, 
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips, 
-        "active_manual_slips": active_manual_slips,
-        "daily_status_message": daily_status_message
-    })
+    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, "active_manual_slips": active_manual_slips, "daily_status_message": daily_status_message})
 
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
@@ -249,6 +193,19 @@ async def generate_telegram_link(request: Request):
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
+@api.post("/generate-live-invite", response_class=RedirectResponse)
+async def generate_live_invite(request: Request):
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    if not is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=no_subscription", status_code=303)
+    try:
+        if not LIVE_CHANNEL_ID or LIVE_CHANNEL_ID == "-100xxxxxxxxxxxxx": return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=live_bot_config_error", status_code=303)
+        if application and application.bot:
+            invite = await application.bot.create_chat_invite_link(chat_id=LIVE_CHANNEL_ID, member_limit=1, name=f"VIP: {user['email']}")
+            return RedirectResponse(url=invite.invite_link, status_code=303)
+        else: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=bot_not_ready", status_code=303)
+    except Exception: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=invite_failed", status_code=303)
+
 @api.post("/create-portal-session", response_class=RedirectResponse)
 async def create_portal_session(request: Request):
     user = get_current_user(request)
@@ -262,12 +219,8 @@ async def create_portal_session(request: Request):
 @api.post("/create-checkout-session-web")
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-
-    if is_web_user_subscribed(user):
-        return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
-
+    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
     try:
         params = {
@@ -277,87 +230,66 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
             'billing_address_collection': 'required',
             'success_url': f"{RENDER_APP_URL}/vip?payment=success",
             'cancel_url': f"{RENDER_APP_URL}/vip",
-            'allow_promotion_codes': True, # Kuponkód engedélyezése
+            'allow_promotion_codes': True,
             'metadata': {'user_id': user['id']}
         }
-        if user.get('stripe_customer_id'):
-            params['customer'] = user['stripe_customer_id']
-        else:
-            params['customer_email'] = user['email']
-
+        if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
+        else: params['customer_email'] = user['email']
         checkout_session = stripe.checkout.Session.create(**params)
         return RedirectResponse(checkout_session.url, status_code=303)
-    except Exception as e:
-        return HTMLResponse(f"Hiba: {e}", status_code=500)
+    except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
 
 @api.get("/admin/upload", response_class=HTMLResponse)
-async def upload_form(request: Request):
+async def upload_form(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
-    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
-        return RedirectResponse(url="/vip", status_code=303)
-    return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    context = {"request": request, "user": user}
+    if message: context["message"] = message
+    if error: context["error"] = error
+    return templates.TemplateResponse("admin_upload.html", context)
 
 @api.post("/admin/upload")
-async def handle_upload(
-    request: Request,
-    tip_type: str = Form(...),
-    tipp_neve: str = Form(...),
-    eredo_odds: float = Form(...),
-    target_date: str = Form(...),
-    slip_image: UploadFile = File(...)
-):
+async def handle_upload(request: Request, tip_type: str = Form(...), tipp_neve: str = Form(...), eredo_odds: float = Form(...), target_date: str = Form(...), slip_image: UploadFile = File(...)):
     user = get_current_user(request)
-    if not user or user.get('chat_id') != ADMIN_CHAT_ID:
-        return RedirectResponse(url="/vip", status_code=303)
-
-    if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Kritikus hiba: SUPABASE_SERVICE_KEY vagy URL nincs beállítva!"})
-
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    if not SUPABASE_SERVICE_KEY or not SUPABASE_URL: return RedirectResponse(url="/admin/upload?error=Supabase Error", status_code=303)
     try:
-        admin_supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-        file_extension = slip_image.filename.split('.')[-1]
-        timestamp = int(time.time())
-        file_content = await slip_image.read()
+        admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        if tip_type == "free":
+            ex = admin_client.table("free_slips").select("id", count='exact').eq("tipp_neve", tipp_neve).eq("target_date", target_date).limit(1).execute()
+            if ex.count > 0: return RedirectResponse(url=f"/admin/upload?error=Duplikáció: {tipp_neve}", status_code=303)
+        
+        ext = slip_image.filename.split('.')[-1]
+        ts = int(time.time())
+        content = await slip_image.read()
 
         if tip_type == "vip":
-            bucket_name = "slips"
-            file_name = f"{target_date}_{timestamp}.{file_extension}"
-
-            admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
-            public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
-
-            admin_supabase_client.table("manual_slips").insert({
-                "tipp_neve": tipp_neve,
-                "eredo_odds": eredo_odds,
-                "target_date": target_date, 
-                "image_url": public_url,
-                "status": "Folyamatban"
-            }).execute()
-
+            fn = f"{target_date}_{ts}.{ext}"
+            admin_client.storage.from_("slips").upload(fn, content, {"content-type": slip_image.content_type})
+            url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/slips/{fn}"
+            admin_client.rpc('add_manual_slip', {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': url}).execute()
         elif tip_type == "free":
-            bucket_name = "free-slips"
-            file_name = f"free_{timestamp}.{file_extension}"
+            fn = f"free_{ts}.{ext}"
+            admin_client.storage.from_("free-slips").upload(fn, content, {"content-type": slip_image.content_type})
+            url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/free-slips/{fn}"
+            admin_client.table("free_slips").insert({"tipp_neve": tipp_neve, "image_url": url, "eredo_odds": eredo_odds, "target_date": target_date, "status": "Folyamatban"}).execute()
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
+    except Exception as e: return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
-            admin_supabase_client.storage.from_(bucket_name).upload(file_name, file_content, {"content-type": slip_image.content_type})
-            public_url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/{bucket_name}/{file_name}"
-
-            admin_supabase_client.table("free_slips").insert({
-                "tipp_neve": tipp_neve,
-                "image_url": public_url,
-                "eredo_odds": eredo_odds,
-                "target_date": target_date,
-                "status": "Folyamatban"
-            }).execute()
-
-        else:
-            return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": "Érvénytelen tipp típus."})
-
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "message": "Sikeres feltöltés!"})
-
-    except Exception as e:
-        print(f"Hiba a fájlfeltöltés során: {e}")
-        return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user, "error": f"Hiba történt: {str(e)}"})
-
+# --- ÚJ: ADMIN TESZT FUTTATÁS ---
+@api.get("/admin/test-run", response_class=HTMLResponse)
+async def admin_test_run(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    f = io.StringIO()
+    try:
+        with redirect_stdout(f):
+            print("=== TIPP GENERÁTOR TESZT FUTTATÁS (Nincs mentés) ===\n")
+            await asyncio.to_thread(run_tipp_generator, run_as_test=True)
+            print("\n=== TESZT VÉGE ===")
+    except Exception as e: print(f"Hiba: {e}")
+    
+    return HTMLResponse(content=f"""<html><body style="background:#1e1e1e;color:#0f0;font-family:monospace;padding:20px;"><h2>Eredmény:</h2><pre>{f.getvalue()}</pre><br><a href="/admin/upload" style="color:#fff;">Vissza</a></body></html>""")
 
 @api.on_event("startup")
 async def startup():
@@ -366,8 +298,7 @@ async def startup():
     application = Application.builder().token(TOKEN).persistence(persistence).build()
     add_handlers(application)
     await application.initialize()
-    print("FastAPI alkalmazás elindult, a Telegram bot kezelők regisztrálva.")
-    print("A webhookot egy különálló 'set_webhook.py' szkripttel vagy manuálisan kell beállítani!")
+    print("FastAPI alkalmazás elindult.")
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
@@ -382,92 +313,30 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
-
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            user_id = session.get('metadata', {}).get('user_id')
-            stripe_customer_id = session.get('customer')
-
-            if user_id and stripe_customer_id:
-                line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
-                price_id = line_items.data[0].price.id
-                duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-
-                await activate_subscription_and_notify_web(int(user_id), duration_days, stripe_customer_id)
-
-                customer_details = stripe.Customer.retrieve(stripe_customer_id)
-                customer_email = customer_details.get('email', 'Ismeretlen e-mail')
-                plan_type = "Havi" if duration_days == 30 else "Heti"
-                notification_message = f"🎉 *Új Előfizető!*\n\n*E-mail:* {customer_email}\n*Csomag:* {plan_type}\n*Stripe ID:* `{stripe_customer_id}`"
-                await send_admin_notification(notification_message)
-
+            uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
+            if uid and cid:
+                pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
+                await activate_subscription_and_notify_web(int(uid), 30 if pid == STRIPE_PRICE_ID_MONTHLY else 7, cid)
+                await send_admin_notification(f"🎉 *Új Előfizető!*\nID: `{cid}`")
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
-            stripe_customer_id = invoice.get('customer')
-            
             try:
-                invoice_created_time = datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)
-                now_utc = datetime.now(pytz.utc)
-                if (now_utc - invoice_created_time) < timedelta(minutes=5):
-                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Túl új, <5 perc). Ezt a 'checkout.session.completed' kezeli.")
-                    return {"status": "success"}
-            except Exception as e:
-                print(f"FIGYELEM: Nem sikerült az 'invoice.payment_succeeded' időbélyeg ellenőrzése: {e}")
-            
-            billing_reason = invoice.get('billing_reason')
-            print(f"DEBUG: Billing Reason: {billing_reason}") 
-
-            subscription_details = invoice.get('parent', {}).get('subscription_details', {})
-            subscription_id = subscription_details.get('subscription') if subscription_details else invoice.get('subscription')
-            
-            print(f"DEBUG: Kinyert Subscription ID: {subscription_id}")
-
-            if subscription_id and stripe_customer_id:
-
-                if billing_reason == 'subscription_cycle':
-                    try:
-                        subscription = stripe.Subscription.retrieve(subscription_id)
-                        price_id = subscription['items']['data'][0]['price']['id']
-
-                        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                        user_res = supabase_admin.table("felhasznalok").select("*").eq("stripe_customer_id", stripe_customer_id).single().execute()
-
-                        if user_res.data:
-                            user = user_res.data
-                            duration_days = 30 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
-
-                            current_expires_at_str = user.get("subscription_expires_at")
-                            start_date = datetime.now(pytz.utc)
-                            if current_expires_at_str:
-                                current_expires_at = datetime.fromisoformat(current_expires_at_str.replace('Z', '+00:00'))
-                                if current_expires_at > start_date:
-                                    start_date = current_expires_at
-
-                            new_expires_at = start_date + timedelta(days=duration_days)
-
-                            supabase_admin.table("felhasznalok").update({
-                                "subscription_status": "active",
-                                "subscription_expires_at": new_expires_at.isoformat()
-                            }).eq("id", user['id']).execute()
-
-                            plan_type = "Havi" if duration_days == 30 else "Heti"
-                            notification_message = f"✅ *Sikeres Megújulás!*\n\n*E-mail:* {user['email']}\n*Csomag:* {plan_type}\n*Új lejárat:* {new_expires_at.strftime('%Y-%m-%d')}"
-                            await send_admin_notification(notification_message)
-                        else:
-                            print(f"!!! WEBHOOK HIBA: Nem található felhasználó a következő Stripe ID-val: {stripe_customer_id}")
-
-                    except Exception as e:
-                        print(f"!!! HIBA a megújítás feldolgozása során (Subscription: {subscription_id}): {e}")
-
-                elif billing_reason == 'subscription_create':
-                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: subscription_create). Ezt a checkout.session.completed kezeli.")
-                else:
-                    print(f"INFO: 'invoice.payment_succeeded' feldolgozás kihagyva (Billing Reason: {billing_reason}).")
-
-            else:
-                print(f"INFO: 'invoice.payment_succeeded' esemény figyelmen kívül hagyva (nem előfizetéshez kapcsolódik). Customer ID: {stripe_customer_id}")
-
+                if (datetime.now(pytz.utc) - datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)) < timedelta(minutes=5): return {"status": "success"}
+            except: pass
+            if invoice.get('billing_reason') == 'subscription_cycle':
+                sub_id = invoice.get('subscription')
+                try:
+                    sub = stripe.Subscription.retrieve(sub_id)
+                    pid = sub['items']['data'][0]['price']['id']
+                    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    usr = client.table("felhasznalok").select("*").eq("stripe_customer_id", invoice.get('customer')).single().execute().data
+                    if usr:
+                        dur = 30 if pid == STRIPE_PRICE_ID_MONTHLY else 7
+                        start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
+                        client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
+                        await send_admin_notification(f"✅ *Megújult!* {usr['email']}")
+                except Exception: pass
         return {"status": "success"}
-    except Exception as e:
-        print(f"!!! WEBHOOK FELDOLGOZÁSI HIBA: {e}")
-        return {"error": "Hiba történt a webhook feldolgozása közben."}, 400
+    except Exception as e: return {"error": str(e)}, 400
