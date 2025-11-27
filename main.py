@@ -1,4 +1,4 @@
-# main.py (V9.1 - Live Bot Integráció + Admin Teszt Futtatás)
+# main.py (V9.2 - Javítva: Befejezett (Nyertes) szelvények automatikus elrejtése)
 
 import os
 import asyncio
@@ -8,10 +8,10 @@ import telegram
 import secrets
 import pytz
 import time
-import io # ÚJ
+import io
 from datetime import datetime, timedelta
 from typing import Optional
-from contextlib import redirect_stdout # ÚJ
+from contextlib import redirect_stdout
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -24,7 +24,7 @@ from passlib.context import CryptContext
 from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
-from tipp_generator import main as run_tipp_generator # ÚJ: Importáljuk a generátort
+from tipp_generator import main as run_tipp_generator
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -154,7 +154,14 @@ async def vip_area(request: Request):
                         for sz in slips:
                             meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
                             if len(meccs_list) == len(sz.get('tipp_id_k', [])):
-                                if 'Veszített' in [m.get('eredmeny') for m in meccs_list]: continue
+                                match_results = [m.get('eredmeny') for m in meccs_list]
+                                
+                                # 1. Szabály: Ha bármelyik meccs veszített, elrejtjük
+                                if 'Veszített' in match_results: continue
+                                
+                                # 2. JAVÍTOTT Szabály: Ha minden meccs befejeződött (Nincs 'Tipp leadva'), akkor is elrejtjük (mert már nem aktív)
+                                if 'Tipp leadva' not in match_results: continue
+
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
@@ -163,7 +170,9 @@ async def vip_area(request: Request):
                                 elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
 
             manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
-            if manual.data: active_manual_slips = manual.data
+            if manual.data: 
+                # Manuális tippeknél is alkalmazzuk a szűrést: csak a 'Folyamatban' lévőket mutassuk
+                active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
             
             if not any([todays_slips, tomorrows_slips, active_manual_slips]):
                 target = tomorrow_str if now_local.hour >= 19 else today_str
@@ -276,7 +285,6 @@ async def handle_upload(request: Request, tip_type: str = Form(...), tipp_neve: 
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
     except Exception as e: return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
-# --- ÚJ: ADMIN TESZT FUTTATÁS ---
 @api.get("/admin/test-run", response_class=HTMLResponse)
 async def admin_test_run(request: Request):
     user = get_current_user(request)
