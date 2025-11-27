@@ -1,4 +1,4 @@
-# tipp_generator.py (V16.7 - Admin Teszt Támogatás)
+# tipp_generator.py (V16.8 - CSAK HOLNAPI TIPPEK GENERÁLÁSA)
 
 import os
 import requests
@@ -71,7 +71,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- ELEMZŐ LOGIKA ---
+# --- ELEMZŐ LOGIKA (V16.5) ---
 def analyze_fixture_smart_stats(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -173,60 +173,60 @@ def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V16.6)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    msg = (f"🤖 *Új Automatikus Tippek (V16.8 Holnapra)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
-# --- FŐ VEZÉRLŐ (MÓDOSÍTVA AZ ADMIN TESZTHEZ) ---
+# --- FŐ VEZÉRLŐ (CSAK HOLNAPRA!) ---
 def main(run_as_test=False):
-    # Ellenőrizzük a parancssort VAGY a függvényhívást
     is_test_mode = '--test' in sys.argv or run_as_test
     
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V16.7 - Admin Teszt) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    # JAVÍTÁS: Csak a holnapi napot állítjuk be
+    tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    print(f"Tipp Generátor (V16.8 - Csak Holnap) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Cél dátum: {tomorrow_str}")
 
-    today_str, tomorrow_str = start_time.strftime("%Y-%m-%d"), (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
-    all_fixtures_raw = (get_api_data("fixtures", {"date": today_str}) or []) + (get_api_data("fixtures", {"date": tomorrow_str}) or [])
+    # JAVÍTÁS: Csak holnapra kérünk adatot
+    all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
 
     if not all_fixtures_raw: 
         print("Nincs adat az API-ból."); 
-        if not is_test_mode: record_daily_status(today_str, "Nincs megfelelő tipp")
+        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
         return
 
-    now_utc = datetime.now(pytz.utc)
-    future_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) > now_utc]
+    # Szűrés ligákra
+    relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES]
     
-    if not future_fixtures: 
-        print("Nincs releváns jövőbeli meccs."); 
-        if not is_test_mode: record_daily_status(today_str, "Nincs megfelelő tipp")
+    if not relevant_fixtures: 
+        print("Nincs releváns liga a holnapi napon."); 
+        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
         return
         
-    prefetch_data_for_fixtures(future_fixtures)
+    prefetch_data_for_fixtures(relevant_fixtures)
     
-    for day_str in [today_str, tomorrow_str]:
-        day_fixtures = [f for f in future_fixtures if f['fixture']['date'][:10] == day_str]
-        if day_fixtures:
-            print(f"\n--- {day_str} elemzése ---")
-            potential = [tip for fixture in day_fixtures for tip in analyze_fixture_smart_stats(fixture)]
-            best = select_best_single_tips(potential)
-            if best:
-                print(f"✅ Találat: {len(best)} db.")
-                
-                # TESZT MÓDBAN KIÍRJUK A RÉSZLETEKET (hogy lásd a böngészőben)
-                if is_test_mode:
-                    print("\n[TESZT EREDMÉNYEK]:")
-                    for t in best:
-                        print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} ({t['liga_nev']})")
-                        print(f"      💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Conf: {t['confidence']}%")
-                        print("      ------------------------------------------------")
+    # JAVÍTÁS: A ciklus helyett közvetlenül elemezzük a holnapi meccseket
+    print(f"\n--- {tomorrow_str} elemzése ---")
+    potential = [tip for fixture in relevant_fixtures for tip in analyze_fixture_smart_stats(fixture)]
+    best = select_best_single_tips(potential)
+    
+    if best:
+        print(f"✅ Találat: {len(best)} db.")
+        if is_test_mode:
+            print("\n[TESZT EREDMÉNYEK]:")
+            for t in best:
+                print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} ({t['liga_nev']})")
+                print(f"      💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Conf: {t['confidence']}%")
+                print("      ------------------------------------------------")
 
-                if not is_test_mode:
-                    save_tips_for_day(best, day_str)
-                    record_daily_status(day_str, "Jóváhagyásra vár", f"{len(best)} tipp.")
-                    send_approval_request(day_str, len(best))
-            else:
-                print("❌ Nincs megfelelő tipp.")
-                if not is_test_mode: record_daily_status(day_str, "Nincs megfelelő tipp")
+        if not is_test_mode:
+            save_tips_for_day(best, tomorrow_str)
+            record_daily_status(tomorrow_str, "Jóváhagyásra vár", f"{len(best)} tipp.")
+            send_approval_request(tomorrow_str, len(best))
+    else:
+        print("❌ Nincs megfelelő tipp.")
+        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
 
 if __name__ == "__main__":
     main()
