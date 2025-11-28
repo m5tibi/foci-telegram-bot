@@ -1,4 +1,4 @@
-# main.py (V9.2 - Javítva: Befejezett (Nyertes) szelvények automatikus elrejtése)
+# main.py (V9.5 - Javítva: Megújítások blokkolásának feloldása)
 
 import os
 import asyncio
@@ -25,6 +25,8 @@ from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 from tipp_generator import main as run_tipp_generator
+# Importáljuk az ellenőrzőt a kézi gombhoz
+from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -41,7 +43,7 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
 LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID", "-100xxxxxxxxxxxxx") 
 
-# --- FastAPI Alkalmazás és Beállítások ---
+# --- FastAPI Alkalmazás ---
 api = FastAPI()
 application = None
 origins = [
@@ -87,6 +89,15 @@ async def send_admin_notification(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
+@api.on_event("startup")
+async def startup():
+    global application
+    persistence = PicklePersistence(filepath="bot_data.pickle")
+    application = Application.builder().token(TOKEN).persistence(persistence).build()
+    add_handlers(application)
+    await application.initialize()
+    print("FastAPI alkalmazás elindult.")
+
 # --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -102,7 +113,6 @@ async def handle_registration(request: Request, email: str = Form(...), password
             return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
         else: raise Exception("Insert failed")
     except Exception as e:
-        print(f"Regisztrációs hiba: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
 
 @api.post("/login")
@@ -155,12 +165,8 @@ async def vip_area(request: Request):
                             meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
                             if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                                 match_results = [m.get('eredmeny') for m in meccs_list]
-                                
-                                # 1. Szabály: Ha bármelyik meccs veszített, elrejtjük
                                 if 'Veszített' in match_results: continue
-                                
-                                # 2. JAVÍTOTT Szabály: Ha minden meccs befejeződött (Nincs 'Tipp leadva'), akkor is elrejtjük (mert már nem aktív)
-                                if 'Tipp leadva' not in match_results: continue
+                                if 'Tipp leadva' not in match_results: continue 
 
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
@@ -171,7 +177,6 @@ async def vip_area(request: Request):
 
             manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if manual.data: 
-                # Manuális tippeknél is alkalmazzuk a szűrést: csak a 'Folyamatban' lévőket mutassuk
                 active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
             
             if not any([todays_slips, tomorrows_slips, active_manual_slips]):
@@ -296,17 +301,14 @@ async def admin_test_run(request: Request):
             await asyncio.to_thread(run_tipp_generator, run_as_test=True)
             print("\n=== TESZT VÉGE ===")
     except Exception as e: print(f"Hiba: {e}")
-    
     return HTMLResponse(content=f"""<html><body style="background:#1e1e1e;color:#0f0;font-family:monospace;padding:20px;"><h2>Eredmény:</h2><pre>{f.getvalue()}</pre><br><a href="/admin/upload" style="color:#fff;">Vissza</a></body></html>""")
 
-@api.on_event("startup")
-async def startup():
-    global application
-    persistence = PicklePersistence(filepath="bot_data.pickle")
-    application = Application.builder().token(TOKEN).persistence(persistence).build()
-    add_handlers(application)
-    await application.initialize()
-    print("FastAPI alkalmazás elindult.")
+@api.get("/admin/force-check", response_class=RedirectResponse)
+async def admin_force_check(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    asyncio.create_task(asyncio.to_thread(run_result_checker))
+    return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
@@ -328,12 +330,14 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 await activate_subscription_and_notify_web(int(uid), 30 if pid == STRIPE_PRICE_ID_MONTHLY else 7, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nID: `{cid}`")
+        
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
-            try:
-                if (datetime.now(pytz.utc) - datetime.fromtimestamp(invoice.get('created'), tz=pytz.utc)) < timedelta(minutes=5): return {"status": "success"}
-            except: pass
-            if invoice.get('billing_reason') == 'subscription_cycle':
+            billing_reason = invoice.get('billing_reason')
+            
+            # --- JAVÍTOTT RÉSZ ---
+            # Ha megújítás (subscription_cycle), FELDOLGOZZUK!
+            if billing_reason == 'subscription_cycle':
                 sub_id = invoice.get('subscription')
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
@@ -345,6 +349,12 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
                         await send_admin_notification(f"✅ *Megújult!* {usr['email']}")
-                except Exception: pass
+                except Exception as e: print(f"Megújítás hiba: {e}")
+            
+            # Ha új előfizetés (subscription_create), KIHAGYJUK (Checkout kezeli)
+            elif billing_reason == 'subscription_create':
+                print("INFO: Új előfizetés webhook kihagyva (Checkout kezeli).")
+            # --- JAVÍTÁS VÉGE ---
+
         return {"status": "success"}
     except Exception as e: return {"error": str(e)}, 400
