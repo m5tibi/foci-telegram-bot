@@ -1,4 +1,4 @@
-# main.py (V9.6 - Részletes Értesítések: Heti/Havi csomag kijelzése)
+# main.py (V9.7 - Debug Logolás a hibakereséshez + Robusztus dátumkezelés)
 
 import os
 import asyncio
@@ -73,14 +73,43 @@ def get_current_user(request: Request):
             return res.data
         except Exception: return None
     return None
+
+# --- JAVÍTOTT ÉS DEBUGGOLT JOGOSULTSÁG ELLENŐRZÉS ---
 def is_web_user_subscribed(user: dict) -> bool:
     if not user: return False
-    if user.get("subscription_status") == "active":
-        expires_at_str = user.get("subscription_expires_at")
-        if expires_at_str:
-            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-            if expires_at > datetime.now(pytz.utc): return True
-    return False
+    
+    status = user.get("subscription_status")
+    # Kisbetűsítés a biztonság kedvéért
+    if str(status).lower() != "active":
+        print(f"DEBUG: Felhasználó {user.get('email')} nem aktív. Státusz: {status}")
+        return False
+
+    expires_at_str = user.get("subscription_expires_at")
+    if not expires_at_str:
+        print(f"DEBUG: Felhasználó {user.get('email')} nincs lejárati dátuma.")
+        return False
+
+    try:
+        # Robusztus dátum feldolgozás
+        clean_date = expires_at_str.replace('Z', '+00:00')
+        expires_at = datetime.fromisoformat(clean_date)
+        
+        # Ha nincs időzóna infó, UTC-nek vesszük
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=pytz.utc)
+            
+        now = datetime.now(pytz.utc)
+
+        if expires_at > now:
+            return True
+        else:
+            print(f"DEBUG: Felhasználó {user.get('email')} lejárt. Lejárat: {expires_at}, Most: {now}")
+            return False
+            
+    except Exception as e:
+        print(f"DEBUG: Dátum hiba {user.get('email')}-nél: {e}")
+        return False
+
 async def send_admin_notification(message: str):
     if not TOKEN or not ADMIN_CHAT_ID: return
     try:
@@ -328,7 +357,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 
-                # --- ÚJ: Heti/Havi szöveges azonosítás ---
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                 duration = 30 if is_monthly else 7
                 plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
@@ -346,7 +374,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     sub = stripe.Subscription.retrieve(sub_id)
                     pid = sub['items']['data'][0]['price']['id']
                     
-                    # --- ÚJ: Heti/Havi szöveges azonosítás ---
                     is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                     plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
                     
@@ -356,8 +383,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         dur = 30 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
-                        
-                        # Részletesebb üzenet
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
                 except Exception as e: print(f"Megújítás hiba: {e}")
             
