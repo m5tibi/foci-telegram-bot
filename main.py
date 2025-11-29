@@ -1,4 +1,4 @@
-# main.py (V9.5 - Javítva: Megújítások blokkolásának feloldása)
+# main.py (V9.6 - Részletes Értesítések: Heti/Havi csomag kijelzése)
 
 import os
 import asyncio
@@ -25,7 +25,6 @@ from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 from tipp_generator import main as run_tipp_generator
-# Importáljuk az ellenőrzőt a kézi gombhoz
 from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
@@ -166,7 +165,7 @@ async def vip_area(request: Request):
                             if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                                 match_results = [m.get('eredmeny') for m in meccs_list]
                                 if 'Veszített' in match_results: continue
-                                if 'Tipp leadva' not in match_results: continue 
+                                if 'Tipp leadva' not in match_results: continue
 
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
@@ -328,33 +327,42 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
-                await activate_subscription_and_notify_web(int(uid), 30 if pid == STRIPE_PRICE_ID_MONTHLY else 7, cid)
-                await send_admin_notification(f"🎉 *Új Előfizető!*\nID: `{cid}`")
+                
+                # --- ÚJ: Heti/Havi szöveges azonosítás ---
+                is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
+                duration = 30 if is_monthly else 7
+                plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
+                
+                await activate_subscription_and_notify_web(int(uid), duration, cid)
+                await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             
-            # --- JAVÍTOTT RÉSZ ---
-            # Ha megújítás (subscription_cycle), FELDOLGOZZUK!
             if billing_reason == 'subscription_cycle':
                 sub_id = invoice.get('subscription')
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
                     pid = sub['items']['data'][0]['price']['id']
+                    
+                    # --- ÚJ: Heti/Havi szöveges azonosítás ---
+                    is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
+                    plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
+                    
                     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
                     usr = client.table("felhasznalok").select("*").eq("stripe_customer_id", invoice.get('customer')).single().execute().data
                     if usr:
-                        dur = 30 if pid == STRIPE_PRICE_ID_MONTHLY else 7
+                        dur = 30 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
-                        await send_admin_notification(f"✅ *Megújult!* {usr['email']}")
+                        
+                        # Részletesebb üzenet
+                        await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
                 except Exception as e: print(f"Megújítás hiba: {e}")
             
-            # Ha új előfizetés (subscription_create), KIHAGYJUK (Checkout kezeli)
             elif billing_reason == 'subscription_create':
                 print("INFO: Új előfizetés webhook kihagyva (Checkout kezeli).")
-            # --- JAVÍTÁS VÉGE ---
 
         return {"status": "success"}
     except Exception as e: return {"error": str(e)}, 400
