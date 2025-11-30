@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V2.1 - Kumulatív Napi Statisztika és Jelentés)
+# eredmeny_ellenorzo.py (V2.2 - Javítva: Éjféli futás kezelése 'Smart Date' logikával)
 import os
 import requests
 from supabase import create_client, Client
@@ -7,7 +7,6 @@ import pytz
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-# Az íráshoz Service Key kell (vagy a sima, ha nincs RLS a táblán)
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
 
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
@@ -20,7 +19,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
 def send_telegram_report(report_text):
-    if not TELEGRAM_TOKEN: return
+    if not TELEGRAM_TOKEN: 
+        print("HIBA: Nincs TELEGRAM_TOKEN beállítva a környezeti változókban!")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": report_text, "parse_mode": "Markdown"})
@@ -29,26 +30,36 @@ def send_telegram_report(report_text):
         print(f"Hiba a Telegram küldésnél: {e}")
 
 def get_fixtures_to_check():
-    # 2 órával ezelőtt kezdődött meccsek ellenőrzése
     now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
+    # 2 órával ezelőtt kezdődött, de még nem lezárt meccsek
     check_threshold = now_utc - timedelta(minutes=120)
-    # Csak a függőben lévőket kérjük le ellenőrzésre
     return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
 
-def get_todays_completed_tips():
-    """Lekéri az összes MAI, már kiértékelt tippet a statisztikához."""
+def get_daily_completed_tips():
+    """
+    Okos statisztika: Ha hajnalban fut (pl. 00:00 - 06:00 között), 
+    akkor a TEGNAPI napot elemzi, különben a MAI napot.
+    """
     now_bp = datetime.now(BUDAPEST_TZ)
-    start_of_day = now_bp.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
-    end_of_day = now_bp.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
     
-    # Lekérjük azokat, amik MA kezdődtek és NEM 'Tipp leadva' a státuszuk
+    # Ha hajnali 6 előtt vagyunk, akkor a tegnapi napot zárjuk le
+    if now_bp.hour < 6:
+        target_date = now_bp - timedelta(days=1)
+        print(f"Hajnali futás észlelve ({now_bp.hour} óra). A TEGNAPI nap ({target_date.strftime('%Y-%m-%d')}) elemzése...")
+    else:
+        target_date = now_bp
+        print(f"Napközbeni futás. A MAI nap ({target_date.strftime('%Y-%m-%d')}) elemzése...")
+
+    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
+    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
+    
     response = supabase.table("meccsek").select("*") \
         .gte("kezdes", start_of_day) \
         .lte("kezdes", end_of_day) \
         .neq("eredmeny", "Tipp leadva") \
         .execute()
     
-    return response.data
+    return response.data, target_date.strftime('%Y-%m-%d')
 
 def get_fixture_result(fixture_id):
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
@@ -71,7 +82,9 @@ def evaluate_tip(tip_text, fixture_data):
     elif tip_text == "Away" and a > h: res = "Nyert"
     elif tip_text == "Draw" and h == a: res = "Nyert"
     elif tip_text == "Over 2.5" and total > 2.5: res = "Nyert"
+    elif tip_text == "Under 2.5" and total < 2.5: res = "Nyert"
     elif tip_text == "BTTS" and h > 0 and a > 0: res = "Nyert"
+    elif tip_text == "Over 1.5" and total > 1.5: res = "Nyert"
     
     return res, f"{h}-{a}"
 
@@ -99,23 +112,23 @@ def main():
                 supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", f['id']).execute()
                 updates_count += 1
 
-    # --- CSAK AKKOR KÜLDÜNK JELENTÉST, HA VOLT FRISSÍTÉS ---
+    # --- JELENTÉS KÜLDÉSE ---
     if updates_count > 0:
-        print("Változás történt! Összesített napi jelentés generálása...")
-        all_today = get_todays_completed_tips()
+        print("Változás történt! Statisztika generálása...")
+        # Most már az okos dátumválasztót használjuk
+        all_tips, report_date = get_daily_completed_tips()
         
-        if all_today:
-            wins = [t for t in all_today if t['eredmeny'] == 'Nyert']
-            losses = [t for t in all_today if t['eredmeny'] == 'Veszített']
+        if all_tips:
+            wins = [t for t in all_tips if t['eredmeny'] == 'Nyert']
+            losses = [t for t in all_tips if t['eredmeny'] == 'Veszített']
             
-            total = len(all_today)
+            total = len(all_tips)
             win_cnt = len(wins)
             
-            # Profit (1 egység tét)
             profit = sum(t['odds'] for t in wins) - total
             roi = (profit / total * 100) if total > 0 else 0
             
-            msg = f"📊 *Napi Tipp Kiértékelés (Összesített)*\n📅 Dátum: {datetime.now(BUDAPEST_TZ).strftime('%Y-%m-%d')}\n\n"
+            msg = f"📊 *Napi Tipp Kiértékelés*\n📅 Dátum: {report_date}\n\n"
             
             if wins:
                 msg += "✅ *Nyertes:*\n"
@@ -134,6 +147,8 @@ def main():
             msg += f"📈 ROI: *{sign}{roi:.1f}%*"
             
             send_telegram_report(msg)
+        else:
+            print("Nem találtam kiértékelt tippet a célzott napra (lehet dátumhiba).")
     else:
         print("Nem volt új lezárt meccs, nincs üzenet.")
 
