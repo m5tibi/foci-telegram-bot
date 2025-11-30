@@ -1,4 +1,4 @@
-# main.py (V9.7 - Debug Logolás a hibakereséshez + Robusztus dátumkezelés)
+# main.py (V9.8 - Javítva: Megújítások blokkolásának végleges eltávolítása)
 
 import os
 import asyncio
@@ -25,6 +25,7 @@ from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 from tipp_generator import main as run_tipp_generator
+# Importáljuk az ellenőrzőt a kézi gombhoz
 from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
@@ -73,43 +74,14 @@ def get_current_user(request: Request):
             return res.data
         except Exception: return None
     return None
-
-# --- JAVÍTOTT ÉS DEBUGGOLT JOGOSULTSÁG ELLENŐRZÉS ---
 def is_web_user_subscribed(user: dict) -> bool:
     if not user: return False
-    
-    status = user.get("subscription_status")
-    # Kisbetűsítés a biztonság kedvéért
-    if str(status).lower() != "active":
-        print(f"DEBUG: Felhasználó {user.get('email')} nem aktív. Státusz: {status}")
-        return False
-
-    expires_at_str = user.get("subscription_expires_at")
-    if not expires_at_str:
-        print(f"DEBUG: Felhasználó {user.get('email')} nincs lejárati dátuma.")
-        return False
-
-    try:
-        # Robusztus dátum feldolgozás
-        clean_date = expires_at_str.replace('Z', '+00:00')
-        expires_at = datetime.fromisoformat(clean_date)
-        
-        # Ha nincs időzóna infó, UTC-nek vesszük
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=pytz.utc)
-            
-        now = datetime.now(pytz.utc)
-
-        if expires_at > now:
-            return True
-        else:
-            print(f"DEBUG: Felhasználó {user.get('email')} lejárt. Lejárat: {expires_at}, Most: {now}")
-            return False
-            
-    except Exception as e:
-        print(f"DEBUG: Dátum hiba {user.get('email')}-nél: {e}")
-        return False
-
+    if user.get("subscription_status") == "active":
+        expires_at_str = user.get("subscription_expires_at")
+        if expires_at_str:
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+            if expires_at > datetime.now(pytz.utc): return True
+    return False
 async def send_admin_notification(message: str):
     if not TOKEN or not ADMIN_CHAT_ID: return
     try:
@@ -193,8 +165,10 @@ async def vip_area(request: Request):
                             meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
                             if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                                 match_results = [m.get('eredmeny') for m in meccs_list]
+                                # Csak a már lezárt, vesztes tippeket rejtjük el
                                 if 'Veszített' in match_results: continue
-                                if 'Tipp leadva' not in match_results: continue
+                                # Ha minden lezárult (nincs függő), akkor is elrejtjük (opcionális, de tisztább)
+                                if 'Tipp leadva' not in match_results: continue 
 
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
@@ -368,6 +342,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             
+            # --- V9.8: FIX: Nincs időkorlát, csak billing_reason check! ---
             if billing_reason == 'subscription_cycle':
                 sub_id = invoice.get('subscription')
                 try:
@@ -383,6 +358,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         dur = 30 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
+                        
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
                 except Exception as e: print(f"Megújítás hiba: {e}")
             
