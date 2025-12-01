@@ -1,4 +1,4 @@
-# main.py (V9.9 - Debug Logolás: Miért nem fut le a megújítás?)
+# main.py (V9.10 - Javítva: Subscription ID agresszív keresése és Null check)
 
 import os
 import asyncio
@@ -323,7 +323,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # --- DEBUG LOGOLÁS (V9.9) ---
+        # --- DEBUG LOGOLÁS ---
         print(f"WEBHOOK EVENT: {event['type']}")
         
         if event['type'] == 'checkout.session.completed':
@@ -344,10 +344,24 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             cid = invoice.get('customer')
             print(f"Invoice Succeeded. Reason: {billing_reason}, CID: {cid}")
             
-            # --- V9.9 JAVÍTÁS: Bővített okok (cycle + update) és részletes log ---
             if billing_reason in ['subscription_cycle', 'subscription_update']:
+                # --- V9.10 JAVÍTOTT ID KERESÉS ---
                 sub_id = invoice.get('subscription')
-                print(f"Processing renewal for SUB_ID: {sub_id}")
+                
+                # Ha nincs a fő helyen, megnézzük a 'lines' között
+                if not sub_id:
+                    try:
+                        sub_id = invoice['lines']['data'][0]['subscription']
+                    except (KeyError, IndexError, TypeError):
+                        pass
+                
+                print(f"DEBUG: Extracted SUB_ID: {sub_id}") 
+
+                if not sub_id:
+                    print("!!! HIBA: Nem sikerült kinyerni a Subscription ID-t az invoice-ból!")
+                    # Nem dobunk hibát, hogy ne próbálkozzon újra feleslegesen a Stripe
+                    return {"status": "success"} 
+
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
                     pid = sub['items']['data'][0]['price']['id']
