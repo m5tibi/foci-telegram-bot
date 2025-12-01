@@ -1,4 +1,4 @@
-# main.py (V9.8 - Javítva: Megújítások blokkolásának végleges eltávolítása)
+# main.py (V9.9 - Debug Logolás: Miért nem fut le a megújítás?)
 
 import os
 import asyncio
@@ -25,7 +25,6 @@ from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
 from tipp_generator import main as run_tipp_generator
-# Importáljuk az ellenőrzőt a kézi gombhoz
 from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
@@ -165,9 +164,7 @@ async def vip_area(request: Request):
                             meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
                             if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                                 match_results = [m.get('eredmeny') for m in meccs_list]
-                                # Csak a már lezárt, vesztes tippeket rejtjük el
                                 if 'Veszített' in match_results: continue
-                                # Ha minden lezárult (nincs függő), akkor is elrejtjük (opcionális, de tisztább)
                                 if 'Tipp leadva' not in match_results: continue 
 
                                 for m in meccs_list:
@@ -325,26 +322,32 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
+        
+        # --- DEBUG LOGOLÁS (V9.9) ---
+        print(f"WEBHOOK EVENT: {event['type']}")
+        
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
+            print(f"Checkout completed. UID: {uid}, CID: {cid}")
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
-                
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                 duration = 30 if is_monthly else 7
                 plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
-                
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
+            cid = invoice.get('customer')
+            print(f"Invoice Succeeded. Reason: {billing_reason}, CID: {cid}")
             
-            # --- V9.8: FIX: Nincs időkorlát, csak billing_reason check! ---
-            if billing_reason == 'subscription_cycle':
+            # --- V9.9 JAVÍTÁS: Bővített okok (cycle + update) és részletes log ---
+            if billing_reason in ['subscription_cycle', 'subscription_update']:
                 sub_id = invoice.get('subscription')
+                print(f"Processing renewal for SUB_ID: {sub_id}")
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
                     pid = sub['items']['data'][0]['price']['id']
@@ -353,17 +356,31 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
                     
                     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    usr = client.table("felhasznalok").select("*").eq("stripe_customer_id", invoice.get('customer')).single().execute().data
-                    if usr:
+                    usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                    
+                    if usr_res.data:
+                        usr = usr_res.data
+                        print(f"User found: {usr['email']}")
                         dur = 30 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
-                        client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": (start + timedelta(days=dur)).isoformat()}).eq("id", usr['id']).execute()
+                        new_expiry = (start + timedelta(days=dur)).isoformat()
+                        
+                        client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": new_expiry}).eq("id", usr['id']).execute()
+                        print(f"Updated expiry to: {new_expiry}")
                         
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
-                except Exception as e: print(f"Megújítás hiba: {e}")
+                    else:
+                        print(f"!!! USER NOT FOUND in DB for CID: {cid}")
+                        
+                except Exception as e: 
+                    print(f"!!! Megújítás hiba (Exception): {e}")
             
             elif billing_reason == 'subscription_create':
-                print("INFO: Új előfizetés webhook kihagyva (Checkout kezeli).")
+                print("INFO: Skipped subscription_create (handled by checkout).")
+            else:
+                print(f"INFO: Skipped other billing reason: {billing_reason}")
 
         return {"status": "success"}
-    except Exception as e: return {"error": str(e)}, 400
+    except Exception as e:
+        print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
+        return {"error": str(e)}, 400
