@@ -1,4 +1,4 @@
-# bot.py (V6.7 - Javítva: V8.3 kompatibilitás + Helyes gombkezelő patternek + 'callback_gombata' elírás javítva)
+# bot.py (V6.8 - Javítva: Statisztika a Tipp Dátuma alapján, nem a létrehozás alapján)
 
 import os
 import telegram
@@ -31,64 +31,19 @@ def get_db_client():
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
-# --- JAVÍTOTT FÜGGVÉNY KEZDETE (main.py V8.3 kompatibilitás) ---
 def get_tip_details(tip_name: str):
-    """
-    JAVÍTVA: A main.py V8.3 által a 'meccsek' táblából küldött
-    rövidítésekhez (pl. "H", "2.5 OVER") igazítva.
-    """
     tip_mapping = {
-        # 1X2
-        "H": "Hazai győzelem (1)",
-        "D": "Döntetlen (X)",
-        "V": "Vendég győzelem (2)",
-        "1X": "Hazai vagy döntetlen (1X)",
-        "X2": "Vendég vagy döntetlen (X2)",
-        "12": "Hazai vagy vendég (12)",
-        
-        # Gólszám (Alatt/Felett)
-        "0.5 OVER": "Több, mint 0.5 gól (0.5 OVER)",
-        "1.5 OVER": "Több, mint 1.5 gól (1.5 OVER)",
-        "2.5 OVER": "Több, mint 2.5 gól (2.5 OVER)",
-        "3.5 OVER": "Több, mint 3.5 gól (3.5 OVER)",
-        "4.5 OVER": "Több, mint 4.5 gól (4.5 OVER)",
-        "0.5 UNDER": "Kevesebb, mint 0.5 gól (0.5 UNDER)",
-        "1.5 UNDER": "Kevesebb, mint 1.5 gól (1.5 UNDER)",
-        "2.5 UNDER": "Kevesebb, mint 2.5 gól (2.5 UNDER)",
-        "3.5 UNDER": "Kevesebb, mint 3.5 gól (3.5 UNDER)",
-        "4.5 UNDER": "Kevesebb, mint 4.5 gól (4.5 UNDER)",
-
-        # Ázsiai Hendikep
-        "AH -0.5": "Ázsiai Hendikep -0.5",
-        "AH +0.5": "Ázsiai Hendikep +0.5",
-        "AH -1.0": "Ázsiai Hendikep -1.0",
-        "AH +1.0": "Ázsiai Hendikep +1.0",
-        "AH -1.5": "Ázsiai Hendikep -1.5",
-        "AH +1.5": "Ázsiai Hendikep +1.5",
-
-        # Igen/Nem
-        "GG": "Mindkét csapat szerez gólt (GG)",
-        "NG": "Nem szerez mindkét csapat gólt (NG)",
-        
-        # A V6.7-es fájlban lévő eredeti opciók (biztonság kedvéért, ha a bot belsőleg használná)
-        "Home": "Hazai nyer", 
-        "Away": "Vendég nyer", 
-        "Over 2.5": "Gólok 2.5 felett", 
-        "Under 2.5": "Gólok 2.5 alatt", 
-        "Over 1.5": "Gólok 1.5 felett", 
-        "BTTS": "Mindkét csapat szerez gólt", 
-        "1X": "Dupla esély: 1X", 
-        "X2": "Dupla esély: X2", 
-        "First Half Over 0.5": "Félidő 0.5 gól felett", 
-        "Home Over 0.5": "Hazai 0.5 gól felett", 
-        "Home Over 1.5": "Hazai 1.5 gól felett", 
-        "Away Over 0.5": "Vendég 0.5 gól felett", 
-        "Away Over 1.5": "Vendég 1.5 gól felett"
+        "H": "Hazai győzelem (1)", "D": "Döntetlen (X)", "V": "Vendég győzelem (2)",
+        "1X": "Hazai vagy döntetlen (1X)", "X2": "Vendég vagy döntetlen (X2)", "12": "Hazai vagy vendég (12)",
+        "0.5 OVER": "Több, mint 0.5 gól", "1.5 OVER": "Több, mint 1.5 gól", "2.5 OVER": "Több, mint 2.5 gól",
+        "3.5 OVER": "Több, mint 3.5 gól", "4.5 OVER": "Több, mint 4.5 gól",
+        "0.5 UNDER": "Kevesebb, mint 0.5 gól", "1.5 UNDER": "Kevesebb, mint 1.5 gól", "2.5 UNDER": "Kevesebb, mint 2.5 gól",
+        "3.5 UNDER": "Kevesebb, mint 3.5 gól", "4.5 UNDER": "Kevesebb, mint 4.5 gól",
+        "GG": "Mindkét csapat szerez gólt (GG)", "NG": "Nem szerez mindkét csapat gólt (NG)",
+        "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Under 2.5": "Gólok 2.5 alatt", 
+        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt"
     }
-    # Visszaadja a mapping-et, vagy az eredeti stringet, ha nem található
     return tip_mapping.get(tip_name, tip_name)
-# --- JAVÍTOTT FÜGGVÉNY VÉGE ---
-
 
 def admin_only(func):
     @wraps(func)
@@ -103,7 +58,6 @@ def format_slip_for_telegram(szelveny):
     for meccs in szelveny.get('meccsek', []):
         local_time = datetime.fromisoformat(meccs['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ)
         kezdes_str = local_time.strftime('%b %d. %H:%M')
-        # Ez a függvényhívás most már a javított get_tip_details-t használja
         tipp_str = get_tip_details(meccs['tipp'])
         message += f"⚽️ *{meccs['csapat_H']} vs {meccs['csapat_V']}*\n"
         message += f"🏆 {meccs['liga_nev']}\n"
@@ -146,9 +100,7 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
     print(f"Publikus értesítés küldése a(z) {date_str} napra...")
     try:
         response = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").not_.is_("chat_id", "null").execute()
-        if not response.data:
-            print("Nincsenek értesítendő előfizetők.")
-            return 0, 0
+        if not response.data: return 0, 0
         chat_ids_to_notify = {user['chat_id'] for user in response.data}
         message_text = "Szia! 👋 Friss tippek érkeztek a VIP Zónába!"
         vip_url = "https://foci-telegram-bot.onrender.com/vip"
@@ -159,31 +111,21 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
             try:
                 await bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup)
                 successful_sends += 1
-            except Exception as e:
-                print(f"Hiba a(z) {chat_id} felhasználónak küldés során: {e}")
-                failed_sends += 1
+            except Exception: failed_sends += 1
             await asyncio.sleep(0.1)
-        print(f"Publikus értesítés befejezve. Sikeres: {successful_sends}, Sikertelen: {failed_sends}")
         return successful_sends, failed_sends
-    except Exception as e:
-        print(f"Hiba a publikus értesítés küldése során: {e}")
-        return 0, len(chat_ids_to_notify) if 'chat_ids_to_notify' in locals() else 0
+    except Exception: return 0, 0
 
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
-    
-    # --- JAVÍTVA (Aláhúzásról kettőspontra) ---
     date_str = query.data.split(":")[-1] 
-    
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
     confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
                        "A tippek mostantól láthatóak a weboldalon.\n\n"
                        "Biztosan kiküldöd az értesítést a VIP tagoknak?")
-    
-    # Ez a belső gomb (confirm_send_) továbbra is aláhúzást használ, ami helyes.
     keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
                 [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -192,7 +134,7 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
-    date_str = query.data.split("_")[-1] # Ez helyesen aláhúzás
+    date_str = query.data.split("_")[-1]
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
     successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
@@ -203,10 +145,7 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
-    
-    # --- JAVÍTVA (Aláhúzásról kettőspontra) ---
     date_str = query.data.split(":")[-1] 
-    
     def sync_delete_rejected_tips(date_to_delete):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         slips_to_delete = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
@@ -243,13 +182,12 @@ async def test_service_key(update: telegram.Update, context: CallbackContext):
     await query.answer("Service kulcs ellenőrzése...")
     key = SUPABASE_SERVICE_KEY
     if key:
-        response_text = (f"✅ A `SUPABASE_SERVICE_KEY` be van állítva a Render környezetben.\n\n"
+        response_text = (f"✅ A `SUPABASE_SERVICE_KEY` be van állítva.\n\n"
                        f"🔑 Kulcs részletei:\n"
                        f"  - Első 5 karakter: `{key[:5]}`\n"
-                       f"  - Utolsó 5 karakter: `{key[-5:]}`\n\n"
-                       f"Ha a gomb továbbra sem működik, akkor a Renderben elmentett kulcs értéke hibás.")
+                       f"  - Utolsó 5 karakter: `{key[-5:]}`")
     else:
-        response_text = (f"❌ **HIBA:** A `SUPABASE_SERVICE_KEY` **NINCS** beállítva a Render környezeti változói között!")
+        response_text = (f"❌ **HIBA:** A `SUPABASE_SERVICE_KEY` **NINCS** beállítva!")
     await query.message.reply_text(text=response_text, parse_mode='Markdown')
 
 @admin_only
@@ -276,8 +214,6 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
             for slip in pending_manual:
                 slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
                 keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
-                
-                # --- JAVÍTVA ('callback_gombata' -> 'callback_data') ---
                 keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_vip_{slip['id']}_Nyert"),
                                  InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_vip_{slip['id']}_Veszített")])
         
@@ -291,24 +227,21 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message.edit_text(response_text, reply_markup=reply_markup)
-    except Exception as e: await message.edit_text(f"Hiba történt a manuális tippek lekérésekor: {e}")
+    except Exception as e: await message.edit_text(f"Hiba: {e}")
 
 @admin_only
 async def handle_manual_slip_action(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; _, _, tip_type, slip_id_str, result = query.data.split("_"); slip_id = int(slip_id_str)
     await query.answer(f"Státusz frissítése: {result}")
-    
     table_name = "manual_slips" if tip_type == "vip" else "free_slips"
-
     try:
         def sync_update_manual():
             if not SUPABASE_SERVICE_KEY: raise Exception("Service key not configured")
             supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
             supabase_admin.table(table_name).update({"status": result}).eq("id", slip_id).execute()
-        
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
-    except Exception as e: await query.message.edit_text(f"Hiba a státusz frissítésekor: {e}")
+    except Exception as e: await query.message.edit_text(f"Hiba: {e}")
 
 
 @admin_only
@@ -364,7 +297,6 @@ def format_slip_with_results(slip_data, meccsek_map):
         icon = "✅" if meccs['eredmeny'] == 'Nyert' else "❌" if meccs['eredmeny'] == 'Veszített' else "⚪️" if meccs['eredmeny'] == 'Érvénytelen' else "⏳"
         message += f"⚽️ {meccs['csapat_H']} vs {meccs['csapat_V']}\n🏆 Bajnokság: {meccs['liga_nev']}\n⏰ Kezdés: {local_time.strftime('%H:%M')}\n"
         if meccs.get('veg_eredmeny') and meccs['eredmeny'] != 'Tipp leadva': message += f"🏁 Végeredmény: {meccs['veg_eredmeny']}\n"
-        # Ez a függvényhívás most már a javított get_tip_details-t használja
         tipp_str = get_tip_details(meccs['tipp'])
         message += f"💡 Tipp: {tipp_str} {icon}\n\n"
     return message
@@ -413,14 +345,17 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 response_free = supabase.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
             else: 
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-                next_month_start = target_month_start + relativedelta(months=1)
+                
+                # --- JAVÍTÁS (V6.8): Név alapú szűrés a created_at helyett ---
+                # Ez megoldja a hóforduló problémát (ha nov. 30-án készült dec. 1-re szóló tipp)
+                year_month = target_month_start.strftime('%Y-%m') # Pl. "2025-12"
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
                 
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only") \
-                    .gte("created_at", target_month_start.isoformat()) \
-                    .lt("created_at", next_month_start.isoformat()) \
-                    .order('created_at', desc=True).execute()
+                    .ilike("tipp_neve", f"%{year_month}%") \
+                    .order('tipp_neve', desc=True).execute()
                 
+                next_month_start = target_month_start + relativedelta(months=1)
                 response_manual = supabase.table("manual_slips").select("*") \
                     .gte("target_date", target_month_start.strftime('%Y-%m-%d')) \
                     .lt("target_date", next_month_start.strftime('%Y-%m-%d')) \
@@ -617,12 +552,10 @@ def add_handlers(application: Application):
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
-    
-    # --- JAVÍTVA (Patternek kettőspontra cserélve) ---
-    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
-    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_')) # Ez marad aláhúzás, mert belső gomb
-    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
-    
+    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
+    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_'))
+    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
     application.add_handler(CallbackQueryHandler(button_handler))
-    print("Minden parancs- és gombkezelő sikeresen hozzáadva (V6.7 + V8.3 Patch + Typo Fix).")
+    print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+    
