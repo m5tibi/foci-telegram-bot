@@ -1,4 +1,4 @@
-# main.py (V9.10 - Javítva: Subscription ID agresszív keresése és Null check)
+# main.py (V9.11 - Javítva: V8.7-es "Okos ID Keresés" visszahozva + Időkorlát nélkül)
 
 import os
 import asyncio
@@ -323,7 +323,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # --- DEBUG LOGOLÁS ---
+        # DEBUG
         print(f"WEBHOOK EVENT: {event['type']}")
         
         if event['type'] == 'checkout.session.completed':
@@ -345,10 +345,17 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             print(f"Invoice Succeeded. Reason: {billing_reason}, CID: {cid}")
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
-                # --- V9.10 JAVÍTOTT ID KERESÉS ---
-                sub_id = invoice.get('subscription')
+                # --- V9.11 JAVÍTÁS: ID KERESÉS A V8.7 ALAPJÁN (A legbiztosabb módszer) ---
                 
-                # Ha nincs a fő helyen, megnézzük a 'lines' között
+                # 1. Próbálkozás: A 'parent' objektumból (ez működött a V8.7-ben)
+                subscription_details = invoice.get('parent', {}).get('subscription_details', {})
+                sub_id = subscription_details.get('subscription')
+                
+                # 2. Próbálkozás: Ha az előző üres, akkor a fő objektumból
+                if not sub_id:
+                    sub_id = invoice.get('subscription')
+                
+                # 3. Próbálkozás: Végső mentsvár a 'lines'-ból
                 if not sub_id:
                     try:
                         sub_id = invoice['lines']['data'][0]['subscription']
@@ -358,8 +365,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 print(f"DEBUG: Extracted SUB_ID: {sub_id}") 
 
                 if not sub_id:
-                    print("!!! HIBA: Nem sikerült kinyerni a Subscription ID-t az invoice-ból!")
-                    # Nem dobunk hibát, hogy ne próbálkozzon újra feleslegesen a Stripe
+                    print("!!! HIBA: Nem sikerült kinyerni a Subscription ID-t semelyik módszerrel!")
                     return {"status": "success"} 
 
                 try:
