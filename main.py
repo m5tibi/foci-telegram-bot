@@ -1,4 +1,4 @@
-# main.py (V9.11 - Javítva: V8.7-es "Okos ID Keresés" visszahozva + Időkorlát nélkül)
+# main.py (V9.11 - Javítva: V8.7-es "Okos ID Keresés" visszahozva + Időkorlát nélkül + CAPI Deduplikáció javítva)
 
 import os
 import asyncio
@@ -234,14 +234,20 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
+    
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
+    
+    # MODOSITÁS: Az ár meghatározása a Pixel méréshez
+    amount_val = "9999" if plan == 'monthly' else "3490"
+
     try:
         params = {
             'payment_method_types': ['card'],
             'line_items': [{'price': price_id, 'quantity': 1}],
             'mode': 'subscription',
             'billing_address_collection': 'required',
-            'success_url': f"{RENDER_APP_URL}/vip?payment=success",
+            # MODOSITÁS: session_id és amount beillesztése a visszatérési URL-be
+            'success_url': f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}&amount={amount_val}",
             'cancel_url': f"{RENDER_APP_URL}/vip",
             'allow_promotion_codes': True,
             'metadata': {'user_id': user['id']}
@@ -404,4 +410,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
-
