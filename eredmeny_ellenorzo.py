@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V2.3 - "Tegnapi Összefoglaló" móddal)
+# eredmeny_ellenorzo.py (V2.4 - Napi + Havi Göngyölített Statisztika)
 import os
 import sys
 import requests
@@ -19,6 +19,10 @@ ADMIN_CHAT_ID = 1326707238
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
+# Magyar hónapnevek a szép kiíráshoz
+HU_MONTHS = {1: "Január", 2: "Február", 3: "Március", 4: "Április", 5: "Május", 6: "Június", 
+             7: "Július", 8: "Augusztus", 9: "Szeptember", 10: "Október", 11: "November", 12: "December"}
+
 def send_telegram_report(report_text):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -32,18 +36,35 @@ def get_fixtures_to_check():
     check_threshold = now_utc - timedelta(minutes=120)
     return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
 
-def get_completed_tips_for_date(target_date):
-    """Lekéri egy konkrét nap összes lezárt tippjét."""
-    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
-    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
+def get_stats_for_period(start_date, end_date):
+    """Lekéri a statisztikát egy adott időszakra (tól-ig)."""
+    start_iso = start_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
+    end_iso = end_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
     
     response = supabase.table("meccsek").select("*") \
-        .gte("kezdes", start_of_day) \
-        .lte("kezdes", end_of_day) \
+        .gte("kezdes", start_iso) \
+        .lte("kezdes", end_iso) \
         .neq("eredmeny", "Tipp leadva") \
         .execute()
     
-    return response.data
+    tips = response.data
+    if not tips: return None
+
+    wins = [t for t in tips if t['eredmeny'] == 'Nyert']
+    total = len(tips)
+    win_cnt = len(wins)
+    
+    # Profit (1 egység téttel)
+    profit = sum(t['odds'] for t in wins) - total
+    roi = (profit / total * 100) if total > 0 else 0
+    
+    return {
+        "total": total,
+        "wins": win_cnt,
+        "profit": profit,
+        "roi": roi,
+        "tips": tips # A részletes lista (csak a napihoz kell)
+    }
 
 def get_fixture_result(fixture_id):
     url = f"https://{RAPIDAPI_HOST}/v3/fixtures"
@@ -75,14 +96,12 @@ def evaluate_tip(tip_text, fixture_data):
     return res, f"{h}-{a}"
 
 def main():
-    # Parancssori kapcsoló ellenőrzése
     force_yesterday = '--tegnap' in sys.argv
-    
     now_bp = datetime.now(BUDAPEST_TZ)
     
     if force_yesterday:
         target_date = now_bp - timedelta(days=1)
-        print(f"🔙 'Tegnapi Összefoglaló' mód aktív. Dátum: {target_date.strftime('%Y-%m-%d')}")
+        print(f"🔙 'Tegnapi Összefoglaló' mód. Dátum: {target_date.strftime('%Y-%m-%d')}")
     elif now_bp.hour < 6:
         target_date = now_bp - timedelta(days=1)
         print(f"🌙 Hajnali futás. A tegnapi nap ({target_date.strftime('%Y-%m-%d')}) zárása...")
@@ -114,23 +133,24 @@ def main():
     else:
         print("Nincs függő meccs.")
 
-    # --- 2. JELENTÉS KÜLDÉSE ---
-    # Ha kényszerített mód van, VAGY volt frissítés, akkor küldünk jelentést
+    # --- 2. JELENTÉS KÉSZÍTÉSE (NAPI + HAVI) ---
     if force_yesterday or updates_count > 0:
         print("Statisztika generálása...")
-        all_tips = get_completed_tips_for_date(target_date)
         
-        if all_tips:
-            wins = [t for t in all_tips if t['eredmeny'] == 'Nyert']
-            losses = [t for t in all_tips if t['eredmeny'] == 'Veszített']
-            
-            total = len(all_tips)
-            win_cnt = len(wins)
-            profit = sum(t['odds'] for t in wins) - total
-            roi = (profit / total * 100) if total > 0 else 0
+        # A) Napi Statisztika
+        daily_stats = get_stats_for_period(target_date, target_date)
+        
+        # B) Havi Statisztika (Hónap 1-jétől a target_date-ig)
+        month_start = target_date.replace(day=1)
+        monthly_stats = get_stats_for_period(month_start, target_date)
+        
+        if daily_stats:
+            # Napi részletek
+            wins = [t for t in daily_stats['tips'] if t['eredmeny'] == 'Nyert']
+            losses = [t for t in daily_stats['tips'] if t['eredmeny'] == 'Veszített']
             
             report_title = "🔙 Tegnapi Összefoglaló" if force_yesterday else "📊 Napi Tipp Kiértékelés"
-            msg = f"{report_title}\n📅 Dátum: {target_date.strftime('%Y-%m-%d')}\n\n"
+            msg = f"{report_title}\n📅 Dátum: *{target_date.strftime('%Y-%m-%d')}*\n\n"
             
             if wins:
                 msg += "✅ *Nyertes:*\n"
@@ -141,17 +161,26 @@ def main():
                 for t in losses: msg += f"⚽️ {t['csapat_H']} ({t['tipp']})\n"
                 msg += "\n"
                 
-            sign = "+" if profit > 0 else ""
+            sign_d = "+" if daily_stats['profit'] > 0 else ""
             msg += "---\n"
-            msg += f"📝 Összesen: *{total} db* (✅ {win_cnt})\n"
-            msg += f"💰 Profit: *{sign}{profit:.2f} egység*\n"
-            msg += f"📈 ROI: *{sign}{roi:.1f}%*"
+            msg += f"📝 Napi: *{daily_stats['total']} db* (✅ {daily_stats['wins']})\n"
+            msg += f"💰 Profit: *{sign_d}{daily_stats['profit']:.2f} egység*\n"
+            msg += f"📈 ROI: *{sign_d}{daily_stats['roi']:.1f}%*\n"
+            
+            # Havi blokk hozzáadása
+            if monthly_stats:
+                month_name = HU_MONTHS.get(target_date.month, "Hónap")
+                sign_m = "+" if monthly_stats['profit'] > 0 else ""
+                
+                msg += "\n📅 *Havi Összesítő (" + month_name + ")*\n"
+                msg += f"📝 Összes tipp: *{monthly_stats['total']} db*\n"
+                msg += f"✅ Találat: *{monthly_stats['wins']} db* ({(monthly_stats['wins']/monthly_stats['total']*100):.1f}%)\n"
+                msg += f"💰 Profit: *{sign_m}{monthly_stats['profit']:.2f} egység*\n"
+                msg += f"📈 ROI: *{sign_m}{monthly_stats['roi']:.1f}%*"
             
             send_telegram_report(msg)
         else:
             print("Nincs kiértékelt tipp a kért napra.")
-            if force_yesterday:
-                print("(Lehet, hogy tegnap nem volt tipp, vagy még nincs kiértékelve?)")
 
     print("--- Kész ---")
 
