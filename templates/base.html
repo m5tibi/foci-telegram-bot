@@ -523,7 +523,24 @@
             if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
                 if (getCookie('user_cookie_consent') === 'accepted') {
                     if (typeof fbq !== 'undefined') {
-                        fbq('track', 'Purchase', {value: 9999, currency: 'HUF'});
+                        // --- MODOSÍTÁS: Deduplikációs kulcs és Pontos összeg kezelése ---
+                        
+                        // Stripe Session ID kiolvasása az URL-ből
+                        const sessionId = urlParams.get('session_id');
+                        
+                        // Ha van Session ID, azt használjuk eventID-nek, egyébként timestamp alapú fallback
+                        const eventId = sessionId ? sessionId : 'purchase_' + new Date().getTime();
+                        
+                        // Összeg kiolvasása az URL-ből, vagy fallback a 9999-re
+                        const amountParam = urlParams.get('amount');
+                        const valueAmount = amountParam ? parseFloat(amountParam) : 9999;
+
+                        fbq('track', 'Purchase', {
+                            value: valueAmount, 
+                            currency: 'HUF'
+                        }, {
+                            eventID: eventId  // Ez a kulcs a szerver és böngésző összekötéséhez!
+                        });
                     }
                 }
             }
