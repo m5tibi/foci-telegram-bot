@@ -333,7 +333,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                duration = 30 if is_monthly else 7
+                duration = 31 if is_monthly else 7
                 plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
@@ -381,7 +381,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     if usr_res.data:
                         usr = usr_res.data
                         print(f"User found: {usr['email']}")
-                        dur = 30 if is_monthly else 7
+                        dur = 31 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
                         
@@ -404,3 +404,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
+
