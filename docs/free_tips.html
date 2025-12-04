@@ -3,70 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ingyenes Foci Tippek - KOMPATIBILIS MÓD</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .slip-card { background: white; padding: 10px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: block; text-decoration: none; color: inherit; }
-        .slip-card img { width: 100%; height: auto; display: block; }
-        #debug-log { background: #000; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; margin-bottom: 20px; white-space: pre-wrap; word-break: break-all; }
-        .btn { display: inline-block; background: #38A169; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-    </style>
+    <title>Ingyenes Foci Tippek - Mondom a Tutit!</title>
+    <meta name="description" content="Nézz bele ingyenes tippjeinkbe! Ha minden nap szeretnél hozzáférést a legjobb szelvényekhez, csatlakozz a VIP Zónához.">
+    <link rel="icon" type="image/png" href="images/favicon.png">
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        :root {
+            --primary-color: #38A169; --secondary-color: #2F855A; --text-color: #333;
+            --bg-color: #f4f7f6; --white: #ffffff; --bg-dark: #1A202C;
+            --bg-card: #2D3748; --border-color: #4A5568; --text-light: #E2E8F0;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0 0 120px 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        header { background-color: var(--bg-dark); color: var(--white); text-align: center; padding: 40px 20px; }
+        header h1 { font-size: 2.8rem; margin-bottom: 1rem; }
+        .intro-text { text-align: center; max-width: 800px; margin: 30px auto; font-size: 1.1rem; }
+        .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease, transform 0.3s ease; }
+        .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
+        .slips-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 40px;
+            justify-items: center;
+            align-items: start;
+        }
+        .slip-card {
+            background-color: var(--white);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            text-decoration: none !important;
+            width: 100%;
+            max-width: 400px; 
+        }
+        .slip-card:hover { transform: translateY(-5px); box-shadow: 0 6px 15px rgba(0,0,0,0.15); }
+        .slip-card img { width: 100%; height: auto; display: block; }
+        
+        .manual-card-footer {
+            padding: 15px;
+            text-align: center;
+        }
+        .manual-card-title {
+            display: block;
+            font-weight: bold;
+            color: var(--text-color);
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+        .manual-card-date {
+            display: block;
+            font-size: 0.9rem;
+            color: #777;
+        }
+
+        #loading-state { text-align: center; padding: 40px; font-size: 1.2rem; color: #555; }
+        footer { background-color: #2c3e50; color: var(--white); text-align: center; padding: 30px 20px; margin-top: 60px; }
+        footer a { color: var(--white); text-decoration: none; margin: 0 10px; }
+
+        #cookie-banner {
+            position: fixed; bottom: 0; left: 0; width: 100%; background-color: var(--bg-card);
+            color: var(--text-light); padding: 20px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            z-index: 1000; display: none; align-items: center; justify-content: center;
+            gap: 20px; box-sizing: border-box;
+        }
+        #cookie-banner p { margin: 0; flex-grow: 1; max-width: 800px; font-size: 0.9rem; }
+        #cookie-banner p a { color: var(--primary-color); text-decoration: underline; }
+        .cookie-buttons { display: flex; gap: 10px; flex-shrink: 0; }
+        .cookie-btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background-color 0.3s ease; }
+        #cookie-accept-btn { background-color: var(--primary-color); color: white; }
+        #cookie-decline-btn { background-color: var(--border-color); color: var(--text-light); }
+        @media (max-width: 768px) {
+            #cookie-banner { flex-direction: column; text-align: center; }
+            body { margin-bottom: 180px; }
+        }
+    </style>
 </head>
 <body>
 
+    <header>
+        <h1>Ingyenes Tippek</h1>
+        <p>Időről időre itt is megosztunk egy-egy tippet, hogy bepillantást nyerhess a rendszerünk működésébe.</p>
+    </header>
+
     <div class="container">
-        <h1>🔧 Kompatibilis Hibakereső</h1>
-        <div id="debug-log">Napló indítása...</div>
-        <div id="free-slips-container"></div>
-        <div id="loading-state">Betöltés...</div>
-        <a href="/index.html" class="btn">Vissza a Főoldalra</a>
+        <div class="intro-text">
+            <p>Ezeket a tippeket ajándékként adjuk, de a legjobb, legmagasabb megbízhatóságú, AI által elemzett és szakértőink által jóváhagyott szelvényeket kizárólag a VIP Zónában találod meg.</p>
+            <p><strong>Ha minden nap a legjobb tippeket szeretnéd, ne habozz, fizess elő!</strong></p>
+            <a href="https://mondomatutit.hu/#login-register" class="cta-button">Irány a VIP Zóna!</a>
+        </div>
+
+        <hr style="margin: 40px 0;">
+
+        <div id="free-slips-container" class="slips-grid"></div>
+        <div id="loading-state">
+            <p>Ingyenes tippek betöltése...</p>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>© 2025 Mondom a Tutit! | <a href="/index.html">Vissza a Főoldalra</a></p>
+        </div>
+    </footer>
+
+    <div id="cookie-banner">
+        <p>Weboldalunk sütiket (cookie) használ a felhasználói élmény javítása, valamint analitikai és marketing célokból. Az "Elfogadom" gombra kattintva hozzájárulsz ezek használatához. További információt az <a href="/adatvedelem.html" target="_blank">Adatvédelmi Nyilatkozatban</a> találsz.</p>
+        <div class="cookie-buttons">
+            <button id="cookie-decline-btn" class="cookie-btn">Elutasítom</button>
+            <button id="cookie-accept-btn" class="cookie-btn">Elfogadom</button>
+        </div>
     </div>
 
     <script>
-        // Naplózó segédfüggvény
-        function log(msg) {
-            const logBox = document.getElementById('debug-log');
-            const time = new Date().toLocaleTimeString();
-            logBox.innerHTML += `\n[${time}] ${msg}`;
-        }
-
-        // Hibák elkapása (ha a script összeomlana)
-        window.onerror = function(message, source, lineno, colno, error) {
-            log(`🔥 KRITIKUS BÖNGÉSZŐ HIBA: ${message} (Sor: ${lineno})`);
-        };
-
-        log("1. Script elindult (Hagyományos módban).");
-
         const SUPABASE_URL = 'https://mzfgelfidtjuqgpwxtkg.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDg2OTgsImV4cCI6MjA3MDQ4NDY5OH0.qE-tviGlahOqDARyBEBgQu8T6_6DfWD2T6Oa8EWUh6M';
 
+        // 1. Inicializálás (Import nélkül)
+        let sbClient = null;
         try {
-            // Ellenőrizzük, hogy a Supabase betöltődött-e
-            if (typeof supabase === 'undefined') {
-                throw new Error("A Supabase könyvtár nem töltődött be! (CDN Hiba)");
+            if (typeof supabase !== 'undefined') {
+                const { createClient } = supabase;
+                sbClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+            } else {
+                console.error("Supabase könyvtár nem töltődött be.");
+                document.getElementById('loading-state').innerHTML = 'Hiba: Nem sikerült betölteni a rendszert.';
             }
-            log("2. Supabase könyvtár észlelve.");
+        } catch (e) {
+            console.error("Init hiba:", e);
+        }
 
-            const { createClient } = supabase;
-            const sbClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-            log("3. Kliens létrehozva.");
+        async function loadFreeSlips() {
+            if (!sbClient) return;
 
-            async function loadFreeSlips() {
-                const container = document.getElementById('free-slips-container');
-                const loadingState = document.getElementById('loading-state');
-                
-                const now = new Date();
-                const year = now.getFullYear();
-                const month = String(now.getMonth() + 1).padStart(2, '0');
-                const day = String(now.getDate()).padStart(2, '0');
-                const today = `${year}-${month}-${day}`;
-                
-                log(`4. Mai dátum: ${today}`);
-                log("5. Adatbázis lekérdezése...");
+            const container = document.getElementById('free-slips-container');
+            const loadingState = document.getElementById('loading-state');
+            
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const today = `${year}-${month}-${day}`;
 
+            try {
                 const { data, error } = await sbClient
                     .from('free_slips')
                     .select('*')
@@ -74,19 +157,11 @@
                     .eq('status', 'Folyamatban')
                     .order('target_date', { ascending: true });
 
-                if (error) {
-                    log("❌ HIBA a lekérdezésben: " + JSON.stringify(error));
-                    loadingState.innerHTML = 'Adatbázis hiba.';
-                    return;
-                }
-
-                log(`6. Lekérdezés kész. Eredmény: ${data ? data.length : 0} db tipp.`);
+                if (error) throw error;
 
                 if (data && data.length > 0) {
                     loadingState.style.display = 'none';
-                    data.forEach((slip, index) => {
-                        log(`#${index+1} Kép URL: ${slip.image_url}`);
-
+                    data.forEach(slip => {
                         const card = document.createElement('a');
                         card.href = slip.image_url;
                         card.target = '_blank';
@@ -95,29 +170,84 @@
                         const img = document.createElement('img');
                         img.src = slip.image_url;
                         img.alt = slip.tipp_neve;
-                        
-                        img.onload = () => log(`✅ #${index+1} Kép betöltve!`);
-                        img.onerror = () => log(`❌ #${index+1} Kép betöltése SIKERTELEN!`);
+                        img.loading = 'lazy'; // Teljesítmény javítás
 
                         const footer = document.createElement('div');
-                        footer.style.textAlign = 'center';
-                        footer.innerHTML = `<strong>${slip.tipp_neve}</strong><br><small>${slip.target_date}</small>`;
+                        footer.className = 'manual-card-footer';
+                        
+                        const titleSpan = document.createElement('span');
+                        titleSpan.className = 'manual-card-title';
+                        titleSpan.textContent = slip.tipp_neve;
 
+                        const dateSpan = document.createElement('span');
+                        dateSpan.className = 'manual-card-date';
+                        dateSpan.textContent = 'Lejárat: ' + slip.target_date;
+
+                        footer.appendChild(titleSpan);
+                        footer.appendChild(dateSpan);
+                        
                         card.appendChild(img);
                         card.appendChild(footer);
                         container.appendChild(card);
                     });
                 } else {
-                    log("⚠️ Üres a lista (Nincs találat).");
-                    loadingState.innerHTML = 'Nincs aktív tipp.';
+                    loadingState.innerHTML = '<p>Jelenleg nincsenek aktív ingyenes tippek. Nézz vissza később!</p>';
                 }
+            } catch (error) {
+                console.error('Hiba az ingyenes tippek betöltésekor:', error);
+                loadingState.innerHTML = '<p>Hiba történt a tippek betöltése közben. Kérlek, próbáld újra később.</p>';
+            }
+        }
+        
+        // Biztos, ami biztos: megvárjuk a teljes betöltést
+        window.addEventListener('load', loadFreeSlips);
+    </script>
+    
+    <script>
+        function loadFacebookPixel() {
+            !function(f,b,e,v,n,t,s)
+            {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+            n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+            if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+            n.queue=[];t=b.createElement(e);t.async=!0;
+            t.src=v;s=b.getElementsByTagName(e)[0];
+            s.parentNode.insertBefore(t,s)}(window, document,'script',
+            'https://connect.facebook.net/en_US/fbevents.js');
+            fbq('init', '1858049415130011');
+            fbq('track', 'PageView');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const banner = document.getElementById('cookie-banner');
+            const acceptBtn = document.getElementById('cookie-accept-btn');
+            const declineBtn = document.getElementById('cookie-decline-btn');
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
             }
 
-            loadFreeSlips();
+            const consent = getCookie('user_cookie_consent');
 
-        } catch (e) {
-            log("🔥 SCRIPT HIBA: " + e.message);
-        }
+            if (!consent) {
+                banner.style.display = 'flex';
+            } else if (consent === 'accepted') {
+                loadFacebookPixel();
+            }
+
+            acceptBtn.addEventListener('click', function() {
+                document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
+                banner.style.display = 'none';
+                loadFacebookPixel();
+            });
+
+            declineBtn.addEventListener('click', function() {
+                document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000';
+                banner.style.display = 'none';
+            });
+        });
     </script>
+
 </body>
 </html>
