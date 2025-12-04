@@ -1,4 +1,4 @@
-# main.py (V9.11 - Javítva: V8.7-es "Okos ID Keresés" visszahozva + Időkorlát nélkül + CAPI Deduplikáció javítva)
+# main.py (V9.12 - Javítva: Ingyenes Tippek lekérdezése visszapótolva + Stripe javítások)
 
 import os
 import asyncio
@@ -135,7 +135,7 @@ async def vip_area(request: Request):
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     is_subscribed = is_web_user_subscribed(user)
     
-    todays_slips, tomorrows_slips, active_manual_slips, daily_status_message = [], [], [], ""
+    todays_slips, tomorrows_slips, active_manual_slips, active_free_slips, daily_status_message = [], [], [], [], ""
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     
     if is_subscribed:
@@ -144,6 +144,7 @@ async def vip_area(request: Request):
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
+            # --- 1. BOT TIPPEK ---
             approved_dates = set()
             status_res = supabase_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
             if status_res.data:
@@ -174,11 +175,17 @@ async def vip_area(request: Request):
                                 if today_str in sz['tipp_neve']: todays_slips.append(sz)
                                 elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
 
+            # --- 2. MANUÁLIS VIP TIPPEK ---
             manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if manual.data: 
                 active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
+
+            # --- 3. INGYENES TIPPEK (EZ HIÁNYZOTT!) ---
+            free = supabase_client.table("free_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
+            if free.data:
+                active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
             
-            if not any([todays_slips, tomorrows_slips, active_manual_slips]):
+            if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
                 target = tomorrow_str if now_local.hour >= 19 else today_str
                 st_res = supabase_client.table("daily_status").select("status").eq("date", target).limit(1).execute()
                 st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
@@ -188,7 +195,16 @@ async def vip_area(request: Request):
                 else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
         except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
     
-    return templates.TemplateResponse("vip_tippek.html", {"request": request, "user": user, "is_subscribed": is_subscribed, "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, "active_manual_slips": active_manual_slips, "daily_status_message": daily_status_message})
+    return templates.TemplateResponse("vip_tippek.html", {
+        "request": request, 
+        "user": user, 
+        "is_subscribed": is_subscribed, 
+        "todays_slips": todays_slips, 
+        "tomorrows_slips": tomorrows_slips, 
+        "active_manual_slips": active_manual_slips,
+        "active_free_slips": active_free_slips,  # <--- ITT ADJUK ÁT
+        "daily_status_message": daily_status_message
+    })
 
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
@@ -234,20 +250,14 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
-    
     price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
-    
-    # MODOSITÁS: Az ár meghatározása a Pixel méréshez
-    amount_val = "9999" if plan == 'monthly' else "3490"
-
     try:
         params = {
             'payment_method_types': ['card'],
             'line_items': [{'price': price_id, 'quantity': 1}],
             'mode': 'subscription',
             'billing_address_collection': 'required',
-            # MODOSITÁS: session_id és amount beillesztése a visszatérési URL-be
-            'success_url': f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}&amount={amount_val}",
+            'success_url': f"{RENDER_APP_URL}/vip?payment=success",
             'cancel_url': f"{RENDER_APP_URL}/vip",
             'allow_promotion_codes': True,
             'metadata': {'user_id': user['id']}
@@ -339,7 +349,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                duration = 31 if is_monthly else 7
+                # JAVÍTÁS: 30 -> 32 nap
+                duration = 32 if is_monthly else 7
                 plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
@@ -351,28 +362,17 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             print(f"Invoice Succeeded. Reason: {billing_reason}, CID: {cid}")
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
-                # --- V9.11 JAVÍTÁS: ID KERESÉS A V8.7 ALAPJÁN (A legbiztosabb módszer) ---
-                
-                # 1. Próbálkozás: A 'parent' objektumból (ez működött a V8.7-ben)
                 subscription_details = invoice.get('parent', {}).get('subscription_details', {})
                 sub_id = subscription_details.get('subscription')
-                
-                # 2. Próbálkozás: Ha az előző üres, akkor a fő objektumból
                 if not sub_id:
                     sub_id = invoice.get('subscription')
-                
-                # 3. Próbálkozás: Végső mentsvár a 'lines'-ból
                 if not sub_id:
-                    try:
-                        sub_id = invoice['lines']['data'][0]['subscription']
-                    except (KeyError, IndexError, TypeError):
-                        pass
+                    try: sub_id = invoice['lines']['data'][0]['subscription']
+                    except (KeyError, IndexError, TypeError): pass
                 
                 print(f"DEBUG: Extracted SUB_ID: {sub_id}") 
 
-                if not sub_id:
-                    print("!!! HIBA: Nem sikerült kinyerni a Subscription ID-t semelyik módszerrel!")
-                    return {"status": "success"} 
+                if not sub_id: return {"status": "success"} 
 
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
@@ -386,25 +386,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     
                     if usr_res.data:
                         usr = usr_res.data
-                        print(f"User found: {usr['email']}")
-                        dur = 31 if is_monthly else 7
+                        # JAVÍTÁS: 30 -> 32 nap
+                        dur = 32 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
                         
                         client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": new_expiry}).eq("id", usr['id']).execute()
-                        print(f"Updated expiry to: {new_expiry}")
-                        
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
-                    else:
-                        print(f"!!! USER NOT FOUND in DB for CID: {cid}")
                         
-                except Exception as e: 
-                    print(f"!!! Megújítás hiba (Exception): {e}")
-            
-            elif billing_reason == 'subscription_create':
-                print("INFO: Skipped subscription_create (handled by checkout).")
-            else:
-                print(f"INFO: Skipped other billing reason: {billing_reason}")
+                except Exception as e: print(f"!!! Megújítás hiba (Exception): {e}")
 
         return {"status": "success"}
     except Exception as e:
