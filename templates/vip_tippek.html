@@ -7,6 +7,7 @@
 
     {% if is_subscribed %}
 
+        {# --- 1. SZERKESZTŐI (VIP) TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
@@ -26,8 +27,31 @@
                 </div>
             </div>
         {% endif %}
+
+        {# --- 2. INGYENES TIPPEK (EZ HIÁNYZOTT!) --- #}
+        {% if active_free_slips %}
+            <div class="manual-slips-section" style="margin-top: 30px;">
+                <h3>Ingyenes Tippek</h3>
+                
+                <div class="manual-slips-grid">
+                {% for slip in active_free_slips %}
+                    {% if slip.image_url %}
+                        <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
+                            <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                            <div class="manual-card-footer" style="text-align: center;">
+                                <span class="manual-card-title">{{ slip.tipp_neve }}</span>
+                                <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
+                            </div>
+                        </a>
+                    {% endif %}
+                {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        {# --- 3. BOT TIPPEK --- #}
         {% if todays_slips or tomorrows_slips %}
-            <h3>Bot Által Javasolt Napi Tippek</h3>
+            <h3 style="margin-top: 30px;">Bot Által Javasolt Napi Tippek</h3>
             
             {% if todays_slips %}
                 <h4>Mai tippek</h4>
@@ -92,7 +116,8 @@
             {% endif %}
         {% endif %}
 
-        {% if not todays_slips and not tomorrows_slips and not active_manual_slips %}
+        {# --- ÜRES ÁLLAPOT ELLENŐRZÉSE (Most már az ingyenes tippeket is figyeli) --- #}
+        {% if not todays_slips and not tomorrows_slips and not active_manual_slips and not active_free_slips %}
              <div class="alert alert-info">{{ daily_status_message | default("Jelenleg nincsenek aktív szelvények. Nézz vissza később!") }}</div>
         {% endif %}
 
