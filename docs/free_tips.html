@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ingyenes Foci Tippek - DIAGNOSZTIKA</title>
-    <link rel="icon" type="image/png" href="images/favicon.png">
+    <title>Ingyenes Foci Tippek - KOMPATIBILIS MÓD</title>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
         .container { max-width: 800px; margin: 0 auto; }
@@ -13,42 +12,48 @@
         #debug-log { background: #000; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; margin-bottom: 20px; white-space: pre-wrap; word-break: break-all; }
         .btn { display: inline-block; background: #38A169; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
     </style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
     <div class="container">
-        <h1>🔍 Hibakereső Mód</h1>
-        <p>Ez az oldal megmutatja, hol akad el a betöltés mobilon.</p>
-        
+        <h1>🔧 Kompatibilis Hibakereső</h1>
         <div id="debug-log">Napló indítása...</div>
-
         <div id="free-slips-container"></div>
-        <div id="loading-state">Betöltés folyamatban...</div>
-
+        <div id="loading-state">Betöltés...</div>
         <a href="/index.html" class="btn">Vissza a Főoldalra</a>
     </div>
 
-    <script type="module">
+    <script>
         // Naplózó segédfüggvény
         function log(msg) {
             const logBox = document.getElementById('debug-log');
             const time = new Date().toLocaleTimeString();
             logBox.innerHTML += `\n[${time}] ${msg}`;
-            console.log(msg);
         }
 
-        log("Script elindult.");
+        // Hibák elkapása (ha a script összeomlana)
+        window.onerror = function(message, source, lineno, colno, error) {
+            log(`🔥 KRITIKUS BÖNGÉSZŐ HIBA: ${message} (Sor: ${lineno})`);
+        };
 
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
-        log("Supabase modul betöltve.");
+        log("1. Script elindult (Hagyományos módban).");
 
         const SUPABASE_URL = 'https://mzfgelfidtjuqgpwxtkg.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16ZmdlbGZpZHRqdXFncHd4dGtnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDg2OTgsImV4cCI6MjA3MDQ4NDY5OH0.qE-tviGlahOqDARyBEBgQu8T6_6DfWD2T6Oa8EWUh6M';
-        
+
         try {
-            const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-            log("Supabase kliens létrehozva.");
-            
+            // Ellenőrizzük, hogy a Supabase betöltődött-e
+            if (typeof supabase === 'undefined') {
+                throw new Error("A Supabase könyvtár nem töltődött be! (CDN Hiba)");
+            }
+            log("2. Supabase könyvtár észlelve.");
+
+            const { createClient } = supabase;
+            const sbClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+            log("3. Kliens létrehozva.");
+
             async function loadFreeSlips() {
                 const container = document.getElementById('free-slips-container');
                 const loadingState = document.getElementById('loading-state');
@@ -59,10 +64,10 @@
                 const day = String(now.getDate()).padStart(2, '0');
                 const today = `${year}-${month}-${day}`;
                 
-                log(`Mai dátum: ${today}`);
-                log("Adatbázis lekérdezése indítása...");
+                log(`4. Mai dátum: ${today}`);
+                log("5. Adatbázis lekérdezése...");
 
-                const { data, error } = await supabase
+                const { data, error } = await sbClient
                     .from('free_slips')
                     .select('*')
                     .gte('target_date', today)
@@ -71,17 +76,16 @@
 
                 if (error) {
                     log("❌ HIBA a lekérdezésben: " + JSON.stringify(error));
-                    loadingState.innerHTML = 'Hiba történt az adatbázis elérésekor.';
+                    loadingState.innerHTML = 'Adatbázis hiba.';
                     return;
                 }
 
-                log(`Lekérdezés sikeres. Találatok száma: ${data ? data.length : 0}`);
+                log(`6. Lekérdezés kész. Eredmény: ${data ? data.length : 0} db tipp.`);
 
                 if (data && data.length > 0) {
                     loadingState.style.display = 'none';
                     data.forEach((slip, index) => {
-                        log(`#${index+1} tipp feldolgozása: ${slip.tipp_neve}`);
-                        log(`Kép URL: ${slip.image_url}`);
+                        log(`#${index+1} Kép URL: ${slip.image_url}`);
 
                         const card = document.createElement('a');
                         card.href = slip.image_url;
@@ -92,13 +96,11 @@
                         img.src = slip.image_url;
                         img.alt = slip.tipp_neve;
                         
-                        // Eseményfigyelők a képhez
-                        img.onload = () => log(`✅ #${index+1} Kép sikeresen betöltve!`);
-                        img.onerror = () => log(`❌ #${index+1} Kép betöltése SIKERTELEN! (Hálózati hiba vagy rossz formátum)`);
+                        img.onload = () => log(`✅ #${index+1} Kép betöltve!`);
+                        img.onerror = () => log(`❌ #${index+1} Kép betöltése SIKERTELEN!`);
 
                         const footer = document.createElement('div');
                         footer.style.textAlign = 'center';
-                        footer.style.marginTop = '10px';
                         footer.innerHTML = `<strong>${slip.tipp_neve}</strong><br><small>${slip.target_date}</small>`;
 
                         card.appendChild(img);
@@ -106,16 +108,15 @@
                         container.appendChild(card);
                     });
                 } else {
-                    log("Nincs megjeleníthető tipp (üres lista).");
-                    loadingState.innerHTML = 'Jelenleg nincsenek aktív ingyenes tippek.';
+                    log("⚠️ Üres a lista (Nincs találat).");
+                    loadingState.innerHTML = 'Nincs aktív tipp.';
                 }
             }
-            
-            // Indítás
+
             loadFreeSlips();
 
         } catch (e) {
-            log("🔥 KRITIKUS HIBA: " + e.message);
+            log("🔥 SCRIPT HIBA: " + e.message);
         }
     </script>
 </body>
