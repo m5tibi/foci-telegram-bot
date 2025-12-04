@@ -1,4 +1,4 @@
-# bot.py (V6.8 - Javítva: Statisztika a Tipp Dátuma alapján, nem a létrehozás alapján)
+# bot.py (V6.9 - Javítva: Gombkezelés átállítása kettőspontra [:])
 
 import os
 import telegram
@@ -119,14 +119,20 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
+    # JAVÍTÁS: Aláhúzás (_) helyett kettőspont (:) a szétválasztáshoz
     date_str = query.data.split(":")[-1] 
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
+    
+    # JAVÍTÁS: A láthatóságot is publikusra állítjuk (is_admin_only = False)
+    supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{date_str}%").execute()
+    
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
     confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
                        "A tippek mostantól láthatóak a weboldalon.\n\n"
                        "Biztosan kiküldöd az értesítést a VIP tagoknak?")
-    keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send_{date_str}")],
+    # JAVÍTÁS: Itt is kettőspontot használunk a belső gombnál
+    keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send:{date_str}")],
                 [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text=confirmation_text, parse_mode='Markdown', reply_markup=reply_markup)
@@ -134,7 +140,8 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
-    date_str = query.data.split("_")[-1]
+    # JAVÍTÁS: Kettőspontos split
+    date_str = query.data.split(":")[-1]
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
     successful_sends, failed_sends = await send_public_notification(context.bot, date_str)
@@ -145,7 +152,8 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
-    date_str = query.data.split(":")[-1] 
+    # JAVÍTÁS: Kettőspontos split
+    date_str = query.data.split(":")[-1]
     def sync_delete_rejected_tips(date_to_delete):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         slips_to_delete = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
@@ -312,7 +320,7 @@ async def eredmenyek(update: telegram.Update, context: CallbackContext):
             filter_value = f"tipp_neve.ilike.%{today_str}%,tipp_neve.ilike.%{yesterday_str}%"
             response_tuti = supabase.table("napi_tuti").select("*, is_admin_only").or_(filter_value).order('created_at', desc=True).execute()
             if not response_tuti.data: return None, None
-            all_tip_ids = [tid for sz in response_tuti.data for tid in sz.get('tipp_id_k', [])]
+            all_tip_ids = [tid for sz in response.data for tid in sz.get('tipp_id_k', [])]
             if not all_tip_ids: return response_tuti.data, {}
             meccsek_res = supabase.table("meccsek").select("*").in_("id", all_tip_ids).execute()
             meccsek_map = {meccs['id']: meccs for meccs in meccsek_res.data}
@@ -345,12 +353,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 response_free = supabase.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
             else: 
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-                
-                # --- JAVÍTÁS (V6.8): Név alapú szűrés a created_at helyett ---
-                # Ez megoldja a hóforduló problémát (ha nov. 30-án készült dec. 1-re szóló tipp)
-                year_month = target_month_start.strftime('%Y-%m') # Pl. "2025-12"
+                year_month = target_month_start.strftime('%Y-%m')
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
                 
+                # JAVÍTOTT: Név alapú szűrés a created_at helyett
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only") \
                     .ilike("tipp_neve", f"%{year_month}%") \
                     .order('tipp_neve', desc=True).execute()
@@ -454,7 +460,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         print(f"Hiba a statisztika készítésekor: {e}")
         await message_to_edit.edit_text(f"Hiba a statisztika készítésekor: {e}")
 
-
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
@@ -546,16 +551,16 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_close": await query.answer(); await query.message.delete()
 
 def add_handlers(application: Application):
+    # JAVÍTÁS: Itt is átírjuk a pattern-t, hogy elfogadja a kettőspontot is
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     vip_broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')], states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
-    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips_'))
+    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
     application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_'))
-    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips_'))
+    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-    
