@@ -1,4 +1,4 @@
-# tipp_generator.py (V16.8 - CSAK HOLNAPI TIPPEK GENERÁLÁSA)
+# tipp_generator.py (V16.9 - Javítva: NoneType hiba kezelése a formáknál)
 
 import os
 import requests
@@ -91,7 +91,10 @@ def analyze_fixture_smart_stats(fixture):
     v_scored = (stats_v['goals']['for']['total']['away'] or 0) / v_played
     v_conceded = (stats_v['goals']['against']['total']['away'] or 0) / v_played
 
+    # JAVÍTOTT FÜGGVÉNY: Kezeli a None/null értékeket
     def calc_form_points(form_str):
+        if not form_str: # Ha None vagy üres string, adjon vissza 0-t hiba helyett
+            return 0
         pts = 0
         for char in form_str[-5:]:
             if char == 'W': pts += 3
@@ -185,7 +188,7 @@ def main(run_as_test=False):
     # JAVÍTÁS: Csak a holnapi napot állítjuk be
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V16.8 - Csak Holnap) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Tipp Generátor (V16.9 - Csak Holnap) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
     print(f"Cél dátum: {tomorrow_str}")
 
     # JAVÍTÁS: Csak holnapra kérünk adatot
