@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.17 - Telegram URL Fix + API Timeout Növelés)
+# tipp_generator.py (V17.18 - Javítva: Service Key használata az RLS hiba ellen)
 
 import os
 import requests
@@ -15,7 +15,14 @@ load_dotenv()
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# JAVÍTÁS (V17.18): Először a SERVICE_KEY-t próbáljuk, mert azzal van írási jogunk!
+# Ha csak a sima KEY-t használnánk, "new row violates row-level security policy" hibát kapnánk.
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+if not SUPABASE_KEY:
+    print("⚠️ FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom (ez RLS hibát okozhat a daily_status írásakor)!")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") 
@@ -50,14 +57,13 @@ RELEVANT_LEAGUES = {
 DERBY_LIST = [(50, 66), (85, 106)]
 
 # --- API és ADATGYŰJTŐ FÜGGVÉNYEK ---
-# --- JAVÍTÁS V17.17: Stabilabb API hívás (hosszabb timeout és retry delay) ---
-def get_api_data(endpoint, params, retries=3, delay=10): # Delay 5-ről 10-re növelve
+def get_api_data(endpoint, params, retries=3, delay=10): # Delay 10s a stabilitásért
     if not RAPIDAPI_KEY: print(f"!!! HIBA: RAPIDAPI_KEY hiányzik! ({endpoint} hívás kihagyva)"); return []
     url = f"https://{RAPIDAPI_HOST}/v3/{endpoint}"
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
     for i in range(retries):
         try:
-            # Timeout 25-ről 40-re növelve
+            # Timeout 40s a lassú válaszok ellen
             response = requests.get(url, headers=headers, params=params, timeout=40); response.raise_for_status(); time.sleep(0.7)
             return response.json().get('response', [])
         except requests.exceptions.RequestException as e:
@@ -118,7 +124,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         except (IndexError, TypeError, ValueError) as e: return []
 
         found_tips = []
-        min_confidence_threshold = 60 # (V17.13 óta)
+        min_confidence_threshold = 60 
 
         # ... (1. FORMA ELEMZÉSE) ...
         home_form_str, away_form_str = "", ""
@@ -133,7 +139,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
                      away_rank = team_standing.get('rank', 99)
                  if home_form_str and away_form_str: break
         
-        # JAVÍTÁS: Biztonságos forma-számítás
+        # Biztonságos forma-számítás (NoneType védelem)
         def get_form_points(form_str):
             points = 0;
             if not form_str or not isinstance(form_str, str): return 0
@@ -144,8 +150,8 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
             
         home_form_points = get_form_points(home_form_str)
         away_form_points = get_form_points(away_form_str)
-        form_difference = home_form_points - away_form_points # Pozitív, ha a hazai jobb
-        rank_difference = away_rank - home_rank # Pozitív, ha a hazai jobb
+        form_difference = home_form_points - away_form_points 
+        rank_difference = away_rank - home_rank 
 
         # H2H adatok kinyerése
         over_2_5_count_h2h, btts_count_h2h = 0, 0
@@ -178,7 +184,7 @@ def analyze_fixture_logic(fixture_data, standings_data, home_stats, away_stats, 
         except (TypeError, ValueError, ZeroDivisionError) as e: 
             return [] 
 
-        # ... (4. TIPP-LOGIKA - V17.16) ...
+        # ... (4. TIPP-LOGIKA) ...
         
         # --- Szuper-Szigorú Dupla Esély (1X) ---
         dc_1X_odds = odds_markets.get("Double Chance_Home/Draw")
@@ -381,7 +387,7 @@ def send_telegram_message_fallback(text):
 def main():
     is_test_mode = '--test' in sys.argv
     start_time = datetime.now(BUDAPEST_TZ)
-    print(f"Tipp Generátor (V17.17 - URL Fix + API Timeout) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
+    print(f"Tipp Generátor (V17.18 - Service Key Fix) indítása {'TESZT ÜZEMMÓDBAN' if is_test_mode else ''}...")
 
     if not supabase and not is_test_mode: print("!!! KRITIKUS HIBA: Supabase kliens nem inicializálódott, leállás."); return
     
