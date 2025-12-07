@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V2.4 - Napi + Havi Göngyölített Statisztika)
+# eredmeny_ellenorzo.py (V2.5 - Javítva: Magyar/Bővített tippnevek támogatása)
 import os
 import sys
 import requests
@@ -14,9 +14,14 @@ RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = 1326707238
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID") or 1326707238
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    print("!!! HIBA: Supabase credentials hiányoznak!")
+    supabase = None
+else:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
 # Magyar hónapnevek a szép kiíráshoz
@@ -32,12 +37,15 @@ def send_telegram_report(report_text):
     except Exception as e: print(f"Telegram hiba: {e}")
 
 def get_fixtures_to_check():
+    if not supabase: return []
+    # 2 órával a kezdés után már vélhetően vége a meccsnek, ekkor ellenőrizzük
     now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
     check_threshold = now_utc - timedelta(minutes=120)
     return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
 
 def get_stats_for_period(start_date, end_date):
     """Lekéri a statisztikát egy adott időszakra (tól-ig)."""
+    if not supabase: return None
     start_iso = start_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
     end_iso = end_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
     
@@ -45,6 +53,7 @@ def get_stats_for_period(start_date, end_date):
         .gte("kezdes", start_iso) \
         .lte("kezdes", end_iso) \
         .neq("eredmeny", "Tipp leadva") \
+        .neq("eredmeny", "Érvénytelen") \
         .execute()
     
     tips = response.data
@@ -63,7 +72,7 @@ def get_stats_for_period(start_date, end_date):
         "wins": win_cnt,
         "profit": profit,
         "roi": roi,
-        "tips": tips # A részletes lista (csak a napihoz kell)
+        "tips": tips 
     }
 
 def get_fixture_result(fixture_id):
@@ -75,24 +84,42 @@ def get_fixture_result(fixture_id):
         return data[0] if data else None
     except Exception: return None
 
+# --- JAVÍTOTT ÉRTÉKELŐ LOGIKA (V2.5) ---
 def evaluate_tip(tip_text, fixture_data):
     score = fixture_data.get('score', {}).get('fulltime', {})
     h, a = score.get('home'), score.get('away')
-    if h is None or a is None: return "Hiba", None
+    
+    # Ha nincs végeredmény, nézzük meg, hátha hosszabbítás/büntető volt (bár ligameccseknél ritka)
+    if h is None or a is None:
+        return "Hiba", None
     
     total = h + a
     res = "Veszített"
     
-    if tip_text == "Home" and h > a: res = "Nyert"
-    elif tip_text == "Away" and a > h: res = "Nyert"
-    elif tip_text == "Draw" and h == a: res = "Nyert"
-    elif tip_text == "Over 2.5" and total > 2.5: res = "Nyert"
-    elif tip_text == "Under 2.5" and total < 2.5: res = "Nyert"
-    elif tip_text == "Over 1.5" and total > 1.5: res = "Nyert"
-    elif tip_text == "BTTS" and h > 0 and a > 0: res = "Nyert"
-    elif tip_text == "1X" and h >= a: res = "Nyert"
-    elif tip_text == "X2" and a >= h: res = "Nyert"
+    # JAVÍTÁS: A magyar és angol elnevezéseket is kezeljük
+    # Home
+    if (tip_text == "Home" or tip_text == "Hazai győzelem") and h > a: res = "Nyert"
+    # Away
+    elif (tip_text == "Away" or tip_text == "Vendég győzelem") and a > h: res = "Nyert"
+    # Draw
+    elif (tip_text == "Draw" or tip_text == "Döntetlen") and h == a: res = "Nyert"
+    # Over 2.5
+    elif (tip_text == "Over 2.5" or tip_text == "Over 2.5 gól") and total > 2.5: res = "Nyert"
+    # Under 2.5
+    elif (tip_text == "Under 2.5" or tip_text == "Under 2.5 gól") and total < 2.5: res = "Nyert"
+    # Over 1.5
+    elif (tip_text == "Over 1.5" or tip_text == "Over 1.5 gól") and total > 1.5: res = "Nyert"
+    # BTTS
+    elif (tip_text == "BTTS" or tip_text == "Mindkét csapat szerez gólt") and h > 0 and a > 0: res = "Nyert"
+    # 1X
+    elif (tip_text == "1X" or tip_text == "Dupla esély 1X") and h >= a: res = "Nyert"
+    # X2
+    elif (tip_text == "X2" or tip_text == "Dupla esély X2") and a >= h: res = "Nyert"
     
+    # Ha esetleg régebbi "Home & Over 1.5" típusú kombinált tipp maradt (csak a biztonság kedvéért)
+    elif " & " in tip_text:
+        res = "Érvénytelen" # Vagy implementálni a logikát, ha még használod
+
     return res, f"{h}-{a}"
 
 def main():
@@ -118,34 +145,34 @@ def main():
     FINISHED = ["FT", "AET", "PEN"]
     
     if fixtures:
+        print(f"{len(fixtures)} db függő tipp ellenőrzése...")
         for f in fixtures:
             data = get_fixture_result(f['fixture_id'])
             if data:
                 status = data['fixture']['status']['short']
                 if status in FINISHED:
                     res, score = evaluate_tip(f['tipp'], data)
-                    supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
-                    print(f"✅ Frissítve: {f['csapat_H']} - {res}")
-                    updates_count += 1
+                    
+                    # Csak akkor írjuk felül, ha változott, vagy ha javítjuk a hibásat
+                    if f['eredmeny'] != res or f.get('veg_eredmeny') != score:
+                        supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
+                        print(f"✅ Frissítve: {f['csapat_H']} ({f['tipp']}) -> {res} ({score})")
+                        updates_count += 1
                 elif status in ["PST", "CANC", "ABD"]:
                     supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", f['id']).execute()
                     updates_count += 1
     else:
-        print("Nincs függő meccs.")
+        print("Nincs függő (feldolgozatlan) meccs.")
 
     # --- 2. JELENTÉS KÉSZÍTÉSE (NAPI + HAVI) ---
-    if force_yesterday or updates_count > 0:
+    if force_yesterday or updates_count > 0 or (now_bp.hour >= 20): # Este is fusson le, ha van eredmény
         print("Statisztika generálása...")
         
-        # A) Napi Statisztika
         daily_stats = get_stats_for_period(target_date, target_date)
-        
-        # B) Havi Statisztika (Hónap 1-jétől a target_date-ig)
         month_start = target_date.replace(day=1)
         monthly_stats = get_stats_for_period(month_start, target_date)
         
-        if daily_stats:
-            # Napi részletek
+        if daily_stats and daily_stats['total'] > 0:
             wins = [t for t in daily_stats['tips'] if t['eredmeny'] == 'Nyert']
             losses = [t for t in daily_stats['tips'] if t['eredmeny'] == 'Veszített']
             
@@ -167,7 +194,6 @@ def main():
             msg += f"💰 Profit: *{sign_d}{daily_stats['profit']:.2f} egység*\n"
             msg += f"📈 ROI: *{sign_d}{daily_stats['roi']:.1f}%*\n"
             
-            # Havi blokk hozzáadása
             if monthly_stats:
                 month_name = HU_MONTHS.get(target_date.month, "Hónap")
                 sign_m = "+" if monthly_stats['profit'] > 0 else ""
@@ -180,7 +206,7 @@ def main():
             
             send_telegram_report(msg)
         else:
-            print("Nincs kiértékelt tipp a kért napra.")
+            print("Nincs kiértékelhető tipp a kért napra (vagy még nincs vége a meccseknek).")
 
     print("--- Kész ---")
 
