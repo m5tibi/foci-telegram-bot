@@ -11,6 +11,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
 
 # --- ÚJ API BEÁLLÍTÁSOK ---
+# Renderen a RAPIDAPI_KEY-be mentetted az új kulcsot
 API_KEY = os.environ.get("RAPIDAPI_KEY") 
 API_HOST = "v3.football.api-sports.io"
 
