@@ -19,6 +19,12 @@ if not SUPABASE_KEY:
 
 API_KEY = os.environ.get("RAPIDAPI_KEY") 
 API_HOST = "v3.football.api-sports.io"
+# --- DIAGNOSZTIKA (Ezt írd be!) ---
+if API_KEY:
+    print(f"DEBUG: API Kulcs betöltve. Hossza: {len(API_KEY)} karakter. Első 4 karaktere: {API_KEY[:4]}...")
+else:
+    print("DEBUG: KRITIKUS HIBA! A 'RAPIDAPI_KEY' változó ÜRES vagy nem létezik a Renderen!")
+# ----------------------------------
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
