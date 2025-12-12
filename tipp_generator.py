@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.3 - Univerzális Logika: Éles és Backtest kompatibilis)
+# tipp_generator.py (V17.4 - Javított: .env betöltés és Dual API Key támogatás)
 
 import os
 import requests
@@ -8,6 +8,10 @@ import time
 import pytz
 import sys
 import json
+from dotenv import load_dotenv # Környezeti változók betöltése
+
+# 1. Betöltjük a .env fájlt (ha van)
+load_dotenv()
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -17,21 +21,26 @@ if not SUPABASE_KEY:
     # print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-API_KEY = os.environ.get("API_FOOTBALL_KEY") 
+# 2. JAVÍTÁS: Keresés mindkét néven
+API_KEY = os.environ.get("API_FOOTBALL_KEY") or os.environ.get("RAPIDAPI_KEY")
 API_HOST = "v3.football.api-sports.io"
-# ----------------------------------
+
+# --- DIAGNOSZTIKA ---
+if not API_KEY:
+    print("⚠️ FIGYELEM: Nincs API kulcs beállítva (API_FOOTBALL_KEY vagy RAPIDAPI_KEY)!")
+    print("   A szkript nem fog tudni adatokat lekérni.")
+# --------------------
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
 
-# --- JAVÍTOTT CSATLAKOZÁS (VÉDELEM A BACKTESTHEZ) ---
 # Csak akkor csatlakozunk, ha van kulcs (Backtestnél nem mindig kell)
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
-        print(f"Figyelem: Nem sikerült csatlakozni a Supabase-hez (Backtest módban ez OK): {e}")
+        print(f"Figyelem: Nem sikerült csatlakozni a Supabase-hez: {e}")
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
@@ -58,25 +67,29 @@ def get_api_data(endpoint, params, retries=3, delay=5):
     for i in range(retries):
         try:
             response = requests.get(url, headers=headers, params=params, timeout=25)
-            if response.status_code == 403: return []
+            if response.status_code == 403: 
+                print(f"HIBA (403): Érvénytelen kulcs vagy jogosultság ({endpoint})")
+                return []
             response.raise_for_status()
             data = response.json()
-            if "errors" in data and data["errors"]: return []
+            if "errors" in data and data["errors"]: 
+                # print(f"API Logikai Hiba: {data['errors']}")
+                return []
             time.sleep(0.5)
             return data.get('response', [])
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
             if i < retries - 1: time.sleep(delay)
-            else: return []
+            else: 
+                print(f"Hálózati hiba: {e}")
+                return []
 
-# --- 1. A TISZTA LOGIKA (Ezt hívja a Backtester és az Éles rendszer is) ---
+# --- 1. A TISZTA LOGIKA (Backtest kompatibilis) ---
 def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, injuries, odds_raw):
     """
     Ez a függvény NEM hív API-t. Csak a kapott adatokból számol.
-    Így tökéletesen használható backtestre a JSON fájlokkal.
     """
     if not fixture_data or not stats_h or not stats_v: return []
     
-    # Adatok kicsomagolása biztonságosan
     try:
         fixture = fixture_data['fixture'] if 'fixture' in fixture_data else fixture_data
         teams = fixture_data['teams']
@@ -85,10 +98,8 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
         home_id, away_id = teams['home']['id'], teams['away']['id']
     except Exception: return []
 
-    # Derby / Kupa szűrő
     if tuple(sorted((home_id, away_id))) in DERBY_LIST or "Cup" in league['name'] or "Kupa" in league['name']: return []
     
-    # Ha nincs gól adat, nem tudunk dolgozni
     if not stats_h.get('goals') or not stats_v.get('goals'): return []
 
     # --- STATISZTIKÁK SZÁMÍTÁSA ---
@@ -107,7 +118,7 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
     v_clean_sheet_matches = stats_v.get('clean_sheet', {}).get('away') or 0
     v_clean_sheet_ratio = v_clean_sheet_matches / v_played
 
-    # KOCKÁZATI FAKTOR: Hazai gólképtelenség (pl. St. Pauli effektus)
+    # KOCKÁZATI FAKTOR
     risk_factor_h_attack = h_failed_ratio > 0.35 
 
     # --- H2H ELEMZÉS ---
@@ -120,12 +131,11 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
             if (g_home + g_away) < 2.5:
                 h2h_under_25_count += 1
             
-            # Hazai győzelem csekkolása a H2H-ban
             if (match['teams']['home']['id'] == home_id and g_home > g_away) or \
                (match['teams']['away']['id'] == home_id and g_away > g_home):
                 h2h_home_wins += 1
 
-    h2h_warning = h2h_under_25_count >= 3 # Ha 5-ből 3-szor Under volt
+    h2h_warning = h2h_under_25_count >= 3 
 
     # --- FORMA ---
     def calc_form_points(form_str):
@@ -146,17 +156,14 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
         key_injuries = sum(1 for p in injuries if p.get('player', {}).get('type') in ['Attacker', 'Midfielder'] and 'Missing' in (p.get('player', {}).get('reason') or ''))
 
     # --- ODDSOK FELDOLGOZÁSA ---
-    # A backtester néha listában, néha dictben kapja az oddsokat, ezt kezeljük le
     odds = {}
     if odds_raw:
         try:
-            # Ha lista (Backtest snapshotban gyakran lista van a 'response'-ban)
             if isinstance(odds_raw, list) and len(odds_raw) > 0:
                 bookmakers = odds_raw[0].get('bookmakers', [])
                 if bookmakers:
                     bets = bookmakers[0].get('bets', [])
                     odds = {f"{b.get('name')}_{v.get('value')}": float(v.get('odd')) for b in bets for v in b.get('values', [])}
-            # Ha dict (Ritkább, de lehetséges)
             elif isinstance(odds_raw, dict):
                  bookmakers = odds_raw.get('bookmakers', [])
                  if bookmakers:
@@ -169,7 +176,6 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
     found_tips = []
     base_confidence = 75 
     
-    # Büntetések
     if key_injuries >= 2: base_confidence -= 15 
     if risk_factor_h_attack: base_confidence -= 20 
     if h2h_warning: base_confidence -= 15           
@@ -217,27 +223,17 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
 
 # --- 2. AZ ÉLES RENDSZER "CSOMAGOLÓJA" ---
 def analyze_fixture_smart_stats(fixture):
-    """
-    Ez a függvény hívja az API-t, összeszedi az adatokat,
-    majd meghívja a fenti 'analyze_fixture_logic'-ot.
-    """
     fixture_id = fixture['fixture']['id']
     league_id = fixture['league']['id']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
     
-    # Adatok beszerzése (Cache vagy API)
     stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league_id}")
     stats_v = TEAM_STATS_CACHE.get(f"{away_id}_{league_id}")
-    
     injuries = INJURIES_CACHE.get(fixture_id, [])
     
-    # H2H letöltése (Élesben itt történik)
     h2h_data = get_api_data("fixtures/headtohead", {"h2h": f"{home_id}-{away_id}", "last": "5"})
-    
-    # Odds letöltése
     odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
     
-    # Átadás a tiszta logikának
     return analyze_fixture_logic(fixture, [], stats_h, stats_v, h2h_data, injuries, odds_data)
 
 def select_best_single_tips(all_potential_tips, max_tips=8):
@@ -268,7 +264,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- EGYÉB SEGÉDFÜGGVÉNYEK (Mentés, Telegram) ---
+# --- MENTÉS ---
 def save_tips_for_day(single_tips, date_str):
     if not single_tips or not supabase: return
     try:
@@ -289,23 +285,29 @@ def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Jóváhagyás", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V17.3)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*")
+    msg = (f"🤖 *Új Automatikus Tippek (V17.4)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*")
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
 # --- MAIN LOOP ---
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
+    
+    # Ha a gépeden futtatod és nem adsz meg kulcsot, itt derül ki:
+    if not API_KEY:
+        print("KRITIKUS HIBA: Nincs API kulcs! A program leáll.")
+        return
+
     start_time = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.3 - Szeparált Logika) indítása...")
+    print(f"Tipp Generátor (V17.4) indítása...")
     print(f"Cél dátum: {tomorrow_str}")
 
     all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
 
     if not all_fixtures_raw: 
-        print("Nincs adat az API-ból."); 
+        print("Nincs adat az API-ból (vagy hiba történt)."); 
         if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
         return
 
@@ -321,7 +323,6 @@ def main(run_as_test=False):
     print(f"\n--- {tomorrow_str} elemzése ---")
     potential = []
     for fixture in relevant_fixtures:
-        # Itt hívjuk a 'smart' wrapper-t, ami API-zik, aztán hívja a logikát
         tips = analyze_fixture_smart_stats(fixture)
         potential.extend(tips)
 
