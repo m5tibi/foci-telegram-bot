@@ -326,7 +326,8 @@ def main(run_as_test=False):
         tips = analyze_fixture_smart_stats(fixture)
         potential.extend(tips)
 
-    best = select_best_single_tips(potential)
+    # Csak a TOP 3 tippet engedjük át, mint a teszten!
+    best = select_best_single_tips(potential, max_tips=3)
     
     if best:
         print(f"✅ Találat: {len(best)} db.")
