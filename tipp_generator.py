@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.0 - MIGRÁCIÓ: API-Football Direct Verzió)
+# tipp_generator.py (V17.1 - DEBUG Verzió: Részletes hiba kiírással)
 
 import os
 import requests
@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import time
 import pytz
 import sys
+import json # JSON importálása a debug kiíráshoz
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -16,10 +17,8 @@ if not SUPABASE_KEY:
     print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# --- MIGRÁCIÓ: ÚJ API CÍM ÉS KULCS ---
-# A Renderen a RAPIDAPI_KEY változóba írtad az új kulcsot, onnan olvassuk ki
 API_KEY = os.environ.get("RAPIDAPI_KEY") 
-API_HOST = "v3.football.api-sports.io" # Ez az új cím!
+API_HOST = "v3.football.api-sports.io"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
@@ -27,10 +26,8 @@ ADMIN_CHAT_ID = 1326707238
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- Globális Gyorsítótárak ---
 TEAM_STATS_CACHE, INJURIES_CACHE = {}, {}
 
-# --- LIGA PROFILOK ---
 RELEVANT_LEAGUES = {
     39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 
     61: "Francia Ligue 1", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 2: "Bajnokok Ligája", 
@@ -40,11 +37,9 @@ RELEVANT_LEAGUES = {
 }
 DERBY_LIST = [(50, 66), (85, 106), (40, 50), (33, 34), (529, 541), (541, 529)] 
 
-# --- API FÜGGVÉNYEK (ÚJ FEJLÉCCEL) ---
+# --- JAVÍTOTT ÉS BŐBESZÉDŰ API FÜGGVÉNY ---
 def get_api_data(endpoint, params, retries=3, delay=5):
-    # ÚJ URL STRUKTÚRA
     url = f"https://{API_HOST}/{endpoint}"
-    # ÚJ FEJLÉC FORMÁTUM (x-apisports-key)
     headers = {
         "x-apisports-key": API_KEY,
         "x-apisports-host": API_HOST
@@ -54,16 +49,31 @@ def get_api_data(endpoint, params, retries=3, delay=5):
         try:
             response = requests.get(url, headers=headers, params=params, timeout=25)
             
-            # Hibakezelés (pl. ha elfogyott a limit vagy rossz a kulcs)
             if response.status_code == 403:
-                print(f"KRITIKUS HIBA: 403 Forbidden. Ellenőrizd az API kulcsot a Renderen! (Endpoint: {endpoint})")
+                print(f"KRITIKUS HIBA: 403 Forbidden. Ellenőrizd a kulcsot! (Endpoint: {endpoint})")
                 return []
             
             response.raise_for_status()
-            time.sleep(0.5) # Kicsit gyorsabb lehet a direct API
-            return response.json().get('response', [])
+            data = response.json()
+            
+            # --- DEBUG: HIBAELLENŐRZÉS ---
+            # Az API-Football gyakran 200 OK-t küld, de az 'errors' mezőben írja a hibát
+            if "errors" in data and data["errors"]:
+                # Ha az errors nem üres lista/objektum
+                print(f"!!! API LOGIKAI HIBA ({endpoint}):")
+                print(json.dumps(data["errors"], indent=2)) # Kiírjuk a pontos hibát a logba!
+                return []
+            
+            # Ha a response üres, de nincs error, azt is jelezzük
+            if not data.get('response'):
+                if i == retries - 1: # Csak az utolsó próbálkozásnál szólunk
+                    print(f"FIGYELEM: Üres válasz érkezett innen: {endpoint} (Params: {params})")
+            
+            time.sleep(0.5)
+            return data.get('response', [])
+
         except requests.exceptions.RequestException as e:
-            print(f"API Hiba ({endpoint}): {e}")
+            print(f"API Hálózati Hiba ({endpoint}): {e}")
             if i < retries - 1: time.sleep(delay)
             else: return []
 
@@ -86,7 +96,6 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- ELEMZŐ LOGIKA (Smart Stats V16.5) ---
 def analyze_fixture_smart_stats(fixture):
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -129,7 +138,6 @@ def analyze_fixture_smart_stats(fixture):
     base_confidence = 70
     if key_injuries >= 2: base_confidence -= 15 
     
-    # STRATÉGIÁK
     btts_odd = odds.get("Both Teams to Score_Yes")
     if btts_odd and 1.55 <= btts_odd <= 2.15:
         if h_scored >= 1.3 and v_scored >= 1.2:
@@ -160,7 +168,6 @@ def analyze_fixture_smart_stats(fixture):
 
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
-# --- MENTÉS ÉS ÉRTESÍTÉS ---
 def select_best_single_tips(all_potential_tips, max_tips=8):
     unique_fixtures = {}
     for tip in all_potential_tips:
@@ -188,24 +195,23 @@ def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V17.0 Direct)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    msg = (f"🤖 *Új Automatikus Tippek (V17.1 Debug)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
-# --- FŐ VEZÉRLŐ (CSAK HOLNAPRA!) ---
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
     start_time = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.0 Direct API) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Tipp Generátor (V17.1 Debug) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
     print(f"Cél dátum: {tomorrow_str}")
 
     all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
 
     if not all_fixtures_raw: 
-        print("Nincs adat az API-ból (vagy hiba történt)."); 
+        print("Nincs adat az API-ból (vagy hiba történt). Ellenőrizd a fenti hibaüzenetet!"); 
         if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
         return
 
