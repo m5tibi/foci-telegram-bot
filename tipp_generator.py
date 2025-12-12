@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.4 - Javított: .env betöltés és Dual API Key támogatás)
+# tipp_generator.py (V17.5 - Javított: Limitálva 3 tippre!)
 
 import os
 import requests
@@ -21,7 +21,7 @@ if not SUPABASE_KEY:
     # print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# 2. JAVÍTÁS: Keresés mindkét néven
+# API KULCS KEZELÉS
 API_KEY = os.environ.get("API_FOOTBALL_KEY") or os.environ.get("RAPIDAPI_KEY")
 API_HOST = "v3.football.api-sports.io"
 
@@ -285,7 +285,7 @@ def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Jóváhagyás", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V17.4)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*")
+    msg = (f"🤖 *Új Automatikus Tippek (V17.5 - Top 3 Limit)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*")
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
@@ -293,7 +293,6 @@ def send_approval_request(date_str, count):
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
-    # Ha a gépeden futtatod és nem adsz meg kulcsot, itt derül ki:
     if not API_KEY:
         print("KRITIKUS HIBA: Nincs API kulcs! A program leáll.")
         return
@@ -301,7 +300,7 @@ def main(run_as_test=False):
     start_time = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.4) indítása...")
+    print(f"Tipp Generátor (V17.5) indítása...")
     print(f"Cél dátum: {tomorrow_str}")
 
     all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
@@ -326,11 +325,12 @@ def main(run_as_test=False):
         tips = analyze_fixture_smart_stats(fixture)
         potential.extend(tips)
 
-    # Csak a TOP 3 tippet engedjük át, mint a teszten!
+    # --- ITT VOLT A HIBA, MOST JAVÍTVA: ---
+    # Beállítjuk a max_tips=3 értéket a backtest mintájára
     best = select_best_single_tips(potential, max_tips=3)
     
     if best:
-        print(f"✅ Találat: {len(best)} db.")
+        print(f"✅ Találat: {len(best)} db (Limitálva: 3).")
         if is_test_mode:
             for t in best:
                 print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} -> {t['tipp']} (@{t['odds']}) Conf: {t['confidence']}%")
