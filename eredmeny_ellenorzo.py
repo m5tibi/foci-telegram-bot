@@ -1,18 +1,18 @@
-# eredmeny_ellenorzo.py (V2.4 - MIGRÁCIÓ: API-Football Direct Verzió)
+# eredmeny_ellenorzo.py (V2.5 - Force Check & Timezone Fix)
 import os
 import sys
 import requests
 from supabase import create_client, Client
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
 
-# --- ÚJ API BEÁLLÍTÁSOK ---
-# Renderen a RAPIDAPI_KEY-be mentetted az új kulcsot
-API_KEY = os.environ.get("RAPIDAPI_KEY") 
+# --- API BEÁLLÍTÁSOK (Render kompatibilis) ---
+raw_key = os.environ.get("RAPIDAPI_KEY", "")
+API_KEY = raw_key.strip()
 API_HOST = "v3.football.api-sports.io"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -29,10 +29,19 @@ def send_telegram_report(report_text):
         print("📩 Telegram jelentés elküldve.")
     except Exception as e: print(f"Telegram hiba: {e}")
 
-def get_fixtures_to_check():
-    now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
-    check_threshold = now_utc - timedelta(minutes=120)
-    return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
+def get_fixtures_to_check(force_check=False):
+    # Modern időkezelés (UTC)
+    now_utc = datetime.now(timezone.utc)
+    
+    if force_check:
+        print(f"⚠️ FORCE CHECK aktív: Időkorlát figyelmen kívül hagyása!")
+        # Minden "Tipp leadva" státuszú meccset lekérünk
+        return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute().data
+    else:
+        # Csak a 115 perce (kb 2 órája) kezdődött meccseket nézzük
+        check_threshold = now_utc - timedelta(minutes=115)
+        print(f"🕒 Időbélyeg ellenőrzés: Csak {check_threshold.strftime('%H:%M')} (UTC) előtt kezdődött meccsek.")
+        return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
 
 def get_completed_tips_for_date(target_date):
     start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
@@ -40,7 +49,6 @@ def get_completed_tips_for_date(target_date):
     response = supabase.table("meccsek").select("*").gte("kezdes", start_of_day).lte("kezdes", end_of_day).neq("eredmeny", "Tipp leadva").execute()
     return response.data
 
-# --- ÚJ API FÜGGVÉNY ---
 def get_fixture_result(fixture_id):
     url = f"https://{API_HOST}/fixtures"
     headers = {
@@ -59,7 +67,9 @@ def get_fixture_result(fixture_id):
 def evaluate_tip(tip_text, fixture_data):
     score = fixture_data.get('score', {}).get('fulltime', {})
     h, a = score.get('home'), score.get('away')
-    if h is None or a is None: return "Hiba", None
+    
+    # Ha még nincs végeredmény (pl. meccs közben), visszatérünk
+    if h is None or a is None: return None, None
     
     total = h + a
     res = "Veszített"
@@ -78,6 +88,8 @@ def evaluate_tip(tip_text, fixture_data):
 
 def main():
     force_yesterday = '--tegnap' in sys.argv
+    force_check = '--force-check' in sys.argv  # ÚJ KAPCSOLÓ!
+    
     now_bp = datetime.now(BUDAPEST_TZ)
     
     if force_yesterday:
@@ -91,25 +103,39 @@ def main():
         print(f"☀️ Napi futás. Mai nap ellenőrzése.")
 
     print("--- 1. Függő tippek ellenőrzése ---")
-    try: fixtures = get_fixtures_to_check()
-    except Exception: fixtures = []
+    try: 
+        fixtures = get_fixtures_to_check(force_check)
+        if not fixtures:
+            print("ℹ️ Nincs ellenőrizendő meccs (az időkorlát vagy státusz miatt).")
+            if not force_check: print("TIPP: Használd a --force-check kapcsolót, ha biztosan le akarod kérdezni őket!")
+    except Exception as e: 
+        print(f"Hiba a lekérdezésnél: {e}")
+        fixtures = []
 
     updates_count = 0
+    # Csak ezeket a státuszokat tekintjük véglegesnek
     FINISHED = ["FT", "AET", "PEN"]
     
     if fixtures:
+        print(f"🔍 {len(fixtures)} db függő meccs vizsgálata...")
         for f in fixtures:
             data = get_fixture_result(f['fixture_id'])
             if data:
                 status = data['fixture']['status']['short']
+                print(f"   ⚽ {f['csapat_H']} vs {f['csapat_V']} -> Státusz: {status}")
+                
                 if status in FINISHED:
                     res, score = evaluate_tip(f['tipp'], data)
-                    supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
-                    print(f"✅ Frissítve: {f['csapat_H']} - {res}")
-                    updates_count += 1
+                    if res: # Csak ha sikerült kiértékelni
+                        supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
+                        print(f"      ✅ EREDMÉNY: {res} ({score})")
+                        updates_count += 1
                 elif status in ["PST", "CANC", "ABD"]:
                     supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", f['id']).execute()
                     updates_count += 1
+                    print(f"      ⚠️ Törölve/Elhalasztva")
+                else:
+                    print(f"      ⏳ Még tart vagy nincs vége.")
     
     # --- 2. JELENTÉS KÜLDÉSE ---
     if force_yesterday or updates_count > 0:
