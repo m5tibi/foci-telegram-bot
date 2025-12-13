@@ -1,7 +1,8 @@
-# eredmeny_ellenorzo.py (V2.5 - Force Check & Timezone Fix)
+# eredmeny_ellenorzo.py (V2.6 - DEBUG Verzió + API Key Fix)
 import os
 import sys
 import requests
+import json
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 import pytz
@@ -10,9 +11,9 @@ import pytz
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
 
-# --- API BEÁLLÍTÁSOK (Render kompatibilis) ---
+# --- API BEÁLLÍTÁSOK (KULCS JAVÍTÁSSAL!) ---
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
-API_KEY = raw_key.strip()
+API_KEY = raw_key.strip() # <--- EZ A LÉNYEG! Levágja a felesleges szóközöket
 API_HOST = "v3.football.api-sports.io"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -30,12 +31,11 @@ def send_telegram_report(report_text):
     except Exception as e: print(f"Telegram hiba: {e}")
 
 def get_fixtures_to_check(force_check=False):
-    # Modern időkezelés (UTC)
+    # Modern időkezelés (UTC) - Nincs több DeprecationWarning
     now_utc = datetime.now(timezone.utc)
     
     if force_check:
-        print(f"⚠️ FORCE CHECK aktív: Időkorlát figyelmen kívül hagyása!")
-        # Minden "Tipp leadva" státuszú meccset lekérünk
+        print(f"⚠️ FORCE CHECK aktív: Időkorlát figyelmen kívül hagyása! Minden 'Tipp leadva' státuszú meccs ellenőrzése.")
         return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute().data
     else:
         # Csak a 115 perce (kb 2 órája) kezdődött meccseket nézzük
@@ -49,7 +49,8 @@ def get_completed_tips_for_date(target_date):
     response = supabase.table("meccsek").select("*").gte("kezdes", start_of_day).lte("kezdes", end_of_day).neq("eredmeny", "Tipp leadva").execute()
     return response.data
 
-def get_fixture_result(fixture_id):
+def get_fixture_result_debug(fixture_id):
+    """Részletes hibakereső API hívás"""
     url = f"https://{API_HOST}/fixtures"
     headers = {
         "x-apisports-key": API_KEY,
@@ -57,18 +58,37 @@ def get_fixture_result(fixture_id):
     }
     try:
         resp = requests.get(url, headers=headers, params={"id": str(fixture_id)}, timeout=15)
+        
+        # 1. Státusz kód ellenőrzés
+        if resp.status_code == 403:
+            print(f"❌ KRITIKUS HIBA (ID: {fixture_id}): 403 Forbidden! A kulcs még mindig rossz, vagy nincs jogod.")
+            return None
+            
         resp.raise_for_status()
-        data = resp.json().get('response', [])
-        return data[0] if data else None
+        data_json = resp.json()
+        
+        # 2. API hibaüzenet ellenőrzés
+        if "errors" in data_json and data_json["errors"]:
+            print(f"❌ API HIBAVÁLASZ (ID: {fixture_id}):")
+            print(json.dumps(data_json["errors"], indent=2))
+            return None
+            
+        # 3. Üres válasz ellenőrzés
+        response_list = data_json.get('response', [])
+        if not response_list:
+            print(f"⚠️ ÜRES VÁLASZ (ID: {fixture_id}): Az API nem talált adatot ehhez a meccshez.")
+            return None
+            
+        return response_list[0]
+        
     except Exception as e:
-        print(f"API Hiba: {e}")
+        print(f"💥 KIVÉTEL Hiba (ID: {fixture_id}): {e}")
         return None
 
 def evaluate_tip(tip_text, fixture_data):
     score = fixture_data.get('score', {}).get('fulltime', {})
     h, a = score.get('home'), score.get('away')
     
-    # Ha még nincs végeredmény (pl. meccs közben), visszatérünk
     if h is None or a is None: return None, None
     
     total = h + a
@@ -88,7 +108,10 @@ def evaluate_tip(tip_text, fixture_data):
 
 def main():
     force_yesterday = '--tegnap' in sys.argv
-    force_check = '--force-check' in sys.argv  # ÚJ KAPCSOLÓ!
+    force_check = '--force-check' in sys.argv
+    
+    # DEBUG KIÍRÁS A KULCSRÓL (Hogy lásd a logban, jó-e)
+    print(f"DEBUG: API Kulcs hossza: {len(API_KEY)} karakter.")
     
     now_bp = datetime.now(BUDAPEST_TZ)
     
@@ -107,26 +130,27 @@ def main():
         fixtures = get_fixtures_to_check(force_check)
         if not fixtures:
             print("ℹ️ Nincs ellenőrizendő meccs (az időkorlát vagy státusz miatt).")
-            if not force_check: print("TIPP: Használd a --force-check kapcsolót, ha biztosan le akarod kérdezni őket!")
+            if not force_check: print("TIPP: Használd a --force-check kapcsolót a parancssorban!")
     except Exception as e: 
         print(f"Hiba a lekérdezésnél: {e}")
         fixtures = []
 
     updates_count = 0
-    # Csak ezeket a státuszokat tekintjük véglegesnek
     FINISHED = ["FT", "AET", "PEN"]
     
     if fixtures:
         print(f"🔍 {len(fixtures)} db függő meccs vizsgálata...")
         for f in fixtures:
-            data = get_fixture_result(f['fixture_id'])
+            # ITT HASZNÁLJUK AZ ÚJ DEBUG FÜGGVÉNYT
+            data = get_fixture_result_debug(f['fixture_id'])
+            
             if data:
                 status = data['fixture']['status']['short']
                 print(f"   ⚽ {f['csapat_H']} vs {f['csapat_V']} -> Státusz: {status}")
                 
                 if status in FINISHED:
                     res, score = evaluate_tip(f['tipp'], data)
-                    if res: # Csak ha sikerült kiértékelni
+                    if res:
                         supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
                         print(f"      ✅ EREDMÉNY: {res} ({score})")
                         updates_count += 1
@@ -136,6 +160,8 @@ def main():
                     print(f"      ⚠️ Törölve/Elhalasztva")
                 else:
                     print(f"      ⏳ Még tart vagy nincs vége.")
+            else:
+                print(f"   ❌ SIKERTELEN LEKÉRDEZÉS: {f['csapat_H']} vs {f['csapat_V']} (ID: {f['fixture_id']})")
     
     # --- 2. JELENTÉS KÜLDÉSE ---
     if force_yesterday or updates_count > 0:
