@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.5 - Javított: Limitálva 3 tippre!)
+# tipp_generator.py (V17.7 - Teljes Verzió: Bővített Ligák + Beszédes Bot + Top 3 Limit)
 
 import os
 import requests
@@ -8,54 +8,83 @@ import time
 import pytz
 import sys
 import json
-from dotenv import load_dotenv # Környezeti változók betöltése
+from dotenv import load_dotenv 
 
-# 1. Betöltjük a .env fájlt (ha van)
+# Környezeti változók betöltése
 load_dotenv()
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") 
-
 if not SUPABASE_KEY:
-    # print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# API KULCS KEZELÉS
 API_KEY = os.environ.get("API_FOOTBALL_KEY") or os.environ.get("RAPIDAPI_KEY")
 API_HOST = "v3.football.api-sports.io"
-
-# --- DIAGNOSZTIKA ---
-if not API_KEY:
-    print("⚠️ FIGYELEM: Nincs API kulcs beállítva (API_FOOTBALL_KEY vagy RAPIDAPI_KEY)!")
-    print("   A szkript nem fog tudni adatokat lekérni.")
-# --------------------
-
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = 1326707238 
+ADMIN_CHAT_ID = 1326707238 # A te chat ID-d
 
-# Csak akkor csatlakozunk, ha van kulcs (Backtestnél nem mindig kell)
+if not API_KEY:
+    print("⚠️ FIGYELEM: Nincs API kulcs beállítva!")
+
+# Supabase csatlakozás
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
-        print(f"Figyelem: Nem sikerült csatlakozni a Supabase-hez: {e}")
+        print(f"Supabase hiba: {e}")
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-TEAM_STATS_CACHE, INJURIES_CACHE = {}, {}
+# Cache a statisztikáknak és sérülteknek
+TEAM_STATS_CACHE = {}
+INJURIES_CACHE = {}
 
+# --- BŐVÍTETT LIGA LISTA (Hogy mindig legyen meccs) ---
 RELEVANT_LEAGUES = {
-    39: "Angol Premier League", 140: "Spanyol La Liga", 135: "Olasz Serie A", 78: "Német Bundesliga", 
-    61: "Francia Ligue 1", 88: "Holland Eredivisie", 94: "Portugál Primeira Liga", 2: "Bajnokok Ligája", 
-    3: "Európa-liga", 848: "UEFA Conference League", 203: "Török Süper Lig", 113: "Osztrák Bundesliga", 
-    179: "Skót Premiership", 106: "Dán Superliga", 103: "Norvég Eliteserien", 119: "Svéd Allsvenskan", 
-    283: "Görög Super League", 253: "USA MLS", 71: "Brazil Serie A"
+    # --- TOP LIGÁK ---
+    39: "Angol Premier League",
+    140: "Spanyol La Liga",
+    135: "Olasz Serie A",
+    78: "Német Bundesliga",
+    61: "Francia Ligue 1",
+    88: "Holland Eredivisie",
+    94: "Portugál Primeira Liga",
+    
+    # --- NEMZETKÖZI KUPÁK ---
+    2: "Bajnokok Ligája",
+    3: "Európa-liga",
+    848: "UEFA Conference League",
+    
+    # --- ALSÓBB OSZTÁLYOK (A "Csendes Napok" ellen) ---
+    40: "Angol Championship",
+    41: "Angol League One",
+    42: "Angol League Two",
+    141: "Spanyol La Liga 2",
+    136: "Olasz Serie B",
+    79: "Német 2. Bundesliga",
+    62: "Francia Ligue 2",
+    144: "Belga Jupiler Pro League",
+    
+    # --- EGYÉB POPULÁRIS ---
+    203: "Török Süper Lig",
+    113: "Osztrák Bundesliga",
+    179: "Skót Premiership",
+    106: "Dán Superliga",
+    103: "Norvég Eliteserien",
+    119: "Svéd Allsvenskan",
+    283: "Görög Super League",
+    244: "Horvát HNL",
+    253: "USA MLS",
+    71: "Brazil Serie A",
+    262: "Argentin Liga Profesional"
 }
+
+# Híres rangadók listája (ahol borulhat a papírforma)
 DERBY_LIST = [(50, 66), (85, 106), (40, 50), (33, 34), (529, 541), (541, 529)] 
 
-# --- API FÜGGVÉNY ---
+# --- API SEGÉDFÜGGVÉNYEK ---
 def get_api_data(endpoint, params, retries=3, delay=5):
     if not API_KEY: return []
     url = f"https://{API_HOST}/{endpoint}"
@@ -83,10 +112,27 @@ def get_api_data(endpoint, params, retries=3, delay=5):
                 print(f"Hálózati hiba: {e}")
                 return []
 
-# --- 1. A TISZTA LOGIKA (Backtest kompatibilis) ---
+def send_telegram_message(text, keyboard=None):
+    """ Általános üzenetküldő függvény """
+    if not TELEGRAM_TOKEN: return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ADMIN_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    if keyboard:
+        payload["reply_markup"] = keyboard
+        
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Telegram hiba: {e}")
+
+# --- 1. A TISZTA LOGIKA (V17.3 - Validált) ---
 def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, injuries, odds_raw):
     """
-    Ez a függvény NEM hív API-t. Csak a kapott adatokból számol.
+    Ez a függvény végzi az elemzést. NEM hív API-t, csak számol.
     """
     if not fixture_data or not stats_h or not stats_v: return []
     
@@ -98,6 +144,7 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
         home_id, away_id = teams['home']['id'], teams['away']['id']
     except Exception: return []
 
+    # Kupák és Rangadók kiszűrése (a kockázat miatt)
     if tuple(sorted((home_id, away_id))) in DERBY_LIST or "Cup" in league['name'] or "Kupa" in league['name']: return []
     
     if not stats_h.get('goals') or not stats_v.get('goals'): return []
@@ -111,14 +158,14 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
     v_scored = (stats_v['goals']['for']['total']['away'] or 0) / v_played
     v_conceded = (stats_v['goals']['against']['total']['away'] or 0) / v_played
 
-    # Failed to Score / Clean Sheet
+    # Failed to Score / Clean Sheet arányok
     h_failed_matches = stats_h.get('failed_to_score', {}).get('home') or 0
     h_failed_ratio = h_failed_matches / h_played 
 
     v_clean_sheet_matches = stats_v.get('clean_sheet', {}).get('away') or 0
     v_clean_sheet_ratio = v_clean_sheet_matches / v_played
 
-    # KOCKÁZATI FAKTOR
+    # KOCKÁZATI FAKTOR: Ha a hazai csapat gyakran nem lő gólt
     risk_factor_h_attack = h_failed_ratio > 0.35 
 
     # --- H2H ELEMZÉS ---
@@ -135,9 +182,9 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
                (match['teams']['away']['id'] == home_id and g_away > g_home):
                 h2h_home_wins += 1
 
-    h2h_warning = h2h_under_25_count >= 3 
+    h2h_warning = h2h_under_25_count >= 3 # Ha a legutóbbi 5-ből 3-szor kevés gól volt
 
-    # --- FORMA ---
+    # --- FORMA SZÁMÍTÁS ---
     def calc_form_points(form_str):
         pts = 0
         if not form_str: return 0
@@ -176,12 +223,13 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
     found_tips = []
     base_confidence = 75 
     
+    # Büntetőpontok
     if key_injuries >= 2: base_confidence -= 15 
     if risk_factor_h_attack: base_confidence -= 20 
     if h2h_warning: base_confidence -= 15           
     if v_clean_sheet_ratio > 0.30: base_confidence -= 10 
 
-    # 1. OVER 2.5
+    # 1. STRATÉGIA: OVER 2.5
     over_odd = odds.get("Goals Over/Under_Over 2.5")
     if over_odd and 1.50 <= over_odd <= 2.10:
         match_avg_goals = (h_scored + h_conceded + v_scored + v_conceded) / 2
@@ -196,7 +244,7 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
                 if conf >= 60:
                     found_tips.append({"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['date'], "liga_nev": league['name'], "tipp": "Over 2.5", "odds": over_odd, "confidence": conf})
 
-    # 2. BTTS
+    # 2. STRATÉGIA: BTTS (Mindkét csapat lő gólt)
     btts_odd = odds.get("Both Teams to Score_Yes")
     if btts_odd and 1.55 <= btts_odd <= 2.15:
         if h_scored >= 1.3 and v_scored >= 1.2 and not risk_factor_h_attack:
@@ -207,7 +255,7 @@ def analyze_fixture_logic(fixture_data, standings, stats_h, stats_v, h2h_data, i
                 if conf >= 65:
                     found_tips.append({"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['date'], "liga_nev": league['name'], "tipp": "BTTS", "odds": btts_odd, "confidence": conf})
 
-    # 3. HOME WIN
+    # 3. STRATÉGIA: HOME WIN (Hazai győzelem)
     home_odd = odds.get("Match Winner_Home")
     if home_odd and 1.45 <= home_odd <= 2.20:
         if form_diff >= 5:
@@ -227,10 +275,12 @@ def analyze_fixture_smart_stats(fixture):
     league_id = fixture['league']['id']
     home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
     
+    # Adatok a cache-ből
     stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league_id}")
     stats_v = TEAM_STATS_CACHE.get(f"{away_id}_{league_id}")
     injuries = INJURIES_CACHE.get(fixture_id, [])
     
+    # Adatok az API-ból (Ezek nincsenek cache-elve, mert meccsenként egyediek)
     h2h_data = get_api_data("fixtures/headtohead", {"h2h": f"{home_id}-{away_id}", "last": "5"})
     odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
     
@@ -244,7 +294,7 @@ def select_best_single_tips(all_potential_tips, max_tips=8):
             unique_fixtures[fid] = tip
     return sorted(unique_fixtures.values(), key=lambda x: x['confidence'], reverse=True)[:max_tips]
 
-# --- ADATELŐTÖLTÉS ---
+# --- ADATELŐTÖLTÉS (Optimalizálás) ---
 def prefetch_data_for_fixtures(fixtures):
     if not fixtures: return
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
@@ -254,9 +304,11 @@ def prefetch_data_for_fixtures(fixtures):
         fixture_id, league_id = fixture['fixture']['id'], fixture['league']['id']
         home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
         
+        # Sérültek lekérése (ha még nincs)
         if fixture_id not in INJURIES_CACHE: 
             INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
         
+        # Statisztikák lekérése (ha még nincs)
         for team_id in [home_id, away_id]:
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
@@ -264,13 +316,35 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
-# --- MENTÉS ---
+# --- MENTÉS ÉS ADMINISZTRÁCIÓ ---
 def save_tips_for_day(single_tips, date_str):
     if not single_tips or not supabase: return
     try:
-        tips_to_insert = [{"fixture_id": t['fixture_id'], "csapat_H": t['csapat_H'], "csapat_V": t['csapat_V'], "kezdes": t['kezdes'], "liga_nev": t['liga_nev'], "tipp": t['tipp'], "odds": t['odds'], "eredmeny": "Tipp leadva", "confidence_score": t['confidence']} for t in single_tips]
+        # 1. Meccsek mentése
+        tips_to_insert = [
+            {
+                "fixture_id": t['fixture_id'],
+                "csapat_H": t['csapat_H'],
+                "csapat_V": t['csapat_V'],
+                "kezdes": t['kezdes'],
+                "liga_nev": t['liga_nev'],
+                "tipp": t['tipp'],
+                "odds": t['odds'],
+                "eredmeny": "Tipp leadva",
+                "confidence_score": t['confidence']
+            } for t in single_tips
+        ]
         saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
-        slips_to_insert = [{"tipp_neve": f"Napi Single #{i + 1} - {date_str}", "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]], "confidence_percent": tip["confidence_score"]} for i, tip in enumerate(saved_tips)]
+        
+        # 2. Szelvények (Napi Tuti) mentése
+        slips_to_insert = [
+            {
+                "tipp_neve": f"Napi Single #{i + 1} - {date_str}",
+                "eredo_odds": tip["odds"],
+                "tipp_id_k": [tip["id"]],
+                "confidence_percent": tip["confidence_score"]
+            } for i, tip in enumerate(saved_tips)
+        ]
         if slips_to_insert:
             supabase.table("napi_tuti").insert(slips_to_insert).execute()
             print(f"Sikeresen elmentve {len(slips_to_insert)} darab single tipp.")
@@ -278,18 +352,11 @@ def save_tips_for_day(single_tips, date_str):
 
 def record_daily_status(date_str, status, reason=""):
     if not supabase: return
-    try: supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
+    try:
+        supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
     except Exception as e: print(f"!!! HIBA státusz rögzítésnél: {e}")
 
-def send_approval_request(date_str, count):
-    if not TELEGRAM_TOKEN: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Jóváhagyás", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V17.5 - Top 3 Limit)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*")
-    try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
-    except Exception: pass
-
-# --- MAIN LOOP ---
+# --- FŐPROGRAM ---
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
@@ -300,47 +367,65 @@ def main(run_as_test=False):
     start_time = datetime.now(BUDAPEST_TZ)
     tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.5) indítása...")
+    print(f"Tipp Generátor (V17.7 - Bővített Ligák) indítása...")
     print(f"Cél dátum: {tomorrow_str}")
 
+    # 1. Meccsek lekérése
     all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
 
     if not all_fixtures_raw: 
-        print("Nincs adat az API-ból (vagy hiba történt)."); 
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        print("Nincs adat az API-ból.")
+        if not is_test_mode:
+            record_daily_status(tomorrow_str, "Hiba")
+            send_telegram_message(f"⚠️ *Hiba a {tomorrow_str}-i napon:*\nNem sikerült adatot lekérni az API-tól.")
         return
 
+    # 2. Szűrés ligákra
     relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES]
     
     if not relevant_fixtures: 
-        print("Nincs releváns liga."); 
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        print("Nincs releváns liga.")
+        if not is_test_mode:
+            record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+            send_telegram_message(f"⛔️ *Nincs Releváns Meccs ({tomorrow_str})*\n\nBár kerestem a bővített listában (alsóbb osztályok is), ma nem találtam megfelelő bajnoki meccset.")
         return
         
+    # 3. Adatok letöltése és Elemzés
     prefetch_data_for_fixtures(relevant_fixtures)
     
-    print(f"\n--- {tomorrow_str} elemzése ---")
+    print(f"\n--- {tomorrow_str} elemzése ({len(relevant_fixtures)} meccs) ---")
     potential = []
     for fixture in relevant_fixtures:
         tips = analyze_fixture_smart_stats(fixture)
         potential.extend(tips)
 
-    # --- ITT VOLT A HIBA, MOST JAVÍTVA: ---
-    # Beállítjuk a max_tips=3 értéket a backtest mintájára
-    best = select_best_single_tips(potential, max_tips=3)
+    # 4. Kiválasztás (LIMITÁLVA 3-RA!)
+    best = select_best_single_tips(potential, max_tips=3) 
     
     if best:
-        print(f"✅ Találat: {len(best)} db (Limitálva: 3).")
+        print(f"✅ Találat: {len(best)} db.")
         if is_test_mode:
             for t in best:
                 print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} -> {t['tipp']} (@{t['odds']}) Conf: {t['confidence']}%")
         if not is_test_mode:
             save_tips_for_day(best, tomorrow_str)
             record_daily_status(tomorrow_str, "Jóváhagyásra vár", f"{len(best)} tipp.")
-            send_approval_request(tomorrow_str, len(best))
+            
+            # Telegram üzenet küldése (Jóváhagyó gombokkal)
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": f"✅ {tomorrow_str} Jóváhagyás", "callback_data": f"approve_tips:{tomorrow_str}"}],
+                    [{"text": "❌ Elutasítás", "callback_data": f"reject_tips:{tomorrow_str}"}]
+                ]
+            }
+            msg = (f"🤖 *Új Automatikus Tippek (V17.7)!*\n\n📅 Dátum: *{tomorrow_str}*\n🔢 Mennyiség: *{len(best)} db*")
+            send_telegram_message(msg, keyboard)
     else:
         print("❌ Nincs megfelelő tipp.")
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        if not is_test_mode:
+            record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+            # Üzenet, hogy lássuk, a bot dolgozott, csak nem talált jót
+            send_telegram_message(f"❌ *Nincs Megfelelő Tipp ({tomorrow_str})*\n\nÁtnéztem {len(relevant_fixtures)} meccset, de a szigorú szűrők alapján egyik sem volt elég biztonságos.")
 
 if __name__ == "__main__":
     main()
