@@ -486,7 +486,19 @@
                 t.src=v;s=b.getElementsByTagName(e)[0];
                 s.parentNode.insertBefore(t,s)}(window, document,'script',
                 'https://connect.facebook.net/en_US/fbevents.js');
-                fbq('init', '1858049415130011');
+                
+                // --- MÓDOSÍTÁS: Advanced Matching (Email küldése) ---
+                var userData = {};
+                {% if user and user.email %}
+                    userData = {
+                        em: '{{ user.email }}' // A Facebook Pixel automatikusan hasheli
+                    };
+                {% endif %}
+                
+                // Az init hívásba betesszük a userData objektumot
+                fbq('init', '1858049415130011', userData);
+                // ---------------------------------------------------
+
                 fbq('track', 'PageView');
             }
 
