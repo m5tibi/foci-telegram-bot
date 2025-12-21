@@ -237,7 +237,7 @@ def analyze_fixture_smart_stats(fixture):
     odds_data = get_api_data("odds", {"fixture": str(fixture_id)})
     return analyze_fixture_logic(fixture, [], stats_h, stats_v, h2h_data, injuries, odds_data)
 
-def select_best_single_tips(all_potential_tips, max_tips=8):
+def select_best_single_tips(all_potential_tips, max_tips=3):
     unique_fixtures = {}
     for tip in all_potential_tips:
         fid = tip['fixture_id']
