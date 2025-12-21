@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.3 - Time Travel Fix + Max 3 Tips + Key Cleaner)
+# tipp_generator.py (V17.4 - Time Travel Fix + Max 3 Tips + Key Cleaner)
 
 import os
 import requests
@@ -230,18 +230,17 @@ def send_approval_request(date_str, count):
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
+# --- FŐ VEZÉRLŐ (V17.4 SameDay + Részletes Kiírás) ---
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
     start_time = datetime.now(BUDAPEST_TZ)
-    # MÓDOSÍTÁS: Nem adunk hozzá napot, így a MAI napot (days=0) vesszük
+    # MAI NAP (days=0)
     target_date_str = start_time.strftime("%Y-%m-%d")
     
     print(f"Tipp Generátor (V17.4 SameDay) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
     print(f"Cél dátum (MA): {target_date_str}")
 
-    # A változó nevét átírtam 'target_date_str'-re, hogy logikus legyen,
-    # de a kódban lejjebb is át kell írni, ahol eddig 'tomorrow_str' volt!
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
 
     if not all_fixtures_raw: 
@@ -264,7 +263,15 @@ def main(run_as_test=False):
     
     if best:
         print(f"✅ Találat: {len(best)} db.")
-        # ... (A teszt kiíró rész maradhat) ...
+        
+        # --- EZT A RÉSZT HAGYTUK KI VÉLETLENÜL ---
+        if is_test_mode:
+            print("\n[TESZT EREDMÉNYEK]:")
+            for t in best:
+                print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} ({t['liga_nev']})")
+                print(f"      💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Conf: {t['confidence']}%")
+                print("      ------------------------------------------------")
+        # ------------------------------------------
 
         if not is_test_mode:
             save_tips_for_day(best, target_date_str)
@@ -273,6 +280,9 @@ def main(run_as_test=False):
     else:
         print("❌ Nincs megfelelő tipp.")
         if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
