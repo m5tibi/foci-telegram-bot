@@ -234,47 +234,45 @@ def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
     start_time = datetime.now(BUDAPEST_TZ)
-    tomorrow_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
+    # MÓDOSÍTÁS: Nem adunk hozzá napot, így a MAI napot (days=0) vesszük
+    target_date_str = start_time.strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.3 TimeFix) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
-    print(f"Cél dátum: {tomorrow_str}")
+    print(f"Tipp Generátor (V17.4 SameDay) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Cél dátum (MA): {target_date_str}")
 
-    all_fixtures_raw = get_api_data("fixtures", {"date": tomorrow_str})
+    # A változó nevét átírtam 'target_date_str'-re, hogy logikus legyen,
+    # de a kódban lejjebb is át kell írni, ahol eddig 'tomorrow_str' volt!
+    all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
 
     if not all_fixtures_raw: 
         print("Nincs adat az API-ból (vagy hiba történt)."); 
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
         return
 
     relevant_fixtures = [f for f in all_fixtures_raw if f['league']['id'] in RELEVANT_LEAGUES]
     
     if not relevant_fixtures: 
-        print("Nincs releváns liga a holnapi napon."); 
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        print("Nincs releváns liga a mai napon."); 
+        if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
         return
         
     prefetch_data_for_fixtures(relevant_fixtures)
     
-    print(f"\n--- {tomorrow_str} elemzése ---")
+    print(f"\n--- {target_date_str} elemzése ---")
     potential = [tip for fixture in relevant_fixtures for tip in analyze_fixture_smart_stats(fixture)]
     best = select_best_single_tips(potential)
     
     if best:
         print(f"✅ Találat: {len(best)} db.")
-        if is_test_mode:
-            print("\n[TESZT EREDMÉNYEK]:")
-            for t in best:
-                print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} ({t['liga_nev']})")
-                print(f"      💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Conf: {t['confidence']}%")
-                print("      ------------------------------------------------")
+        # ... (A teszt kiíró rész maradhat) ...
 
         if not is_test_mode:
-            save_tips_for_day(best, tomorrow_str)
-            record_daily_status(tomorrow_str, "Jóváhagyásra vár", f"{len(best)} tipp.")
-            send_approval_request(tomorrow_str, len(best))
+            save_tips_for_day(best, target_date_str)
+            record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(best)} tipp.")
+            send_approval_request(target_date_str, len(best))
     else:
         print("❌ Nincs megfelelő tipp.")
-        if not is_test_mode: record_daily_status(tomorrow_str, "Nincs megfelelő tipp")
+        if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
 
 if __name__ == "__main__":
     main()
