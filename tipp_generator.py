@@ -249,14 +249,29 @@ def prefetch_data_for_fixtures(fixtures):
     if not fixtures: return
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     season = str(datetime.now(BUDAPEST_TZ).year)
+    
+    # Kivesszük az első meccs dátumát (mivel egy napot elemzünk egyszerre, ez a nap dátuma)
+    # Formátum az API-nak: YYYY-MM-DD
+    target_date = fixtures[0]['fixture']['date'][:10]
+
     for fixture in fixtures:
         fixture_id, league_id = fixture['fixture']['id'], fixture['league']['id']
         home_id, away_id = fixture['teams']['home']['id'], fixture['teams']['away']['id']
-        if fixture_id not in INJURIES_CACHE: INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
+        
+        if fixture_id not in INJURIES_CACHE: 
+            INJURIES_CACHE[fixture_id] = get_api_data("injuries", {"fixture": str(fixture_id)})
+        
         for team_id in [home_id, away_id]:
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
-                stats = get_api_data("teams/statistics", {"league": str(league_id), "season": season, "team": str(team_id)})
+                # JAVÍTÁS: Átadjuk a 'date' paramétert!
+                # Így az API csak eddig a dátumig számolja a statisztikákat.
+                stats = get_api_data("teams/statistics", {
+                    "league": str(league_id), 
+                    "season": season, 
+                    "team": str(team_id),
+                    "date": target_date 
+                })
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
     print("Adatok előtöltése befejezve.")
 
