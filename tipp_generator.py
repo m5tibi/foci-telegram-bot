@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.4 - Time Travel Fix + Max 3 Tips + Key Cleaner)
+# tipp_generator.py (V17.4 - SameDay + Cleaned + Secure)
 
 import os
 import requests
@@ -9,15 +9,12 @@ import pytz
 import sys
 import json 
 
-# --- Konfiguráció ---
-# HA A SAJÁT GÉPEDEN TESZTELSZ, IDE ÍRD BE A KULCSOKAT IDŐZŐJELEK KÖZÉ!
-# HA RENDERRE KÜLDÖD, HAGYD ÍGY (os.environ)!
-
+# --- Konfiguráció (VISSZAÁLLÍTVA BIZTONSÁGOSRA!) ---
+# Renderen ezeket a Környezeti Változókból olvassa ki.
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") 
 
 if not SUPABASE_KEY:
-    # print("FIGYELEM: SUPABASE_SERVICE_KEY nem található, a sima KEY-t használom.")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # --- KULCS BEOLVASÁSA ÉS TISZTÍTÁSA ---
@@ -31,8 +28,7 @@ API_HOST = "v3.football.api-sports.io"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
 
-# Ha nincsenek beállítva a változók (pl. local testnél üres), ne szálljon el azonnal,
-# de a hívásnál hibát dobhat, ha nem írtad át fentebb.
+# Ha nincsenek beállítva a változók (pl. local testnél üres), ne szálljon el azonnal.
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except:
@@ -75,8 +71,6 @@ def get_api_data(endpoint, params, retries=3, delay=5):
                 return []
             
             if not data.get('response'):
-                # if i == retries - 1:
-                    # print(f"FIGYELEM: Üres válasz érkezett innen: {endpoint} (Params: {params})")
                 pass
             
             time.sleep(0.5) # Biztonsági szünet
@@ -94,8 +88,6 @@ def prefetch_data_for_fixtures(fixtures):
     season = str(datetime.now(BUDAPEST_TZ).year)
     
     # --- JAVÍTÁS: Dátum meghatározása a "Time Travel" funkcióhoz ---
-    # Ha van meccs, kivesszük a dátumát (YYYY-MM-DD), hogy az API
-    # csak az aznapi (meccs előtti) állapotot adja vissza.
     target_date = None
     if fixtures and 'fixture' in fixtures[0] and 'date' in fixtures[0]['fixture']:
         target_date = fixtures[0]['fixture']['date'][:10]
@@ -112,13 +104,11 @@ def prefetch_data_for_fixtures(fixtures):
             stats_key = f"{team_id}_{league_id}"
             if stats_key not in TEAM_STATS_CACHE:
                 
-                # Paraméterek összeállítása
                 params = {
                     "league": str(league_id), 
                     "season": season, 
                     "team": str(team_id)
                 }
-                # Ha sikerült kinyerni a dátumot, hozzáadjuk a kéréshez!
                 if target_date:
                     params["date"] = target_date
                 
@@ -198,7 +188,7 @@ def analyze_fixture_smart_stats(fixture):
 
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
-# --- JAVÍTÁS: MAX TIPS Default = 3 (Élesben is!) ---
+# --- MAX TIPS Default = 3 ---
 def select_best_single_tips(all_potential_tips, max_tips=3):
     unique_fixtures = {}
     for tip in all_potential_tips:
@@ -225,9 +215,18 @@ def record_daily_status(date_str, status, reason=""):
 def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Automatikus Tippek (V17.3 TimeFix)!*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
-    try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": f"✅ {date_str} Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], 
+            [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]
+        ]
+    }
+    # JAVÍTÁS: Itt átírtam V17.4-re!
+    msg = (f"🤖 *Új Automatikus Tippek (V17.4 SameDay)*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    
+    try: 
+        requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
 # --- FŐ VEZÉRLŐ (V17.4 SameDay + Részletes Kiírás) ---
@@ -264,7 +263,7 @@ def main(run_as_test=False):
     if best:
         print(f"✅ Találat: {len(best)} db.")
         
-        # --- EZT A RÉSZT HAGYTUK KI VÉLETLENÜL ---
+        # --- RÉSZLETES LOG KIÍRÁS (TESZT MÓDBAN) ---
         if is_test_mode:
             print("\n[TESZT EREDMÉNYEK]:")
             for t in best:
@@ -281,8 +280,6 @@ def main(run_as_test=False):
         print("❌ Nincs megfelelő tipp.")
         if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
 
-if __name__ == "__main__":
-    main()
-
+# --- INDÍTÓ PARANCS (CSAK EGYETLEN DARAB!) ---
 if __name__ == "__main__":
     main()
