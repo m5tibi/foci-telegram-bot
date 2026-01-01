@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.4 - SameDay + Cleaned + Secure)
+# tipp_generator.py (V17.5 - NoneType Fix + SameDay)
 
 import os
 import requests
@@ -9,8 +9,7 @@ import pytz
 import sys
 import json 
 
-# --- Konfiguráció (VISSZAÁLLÍTVA BIZTONSÁGOSRA!) ---
-# Renderen ezeket a Környezeti Változókból olvassa ki.
+# --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") 
 
@@ -19,7 +18,6 @@ if not SUPABASE_KEY:
 
 # --- KULCS BEOLVASÁSA ÉS TISZTÍTÁSA ---
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
-# A .strip() eltávolítja a szóközöket és sortöréseket az elejéről/végéről
 API_KEY = raw_key.strip() 
 API_HOST = "v3.football.api-sports.io"
 
@@ -28,7 +26,6 @@ API_HOST = "v3.football.api-sports.io"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
 
-# Ha nincsenek beállítva a változók (pl. local testnél üres), ne szálljon el azonnal.
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except:
@@ -66,14 +63,12 @@ def get_api_data(endpoint, params, retries=3, delay=5):
             data = response.json()
             
             if "errors" in data and data["errors"]:
-                # print(f"!!! API LOGIKAI HIBA ({endpoint}):")
-                # print(json.dumps(data["errors"], indent=2))
                 return []
             
             if not data.get('response'):
                 pass
             
-            time.sleep(0.5) # Biztonsági szünet
+            time.sleep(0.5)
             return data.get('response', [])
 
         except requests.exceptions.RequestException as e:
@@ -81,17 +76,14 @@ def get_api_data(endpoint, params, retries=3, delay=5):
             if i < retries - 1: time.sleep(delay)
             else: return []
 
-# --- JAVÍTOTT PREFETCH (Időutazás Backteszthez) ---
 def prefetch_data_for_fixtures(fixtures):
     if not fixtures: return
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     season = str(datetime.now(BUDAPEST_TZ).year)
     
-    # --- JAVÍTÁS: Dátum meghatározása a "Time Travel" funkcióhoz ---
     target_date = None
     if fixtures and 'fixture' in fixtures[0] and 'date' in fixtures[0]['fixture']:
         target_date = fixtures[0]['fixture']['date'][:10]
-    # -------------------------------------------------------------
 
     for fixture in fixtures:
         fixture_id, league_id = fixture['fixture']['id'], fixture['league']['id']
@@ -135,15 +127,18 @@ def analyze_fixture_smart_stats(fixture):
     v_scored = (stats_v['goals']['for']['total']['away'] or 0) / v_played
     v_conceded = (stats_v['goals']['against']['total']['away'] or 0) / v_played
 
+    # --- JAVÍTÁS ITT: Hiba elkerülése, ha nincs forma adat ---
     def calc_form_points(form_str):
+        if not form_str: return 0 # Ha None vagy üres, 0 pont
         pts = 0
         for char in form_str[-5:]:
             if char == 'W': pts += 3
             elif char == 'D': pts += 1
         return pts
+    # ---------------------------------------------------------
 
-    h_form_pts = calc_form_points(stats_h.get('form', ''))
-    v_form_pts = calc_form_points(stats_v.get('form', ''))
+    h_form_pts = calc_form_points(stats_h.get('form'))
+    v_form_pts = calc_form_points(stats_v.get('form'))
     form_diff = h_form_pts - v_form_pts 
 
     injuries = INJURIES_CACHE.get(fixture_id, [])
@@ -188,7 +183,6 @@ def analyze_fixture_smart_stats(fixture):
 
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
-# --- MAX TIPS Default = 3 ---
 def select_best_single_tips(all_potential_tips, max_tips=3):
     unique_fixtures = {}
     for tip in all_potential_tips:
@@ -222,22 +216,20 @@ def send_approval_request(date_str, count):
             [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]
         ]
     }
-    # JAVÍTÁS: Itt átírtam V17.4-re!
-    msg = (f"🤖 *Új Automatikus Tippek (V17.4 SameDay)*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    
+    msg = (f"🤖 *Új Automatikus Tippek (V17.5 SameDay)*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
     
     try: 
         requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except Exception: pass
 
-# --- FŐ VEZÉRLŐ (V17.4 SameDay + Részletes Kiírás) ---
 def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     
     start_time = datetime.now(BUDAPEST_TZ)
-    # MAI NAP (days=0)
     target_date_str = start_time.strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.4 SameDay) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Tipp Generátor (V17.5 SameDay) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
     print(f"Cél dátum (MA): {target_date_str}")
 
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
@@ -263,14 +255,12 @@ def main(run_as_test=False):
     if best:
         print(f"✅ Találat: {len(best)} db.")
         
-        # --- RÉSZLETES LOG KIÍRÁS (TESZT MÓDBAN) ---
         if is_test_mode:
             print("\n[TESZT EREDMÉNYEK]:")
             for t in best:
                 print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']} ({t['liga_nev']})")
                 print(f"      💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Conf: {t['confidence']}%")
                 print("      ------------------------------------------------")
-        # ------------------------------------------
 
         if not is_test_mode:
             save_tips_for_day(best, target_date_str)
@@ -280,6 +270,5 @@ def main(run_as_test=False):
         print("❌ Nincs megfelelő tipp.")
         if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
 
-# --- INDÍTÓ PARANCS (CSAK EGYETLEN DARAB!) ---
 if __name__ == "__main__":
     main()
