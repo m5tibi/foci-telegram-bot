@@ -1,4 +1,4 @@
-# tipp_generator.py (V17.6 - Season Year Fix + NoneType Fix + SameDay)
+# tipp_generator.py (V17.7 - Safe Stats Check + SeasonFix + SameDay)
 
 import os
 import requests
@@ -80,15 +80,13 @@ def prefetch_data_for_fixtures(fixtures):
     if not fixtures: return
     print(f"{len(fixtures)} releváns meccsre adatok előtöltése...")
     
-    # --- JAVÍTÁS (V17.6): Szezon év intelligens meghatározása ---
+    # --- Szezon év intelligens meghatározása ---
     now = datetime.now(BUDAPEST_TZ)
-    # Ha az év első felében vagyunk (január-július), akkor a szezon az előző évben kezdődött.
-    # Pl. 2026 januárjában még a 2025-ös szezon adatait kérjük le.
     if now.month <= 7:
         season = str(now.year - 1)
     else:
         season = str(now.year)
-    # -----------------------------------------------------------
+    # -------------------------------------------
     
     target_date = None
     if fixtures and 'fixture' in fixtures[0] and 'date' in fixtures[0]['fixture']:
@@ -126,7 +124,15 @@ def analyze_fixture_smart_stats(fixture):
     stats_h = TEAM_STATS_CACHE.get(f"{home_id}_{league['id']}")
     stats_v = TEAM_STATS_CACHE.get(f"{away_id}_{league['id']}")
     
-    if not all([stats_h, stats_v, stats_h.get('goals'), stats_v.get('goals')]): return []
+    # --- JAVÍTÁS (V17.7): Biztonságos ellenőrzés ---
+    # 1. Először megnézzük, hogy léteznek-e az objektumok
+    if not stats_h or not stats_v: 
+        return []
+    
+    # 2. Csak ha léteznek, akkor nézünk bele az adataikba
+    if not stats_h.get('goals') or not stats_v.get('goals'):
+        return []
+    # -----------------------------------------------
     
     h_played = stats_h['fixtures']['played']['home'] or 1
     h_scored = (stats_h['goals']['for']['total']['home'] or 0) / h_played
@@ -136,7 +142,6 @@ def analyze_fixture_smart_stats(fixture):
     v_scored = (stats_v['goals']['for']['total']['away'] or 0) / v_played
     v_conceded = (stats_v['goals']['against']['total']['away'] or 0) / v_played
 
-    # --- JAVÍTÁS: Hiba elkerülése, ha nincs forma adat ---
     def calc_form_points(form_str):
         if not form_str: return 0 
         pts = 0
@@ -144,7 +149,6 @@ def analyze_fixture_smart_stats(fixture):
             if char == 'W': pts += 3
             elif char == 'D': pts += 1
         return pts
-    # ---------------------------------------------------
 
     h_form_pts = calc_form_points(stats_h.get('form'))
     v_form_pts = calc_form_points(stats_v.get('form'))
@@ -226,7 +230,7 @@ def send_approval_request(date_str, count):
         ]
     }
     
-    msg = (f"🤖 *Új Automatikus Tippek (V17.6 SeasonFix)*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    msg = (f"🤖 *Új Automatikus Tippek (V17.7 SafeStats)*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
     
     try: 
         requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
@@ -238,7 +242,7 @@ def main(run_as_test=False):
     start_time = datetime.now(BUDAPEST_TZ)
     target_date_str = start_time.strftime("%Y-%m-%d")
     
-    print(f"Tipp Generátor (V17.6 SeasonFix) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
+    print(f"Tipp Generátor (V17.7 SafeStats) indítása {'TESZT MÓDBAN' if is_test_mode else 'ÉLES MÓDBAN'}...")
     print(f"Cél dátum (MA): {target_date_str}")
 
     all_fixtures_raw = get_api_data("fixtures", {"date": target_date_str})
