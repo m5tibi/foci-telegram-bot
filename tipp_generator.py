@@ -196,7 +196,7 @@ def analyze_fixture_smart_stats(fixture):
 
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
-def select_best_single_tips(all_potential_tips, max_tips=3):
+def select_best_single_tips(all_potential_tips, max_tips=5):
     unique_fixtures = {}
     for tip in all_potential_tips:
         fid = tip['fixture_id']
