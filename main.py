@@ -1,4 +1,4 @@
-# main.py (V9.15 - Telegram Értesítések Webes Feltöltésnél + Jelszó Fix)
+# main.py (V9.16 - Napi Jegy (Próbanap) támogatással)
 
 import os
 import asyncio
@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import redirect_stdout
 
-# HOZZÁADVA: BackgroundTasks az aszinkron feladatokhoz
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -35,8 +34,12 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+# ÁRAZÁSI ID-k
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
+STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY") # <--- ÚJ: Napi jegy ID
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -94,7 +97,7 @@ async def send_admin_notification(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
-# --- EMAIL KÜLDŐ FÜGGVÉNY (Jelszóhoz) ---
+# --- EMAIL KÜLDŐ FÜGGVÉNY ---
 def send_reset_email(to_email: str, token: str):
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
@@ -130,46 +133,30 @@ def send_reset_email(to_email: str, token: str):
 
 # --- TELEGRAM ÉRTESÍTÉS KÜLDŐ FÜGGVÉNYEK ---
 def get_chat_ids_for_notification(tip_type: str):
-    """Lekéri a Telegram Chat ID-kat a Supabase-ből."""
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
-    
     chat_ids = []
     try:
-        query = admin_supabase.table("felhasznalok").select("chat_id")
-        # Csak azok kellenek, akiknek VAN chat_id-ja (összekötötték a botot)
-        query = query.neq("chat_id", "null")
-
+        query = admin_supabase.table("felhasznalok").select("chat_id").neq("chat_id", "null")
         if tip_type == "vip":
-            # Csak aktív előfizetők
             now_iso = datetime.now(pytz.utc).isoformat()
             query = query.eq("subscription_status", "active").gt("subscription_expires_at", now_iso)
-            
         res = query.execute()
-            
         if res.data:
             chat_ids = [u['chat_id'] for u in res.data if u.get('chat_id')]
-            
-    except Exception as e:
-        print(f"Hiba a Chat ID-k lekérésénél: {e}")
-        
+    except Exception as e: print(f"Hiba a Chat ID-k lekérésénél: {e}")
     return chat_ids
 
 async def send_telegram_broadcast_task(chat_ids: list, message: str):
-    """ Háttérfolyamat: Kiküldi a Telegram üzeneteket """
     if not chat_ids or not TOKEN: return
-
     print(f"📢 Telegram értesítés küldése {len(chat_ids)} embernek...")
     bot = telegram.Bot(token=TOKEN)
     success_count = 0
-    
     for chat_id in chat_ids:
         try:
             await bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
             success_count += 1
-            await asyncio.sleep(0.05) # Flood limit védelem
-        except Exception as e:
-            print(f"Nem sikerült küldeni neki ({chat_id}): {e}")
-            
+            await asyncio.sleep(0.05)
+        except Exception as e: print(f"Nem sikerült küldeni neki ({chat_id}): {e}")
     print(f"✅ Telegram körüzenet kész! Sikeres: {success_count}/{len(chat_ids)}")
 
 # ----------------------------------------
@@ -215,8 +202,6 @@ async def logout(request: Request):
     request.session.pop("user_id", None)
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 
-# --- JELSZÓ VISSZAÁLLÍTÁS ROUTE-OK ---
-
 @api.get("/forgot-password", response_class=HTMLResponse)
 async def forgot_password_page(request: Request):
     return templates.TemplateResponse("forgot_password.html", {"request": request})
@@ -225,13 +210,11 @@ async def forgot_password_page(request: Request):
 async def handle_forgot_password(request: Request, email: str = Form(...)):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     user_res = admin_supabase.table("felhasznalok").select("*").eq("email", email).execute()
-    
     if user_res.data:
         token = secrets.token_urlsafe(32)
         expiry = datetime.now(pytz.utc) + timedelta(hours=1)
         admin_supabase.table("felhasznalok").update({"reset_token": token, "reset_token_expiry": expiry.isoformat()}).eq("email", email).execute()
         send_reset_email(email, token)
-        
     return templates.TemplateResponse("forgot_password.html", {"request": request, "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"})
 
 @api.get("/new-password", response_class=HTMLResponse)
@@ -241,31 +224,23 @@ async def new_password_page(request: Request, token: str):
     error = None
     if not user_res.data: error = "Érvénytelen vagy lejárt link."
     else:
-        expiry_str = user_res.data[0]['reset_token_expiry']
-        expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
+        expiry = datetime.fromisoformat(user_res.data[0]['reset_token_expiry'].replace('Z', '+00:00'))
         if datetime.now(pytz.utc) > expiry: error = "A link lejárt. Kérj újat!"
-
     return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": error})
 
 @api.post("/new-password")
 async def handle_new_password(request: Request, token: str = Form(...), password: str = Form(...)):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
-    
     if not user_res.data: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
     
     user = user_res.data[0]
-    expiry_str = user['reset_token_expiry']
-    expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
-    
+    expiry = datetime.fromisoformat(user['reset_token_expiry'].replace('Z', '+00:00'))
     if datetime.now(pytz.utc) > expiry: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "A link lejárt."})
     
     new_hashed = get_password_hash(password)
     admin_supabase.table("felhasznalok").update({"hashed_password": new_hashed, "reset_token": None, "reset_token_expiry": None}).eq("id", user['id']).execute()
-    
     return RedirectResponse(url="https://mondomatutit.hu?message=Sikeres jelszócsere!#login-register", status_code=303)
-
-# -----------------------------------------
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
@@ -282,7 +257,6 @@ async def vip_area(request: Request):
             now_local = datetime.now(HUNGARY_TZ)
             today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # --- 1. BOT TIPPEK ---
             approved_dates = set()
             status_res = supabase_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
             if status_res.data:
@@ -305,7 +279,6 @@ async def vip_area(request: Request):
                                 match_results = [m.get('eredmeny') for m in meccs_list]
                                 if 'Veszített' in match_results: continue
                                 if 'Tipp leadva' not in match_results: continue 
-
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
@@ -313,15 +286,11 @@ async def vip_area(request: Request):
                                 if today_str in sz['tipp_neve']: todays_slips.append(sz)
                                 elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
 
-            # --- 2. MANUÁLIS VIP TIPPEK ---
             manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
-            if manual.data: 
-                active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
+            if manual.data: active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
 
-            # --- 3. INGYENES TIPPEK ---
             free = supabase_client.table("free_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
-            if free.data:
-                active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
+            if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
             
             if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
                 target = tomorrow_str if now_local.hour >= 19 else today_str
@@ -388,7 +357,13 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
-    price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else STRIPE_PRICE_ID_WEEKLY
+    
+    # ÚJ: Napi jegy kezelés
+    price_id = ""
+    if plan == 'monthly': price_id = STRIPE_PRICE_ID_MONTHLY
+    elif plan == 'weekly': price_id = STRIPE_PRICE_ID_WEEKLY
+    elif plan == 'daily': price_id = STRIPE_PRICE_ID_DAILY # <--- NAPI ID
+
     try:
         params = {
             'payment_method_types': ['card'],
@@ -415,7 +390,6 @@ async def upload_form(request: Request, message: Optional[str] = None, error: Op
     if error: context["error"] = error
     return templates.TemplateResponse("admin_upload.html", context)
 
-# --- MÓDOSÍTOTT FELTÖLTÉS (Telegram értesítéssel) ---
 @api.post("/admin/upload")
 async def handle_upload(
     request: Request, 
@@ -432,19 +406,14 @@ async def handle_upload(
     
     try:
         admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-        
-        # Duplikáció ellenőrzés
         if tip_type == "free":
             ex = admin_client.table("free_slips").select("id", count='exact').eq("tipp_neve", tipp_neve).eq("target_date", target_date).limit(1).execute()
             if ex.count > 0: return RedirectResponse(url=f"/admin/upload?error=Duplikáció: {tipp_neve}", status_code=303)
         
-        # Kép feltöltése
         ext = slip_image.filename.split('.')[-1]
         ts = int(time.time())
         content = await slip_image.read()
-
-        telegram_msg = ""
-        telegram_ids = []
+        telegram_msg, telegram_ids = "", []
 
         if tip_type == "vip":
             fn = f"{target_date}_{ts}.{ext}"
@@ -464,14 +433,11 @@ async def handle_upload(
             telegram_msg = f"🎁 *ÚJ INGYENES TIPP!* 🎁\n\n📅 Dátum: {target_date}\n⚽ Tipp: {tipp_neve}\n📈 Odds: {eredo_odds}\n\n👉 [Nézd meg az oldalon!]({RENDER_APP_URL}/vip)"
             telegram_ids = get_chat_ids_for_notification("free")
 
-        # Telegram küldés indítása háttérben
         if telegram_ids:
             background_tasks.add_task(send_telegram_broadcast_task, telegram_ids, telegram_msg)
 
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és Telegram értesítések elküldve!", status_code=303)
-        
-    except Exception as e: 
-        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
+    except Exception as e: return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 @api.get("/admin/test-run", response_class=HTMLResponse)
 async def admin_test_run(request: Request):
@@ -515,9 +481,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             print(f"Checkout completed. UID: {uid}, CID: {cid}")
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
+                
+                # ÚJ LOGIKA: Napi jegy kezelés
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                duration = 32 if is_monthly else 7
-                plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
+                is_daily = (pid == STRIPE_PRICE_ID_DAILY)
+                
+                # Ha napi: 1 nap, Ha havi: 32 nap, Ha heti: 7 nap
+                duration = 32 if is_monthly else (1 if is_daily else 7)
+                plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
+                
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
@@ -530,14 +502,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if billing_reason in ['subscription_cycle', 'subscription_update']:
                 subscription_details = invoice.get('parent', {}).get('subscription_details', {})
                 sub_id = subscription_details.get('subscription')
-                if not sub_id:
-                    sub_id = invoice.get('subscription')
+                if not sub_id: sub_id = invoice.get('subscription')
                 if not sub_id:
                     try: sub_id = invoice['lines']['data'][0]['subscription']
                     except (KeyError, IndexError, TypeError): pass
                 
-                print(f"DEBUG: Extracted SUB_ID: {sub_id}") 
-
                 if not sub_id: return {"status": "success"} 
 
                 try:
@@ -545,14 +514,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     pid = sub['items']['data'][0]['price']['id']
                     
                     is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                    plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
+                    is_daily = (pid == STRIPE_PRICE_ID_DAILY)
+                    plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
                     
                     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
                     usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
                     
                     if usr_res.data:
                         usr = usr_res.data
-                        dur = 32 if is_monthly else 7
+                        dur = 32 if is_monthly else (1 if is_daily else 7)
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
                         
