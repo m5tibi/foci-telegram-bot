@@ -95,12 +95,12 @@ async def send_admin_notification(message: str):
 
 # --- ÚJ: EMAIL KÜLDŐ FÜGGVÉNY (cPanel) ---
 def send_reset_email(to_email: str, token: str):
-   # --- cPanel Email Beállítások ---
-SMTP_SERVER = "mail.mondomatutit.hu"
-SMTP_PORT = 465
-SENDER_EMAIL = "info@mondomatutit.hu"
-# A jelszót most már a biztonságos környezeti változókból olvassuk ki:
-SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+       # --- cPanel Email Beállítások ---
+    SMTP_SERVER = "mail.mondomatutit.hu"
+    SMTP_PORT = 465
+    SENDER_EMAIL = "info@mondomatutit.hu"
+    # A jelszót most már a biztonságos környezeti változókból olvassuk ki:
+    SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
     
     # Link összeállítása
     reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
@@ -518,5 +518,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
+
 
 
