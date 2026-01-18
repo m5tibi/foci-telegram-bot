@@ -1,4 +1,4 @@
-# main.py (V19.0 - Stabil, Javított Verzió)
+# main.py (V19.1 - Javított Webhook: Lemondás figyelés visszatéve)
 
 import os
 import asyncio
@@ -31,7 +31,6 @@ from tipp_generator import main as run_tipp_generator
 from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
-# JAVÍTVA: Egységes változónév
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_TOKEN = TOKEN 
 
@@ -45,8 +44,8 @@ STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY") # Publikus kulcs (Loginhoz)
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Titkos kulcs (Adminhoz)
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY") # Publikus kulcs
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Titkos kulcs
 
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
@@ -71,7 +70,7 @@ api.add_middleware(
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# JAVÍTVA: Stabil Supabase kliens létrehozása (Publikus kulccsal)
+# Supabase kliens
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
@@ -145,7 +144,6 @@ def send_reset_email(to_email: str, token: str):
 
 # --- TELEGRAM ÉRTESÍTÉS KÜLDŐ FÜGGVÉNYEK ---
 def get_chat_ids_for_notification(tip_type: str):
-    # Itt használunk Admin klienst, ha van
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     chat_ids = []
     try:
@@ -451,7 +449,7 @@ async def admin_test_run(request: Request):
     try:
         with redirect_stdout(f):
             print("=== TIPP GENERÁTOR TESZT FUTTATÁS (Nincs mentés) ===\n")
-            # Itt hívjuk meg a külső fájlt
+            # FONTOS: Most már a multi-sport generátort futtatjuk!
             await asyncio.to_thread(run_tipp_generator, run_as_test=True)
             print("\n=== TESZT VÉGE ===")
     except Exception as e: print(f"Hiba: {e}")
@@ -479,14 +477,19 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         print(f"WEBHOOK EVENT: {event['type']}")
         
-        # --- LEMONDÁS FIGYELÉSE ---
+        # --- LEMONDÁS FIGYELÉSE (VISSZAKERÜLT!) ---
         if event['type'] == 'customer.subscription.updated':
             sub = event['data']['object']
             cid = sub.get('customer')
             cancel_at_end = sub.get('cancel_at_period_end')
+            
+            print(f"📢 Előfizetés módosult! CID: {cid}, Lemondva: {cancel_at_end}") # Logolás
+            
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({"subscription_cancelled": cancel_at_end}).eq("stripe_customer_id", cid).execute()
+                client.table("felhasznalok").update({
+                    "subscription_cancelled": cancel_at_end
+                }).eq("stripe_customer_id", cid).execute()
 
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
@@ -500,6 +503,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
                 
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                # Vásárláskor reseteljük a lemondást
                 client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
@@ -508,33 +512,42 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             cid = invoice.get('customer')
+            
             if billing_reason in ['subscription_cycle', 'subscription_update']:
                 subscription_details = invoice.get('parent', {}).get('subscription_details', {})
                 sub_id = subscription_details.get('subscription') or invoice.get('subscription')
                 if not sub_id:
                     try: sub_id = invoice['lines']['data'][0]['subscription']
                     except: pass
+                
                 if not sub_id: return {"status": "success"} 
+
                 try:
                     sub = stripe.Subscription.retrieve(sub_id)
                     pid = sub['items']['data'][0]['price']['id']
+                    
                     is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                     is_daily = (pid == STRIPE_PRICE_ID_DAILY)
                     plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
                     
                     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
                     usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                    
                     if usr_res.data:
                         usr = usr_res.data
                         dur = 32 if is_monthly else (1 if is_daily else 7)
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
+                        
+                        # Megújuláskor is reseteljük
                         client.table("felhasznalok").update({
                             "subscription_status": "active", 
                             "subscription_expires_at": new_expiry,
-                            "subscription_cancelled": False
+                            "subscription_cancelled": False 
                         }).eq("id", usr['id']).execute()
+                        
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
+                        
                 except Exception as e: print(f"!!! Megújítás hiba (Exception): {e}")
 
         return {"status": "success"}
