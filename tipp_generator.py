@@ -322,7 +322,7 @@ def save_tips_for_day(single_tips, date_str):
         
         saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
         
-        slips_to_insert = [{"tipp_neve": f"Napi Tuti #{i + 1} - {date_str}", "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]], "confidence_percent": tip["confidence_score"]} for i, tip in enumerate(saved_tips)]
+        slips_to_insert = [{"tipp_neve": f"Napi Tipp #{i + 1} - {date_str}", "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]], "confidence_percent": tip["confidence_score"]} for i, tip in enumerate(saved_tips)]
         
         if slips_to_insert:
             supabase.table("napi_tuti").insert(slips_to_insert).execute()
