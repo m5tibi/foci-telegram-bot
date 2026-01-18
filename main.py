@@ -1,4 +1,4 @@
-# main.py (V9.13 - Jelszó visszaállítás funkcióval bővítve)
+# main.py (V9.14 - Service Key Javítás + Indentálás Fix)
 
 import os
 import asyncio
@@ -9,8 +9,8 @@ import secrets
 import pytz
 import time
 import io
-import smtplib # ÚJ IMPORT
-from email.mime.text import MIMEText # ÚJ IMPORT
+import smtplib 
+from email.mime.text import MIMEText 
 from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import redirect_stdout
@@ -38,7 +38,7 @@ STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Ez kell a mentéshez!
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
@@ -94,8 +94,9 @@ async def send_admin_notification(message: str):
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
 # --- ÚJ: EMAIL KÜLDŐ FÜGGVÉNY (cPanel) ---
+# JAVÍTVA: Behúzás korrigálva
 def send_reset_email(to_email: str, token: str):
-       # --- cPanel Email Beállítások ---
+    # --- cPanel Email Beállítások ---
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
@@ -182,21 +183,24 @@ async def forgot_password_page(request: Request):
 
 @api.post("/forgot-password")
 async def handle_forgot_password(request: Request, email: str = Form(...)):
-    # 1. Megnézzük, létezik-e a felhasználó
-    user_res = supabase.table("felhasznalok").select("*").eq("email", email).execute()
+    # JAVÍTÁS: Service Key használata a mentéshez (RLS megkerülése)
+    admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+
+    # 1. Megnézzük, létezik-e a felhasználó (admin klienssel biztosabb)
+    user_res = admin_supabase.table("felhasznalok").select("*").eq("email", email).execute()
     
     if user_res.data:
         # 2. Token generálása és mentése
         token = secrets.token_urlsafe(32)
         expiry = datetime.now(pytz.utc) + timedelta(hours=1)
         
-        supabase.table("felhasznalok").update({
+        # JAVÍTÁS: admin_supabase használata
+        admin_supabase.table("felhasznalok").update({
             "reset_token": token,
             "reset_token_expiry": expiry.isoformat()
         }).eq("email", email).execute()
         
         # 3. Email küldése
-        # (Ideális esetben ezt background taskban kéne futtatni, de így is működik)
         send_reset_email(email, token)
         
     # Biztonsági okból mindig azt írjuk ki, hogy elküldtük (ha létezik)
@@ -207,8 +211,11 @@ async def handle_forgot_password(request: Request, email: str = Form(...)):
 
 @api.get("/new-password", response_class=HTMLResponse)
 async def new_password_page(request: Request, token: str):
-    # Ellenőrizzük a tokent érvényességét megjelenítés előtt
-    user_res = supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
+    # Itt is admin kliens, biztos ami biztos
+    admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+    
+    # Ellenőrizzük a tokent érvényességét
+    user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
     error = None
     if not user_res.data:
         error = "Érvénytelen vagy lejárt link."
@@ -223,8 +230,11 @@ async def new_password_page(request: Request, token: str):
 
 @api.post("/new-password")
 async def handle_new_password(request: Request, token: str = Form(...), password: str = Form(...)):
+    # JAVÍTÁS: Service Key használata
+    admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+
     # 1. Token ellenőrzése
-    user_res = supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
+    user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
     
     if not user_res.data:
         return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
@@ -239,13 +249,13 @@ async def handle_new_password(request: Request, token: str = Form(...), password
     # 2. Új jelszó hashelése és mentése
     new_hashed = get_password_hash(password)
     
-    supabase.table("felhasznalok").update({
+    admin_supabase.table("felhasznalok").update({
         "hashed_password": new_hashed,
         "reset_token": None,       # Token törlése
         "reset_token_expiry": None
     }).eq("id", user['id']).execute()
     
-    # 3. Átirányítás a főoldalra (ITT KELL JAVÍTANI)
+    # 3. Átirányítás a főoldalra (Login tabhoz)
     return RedirectResponse(url="https://mondomatutit.hu?message=Sikeres jelszócsere!#login-register", status_code=303)
 
 # -----------------------------------------
@@ -518,7 +528,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
-
-
-
-
