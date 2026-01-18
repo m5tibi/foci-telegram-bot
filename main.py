@@ -245,8 +245,8 @@ async def handle_new_password(request: Request, token: str = Form(...), password
         "reset_token_expiry": None
     }).eq("id", user['id']).execute()
     
-    # 3. Átirányítás a főoldalra
-    return RedirectResponse(url="/?message=Sikeres jelszócsere! Most már bejelentkezhetsz.", status_code=303)
+    # 3. Átirányítás a főoldalra (ITT KELL JAVÍTANI)
+    return RedirectResponse(url="https://mondomatutit.hu?message=Sikeres jelszócsere!#login-register", status_code=303)
 
 # -----------------------------------------
 
@@ -518,6 +518,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
+
 
 
 
