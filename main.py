@@ -1,4 +1,4 @@
-# main.py (V9.16 - Napi Jegy (Próbanap) támogatással)
+# main.py (V9.17 - Lemondás figyelése Supabase-ben)
 
 import os
 import asyncio
@@ -30,7 +30,24 @@ from tipp_generator import main as run_tipp_generator
 from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") 
+if not SUPABASE_KEY:
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# --- API KULCS BEOLVASÁSA ---
+raw_key = os.environ.get("RAPIDAPI_KEY", "")
+API_KEY = raw_key.strip() 
+
+# --- API HOST-ok ---
+HOSTS = {
+    "football": "v3.football.api-sports.io",
+    "hockey": "v1.hockey.api-sports.io",
+    "basketball": "v1.basketball.api-sports.io"
+}
+
+# ---------------------------
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
@@ -38,10 +55,8 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 # ÁRAZÁSI ID-k
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
-STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY") # <--- ÚJ: Napi jegy ID
+STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY")
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
@@ -158,6 +173,25 @@ async def send_telegram_broadcast_task(chat_ids: list, message: str):
             await asyncio.sleep(0.05)
         except Exception as e: print(f"Nem sikerült küldeni neki ({chat_id}): {e}")
     print(f"✅ Telegram körüzenet kész! Sikeres: {success_count}/{len(chat_ids)}")
+
+def get_api_data(sport, endpoint, params, retries=3, delay=5):
+    """ Univerzális API lekérő függvény """
+    host = HOSTS.get(sport)
+    if not host: return []
+    url = f"https://{host}/{endpoint}"
+    headers = {"x-apisports-key": API_KEY, "x-apisports-host": host}
+    for i in range(retries):
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=25)
+            if response.status_code == 403: return []
+            response.raise_for_status()
+            data = response.json()
+            if "errors" in data and data["errors"]: return []
+            time.sleep(0.3)
+            return data.get('response', [])
+        except requests.exceptions.RequestException:
+            if i < retries - 1: time.sleep(delay)
+            else: return []
 
 # ----------------------------------------
 
@@ -358,11 +392,10 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
     
-    # ÚJ: Napi jegy kezelés
     price_id = ""
     if plan == 'monthly': price_id = STRIPE_PRICE_ID_MONTHLY
     elif plan == 'weekly': price_id = STRIPE_PRICE_ID_WEEKLY
-    elif plan == 'daily': price_id = STRIPE_PRICE_ID_DAILY # <--- NAPI ID
+    elif plan == 'daily': price_id = STRIPE_PRICE_ID_DAILY
 
     try:
         params = {
@@ -472,9 +505,21 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     data = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
-        
         print(f"WEBHOOK EVENT: {event['type']}")
         
+        # --- ÚJ: LEMONDÁS FIGYELÉSE ---
+        if event['type'] == 'customer.subscription.updated':
+            sub = event['data']['object']
+            cid = sub.get('customer')
+            cancel_at_end = sub.get('cancel_at_period_end')
+            
+            if cid:
+                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                client.table("felhasznalok").update({
+                    "subscription_cancelled": cancel_at_end
+                }).eq("stripe_customer_id", cid).execute()
+        # -----------------------------
+
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
@@ -482,13 +527,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 
-                # ÚJ LOGIKA: Napi jegy kezelés
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                 is_daily = (pid == STRIPE_PRICE_ID_DAILY)
                 
-                # Ha napi: 1 nap, Ha havi: 32 nap, Ha heti: 7 nap
                 duration = 32 if is_monthly else (1 if is_daily else 7)
                 plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
+                
+                # Vásárláskor biztosan nem lemondott a státusz
+                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
                 
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
@@ -497,15 +544,13 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             cid = invoice.get('customer')
-            print(f"Invoice Succeeded. Reason: {billing_reason}, CID: {cid}")
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
                 subscription_details = invoice.get('parent', {}).get('subscription_details', {})
-                sub_id = subscription_details.get('subscription')
-                if not sub_id: sub_id = invoice.get('subscription')
+                sub_id = subscription_details.get('subscription') or invoice.get('subscription')
                 if not sub_id:
                     try: sub_id = invoice['lines']['data'][0]['subscription']
-                    except (KeyError, IndexError, TypeError): pass
+                    except: pass
                 
                 if not sub_id: return {"status": "success"} 
 
@@ -526,7 +571,13 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
                         
-                        client.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": new_expiry}).eq("id", usr['id']).execute()
+                        # Megújuláskor reseteljük a lemondást, ha esetleg beragadt volna
+                        client.table("felhasznalok").update({
+                            "subscription_status": "active", 
+                            "subscription_expires_at": new_expiry,
+                            "subscription_cancelled": False
+                        }).eq("id", usr['id']).execute()
+                        
                         await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
                         
                 except Exception as e: print(f"!!! Megújítás hiba (Exception): {e}")
