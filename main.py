@@ -1,4 +1,4 @@
-# main.py (V9.14 - Service Key Javítás + Indentálás Fix)
+# main.py (V9.15 - Telegram Értesítések Webes Feltöltésnél + Jelszó Fix)
 
 import os
 import asyncio
@@ -15,7 +15,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import redirect_stdout
 
-from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File
+# HOZZÁADVA: BackgroundTasks az aszinkron feladatokhoz
+from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -38,7 +39,7 @@ STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Ez kell a mentéshez!
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
@@ -52,7 +53,7 @@ origins = [
     "http://mondomatutit.hu", "http://www.mondomatutit.hu",
     "https://m5tibi.github.io",
 ]
-api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], allow_origin_regex='https?://.*')
 api.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET_KEY,
@@ -93,19 +94,14 @@ async def send_admin_notification(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
-# --- ÚJ: EMAIL KÜLDŐ FÜGGVÉNY (cPanel) ---
-# JAVÍTVA: Behúzás korrigálva
+# --- EMAIL KÜLDŐ FÜGGVÉNY (Jelszóhoz) ---
 def send_reset_email(to_email: str, token: str):
-    # --- cPanel Email Beállítások ---
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
-    # A jelszót most már a biztonságos környezeti változókból olvassuk ki:
     SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
     
-    # Link összeállítása
     reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
-
     subject = "🔑 Jelszó visszaállítás - Mondom a Tutit!"
     body = f"""Szia!
     
@@ -131,6 +127,50 @@ def send_reset_email(to_email: str, token: str):
         print(f"✅ Email sikeresen elküldve ide: {to_email}")
     except Exception as e:
         print(f"❌ HIBA az email küldésnél: {e}")
+
+# --- TELEGRAM ÉRTESÍTÉS KÜLDŐ FÜGGVÉNYEK ---
+def get_chat_ids_for_notification(tip_type: str):
+    """Lekéri a Telegram Chat ID-kat a Supabase-ből."""
+    admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+    
+    chat_ids = []
+    try:
+        query = admin_supabase.table("felhasznalok").select("chat_id")
+        # Csak azok kellenek, akiknek VAN chat_id-ja (összekötötték a botot)
+        query = query.neq("chat_id", "null")
+
+        if tip_type == "vip":
+            # Csak aktív előfizetők
+            now_iso = datetime.now(pytz.utc).isoformat()
+            query = query.eq("subscription_status", "active").gt("subscription_expires_at", now_iso)
+            
+        res = query.execute()
+            
+        if res.data:
+            chat_ids = [u['chat_id'] for u in res.data if u.get('chat_id')]
+            
+    except Exception as e:
+        print(f"Hiba a Chat ID-k lekérésénél: {e}")
+        
+    return chat_ids
+
+async def send_telegram_broadcast_task(chat_ids: list, message: str):
+    """ Háttérfolyamat: Kiküldi a Telegram üzeneteket """
+    if not chat_ids or not TOKEN: return
+
+    print(f"📢 Telegram értesítés küldése {len(chat_ids)} embernek...")
+    bot = telegram.Bot(token=TOKEN)
+    success_count = 0
+    
+    for chat_id in chat_ids:
+        try:
+            await bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
+            success_count += 1
+            await asyncio.sleep(0.05) # Flood limit védelem
+        except Exception as e:
+            print(f"Nem sikerült küldeni neki ({chat_id}): {e}")
+            
+    print(f"✅ Telegram körüzenet kész! Sikeres: {success_count}/{len(chat_ids)}")
 
 # ----------------------------------------
 
@@ -175,7 +215,7 @@ async def logout(request: Request):
     request.session.pop("user_id", None)
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 
-# --- ÚJ: JELSZÓ VISSZAÁLLÍTÁS ROUTE-OK ---
+# --- JELSZÓ VISSZAÁLLÍTÁS ROUTE-OK ---
 
 @api.get("/forgot-password", response_class=HTMLResponse)
 async def forgot_password_page(request: Request):
@@ -183,79 +223,46 @@ async def forgot_password_page(request: Request):
 
 @api.post("/forgot-password")
 async def handle_forgot_password(request: Request, email: str = Form(...)):
-    # JAVÍTÁS: Service Key használata a mentéshez (RLS megkerülése)
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
-
-    # 1. Megnézzük, létezik-e a felhasználó (admin klienssel biztosabb)
     user_res = admin_supabase.table("felhasznalok").select("*").eq("email", email).execute()
     
     if user_res.data:
-        # 2. Token generálása és mentése
         token = secrets.token_urlsafe(32)
         expiry = datetime.now(pytz.utc) + timedelta(hours=1)
-        
-        # JAVÍTÁS: admin_supabase használata
-        admin_supabase.table("felhasznalok").update({
-            "reset_token": token,
-            "reset_token_expiry": expiry.isoformat()
-        }).eq("email", email).execute()
-        
-        # 3. Email küldése
+        admin_supabase.table("felhasznalok").update({"reset_token": token, "reset_token_expiry": expiry.isoformat()}).eq("email", email).execute()
         send_reset_email(email, token)
         
-    # Biztonsági okból mindig azt írjuk ki, hogy elküldtük (ha létezik)
-    return templates.TemplateResponse("forgot_password.html", {
-        "request": request, 
-        "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"
-    })
+    return templates.TemplateResponse("forgot_password.html", {"request": request, "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"})
 
 @api.get("/new-password", response_class=HTMLResponse)
 async def new_password_page(request: Request, token: str):
-    # Itt is admin kliens, biztos ami biztos
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
-    
-    # Ellenőrizzük a tokent érvényességét
     user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
     error = None
-    if not user_res.data:
-        error = "Érvénytelen vagy lejárt link."
+    if not user_res.data: error = "Érvénytelen vagy lejárt link."
     else:
-        # Időzóna kezelés (UTC)
         expiry_str = user_res.data[0]['reset_token_expiry']
         expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
-        if datetime.now(pytz.utc) > expiry:
-            error = "A link lejárt. Kérj újat!"
+        if datetime.now(pytz.utc) > expiry: error = "A link lejárt. Kérj újat!"
 
     return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": error})
 
 @api.post("/new-password")
 async def handle_new_password(request: Request, token: str = Form(...), password: str = Form(...)):
-    # JAVÍTÁS: Service Key használata
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
-
-    # 1. Token ellenőrzése
     user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
     
-    if not user_res.data:
-        return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
+    if not user_res.data: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
     
     user = user_res.data[0]
     expiry_str = user['reset_token_expiry']
     expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
     
-    if datetime.now(pytz.utc) > expiry:
-        return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "A link lejárt."})
+    if datetime.now(pytz.utc) > expiry: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "A link lejárt."})
     
-    # 2. Új jelszó hashelése és mentése
     new_hashed = get_password_hash(password)
+    admin_supabase.table("felhasznalok").update({"hashed_password": new_hashed, "reset_token": None, "reset_token_expiry": None}).eq("id", user['id']).execute()
     
-    admin_supabase.table("felhasznalok").update({
-        "hashed_password": new_hashed,
-        "reset_token": None,       # Token törlése
-        "reset_token_expiry": None
-    }).eq("id", user['id']).execute()
-    
-    # 3. Átirányítás a főoldalra (Login tabhoz)
     return RedirectResponse(url="https://mondomatutit.hu?message=Sikeres jelszócsere!#login-register", status_code=303)
 
 # -----------------------------------------
@@ -408,33 +415,63 @@ async def upload_form(request: Request, message: Optional[str] = None, error: Op
     if error: context["error"] = error
     return templates.TemplateResponse("admin_upload.html", context)
 
+# --- MÓDOSÍTOTT FELTÖLTÉS (Telegram értesítéssel) ---
 @api.post("/admin/upload")
-async def handle_upload(request: Request, tip_type: str = Form(...), tipp_neve: str = Form(...), eredo_odds: float = Form(...), target_date: str = Form(...), slip_image: UploadFile = File(...)):
+async def handle_upload(
+    request: Request, 
+    background_tasks: BackgroundTasks, 
+    tip_type: str = Form(...), 
+    tipp_neve: str = Form(...), 
+    eredo_odds: float = Form(...), 
+    target_date: str = Form(...), 
+    slip_image: UploadFile = File(...)
+):
     user = get_current_user(request)
     if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
     if not SUPABASE_SERVICE_KEY or not SUPABASE_URL: return RedirectResponse(url="/admin/upload?error=Supabase Error", status_code=303)
+    
     try:
         admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        
+        # Duplikáció ellenőrzés
         if tip_type == "free":
             ex = admin_client.table("free_slips").select("id", count='exact').eq("tipp_neve", tipp_neve).eq("target_date", target_date).limit(1).execute()
             if ex.count > 0: return RedirectResponse(url=f"/admin/upload?error=Duplikáció: {tipp_neve}", status_code=303)
         
+        # Kép feltöltése
         ext = slip_image.filename.split('.')[-1]
         ts = int(time.time())
         content = await slip_image.read()
+
+        telegram_msg = ""
+        telegram_ids = []
 
         if tip_type == "vip":
             fn = f"{target_date}_{ts}.{ext}"
             admin_client.storage.from_("slips").upload(fn, content, {"content-type": slip_image.content_type})
             url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/slips/{fn}"
             admin_client.rpc('add_manual_slip', {'tipp_neve_in': tipp_neve, 'eredo_odds_in': eredo_odds, 'target_date_in': target_date, 'image_url_in': url}).execute()
+            
+            telegram_msg = f"🔥 *ÚJ VIP TIPP!* 🔥\n\n📅 Dátum: {target_date}\n⚽ Tipp: {tipp_neve}\n📈 Odds: {eredo_odds}\n\n👉 [Nézd meg az oldalon!]({RENDER_APP_URL}/vip)"
+            telegram_ids = get_chat_ids_for_notification("vip")
+
         elif tip_type == "free":
             fn = f"free_{ts}.{ext}"
             admin_client.storage.from_("free-slips").upload(fn, content, {"content-type": slip_image.content_type})
             url = f"{SUPABASE_URL.replace('.co', '.co/storage/v1/object/public')}/free-slips/{fn}"
             admin_client.table("free_slips").insert({"tipp_neve": tipp_neve, "image_url": url, "eredo_odds": eredo_odds, "target_date": target_date, "status": "Folyamatban"}).execute()
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
-    except Exception as e: return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
+            
+            telegram_msg = f"🎁 *ÚJ INGYENES TIPP!* 🎁\n\n📅 Dátum: {target_date}\n⚽ Tipp: {tipp_neve}\n📈 Odds: {eredo_odds}\n\n👉 [Nézd meg az oldalon!]({RENDER_APP_URL}/vip)"
+            telegram_ids = get_chat_ids_for_notification("free")
+
+        # Telegram küldés indítása háttérben
+        if telegram_ids:
+            background_tasks.add_task(send_telegram_broadcast_task, telegram_ids, telegram_msg)
+
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és Telegram értesítések elküldve!", status_code=303)
+        
+    except Exception as e: 
+        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 @api.get("/admin/test-run", response_class=HTMLResponse)
 async def admin_test_run(request: Request):
