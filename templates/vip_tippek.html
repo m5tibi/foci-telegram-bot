@@ -3,6 +3,42 @@
 {% block title %}VIP Tippek - Mondom a Tutit!{% endblock %}
 
 {% block content %}
+<style>
+    /* Árazási stílusok (ugyanaz, mint a profilnál) */
+    .pricing-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+    }
+    .pricing-card {
+        background: #2D3748;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        flex: 1;
+        min-width: 250px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: 1px solid #4A5568;
+        color: white;
+    }
+    .pricing-card h3 { color: #fff; margin-bottom: 10px; }
+    .price { font-size: 1.5rem; font-weight: bold; color: #38A169; margin-bottom: 15px; }
+    .features { list-style: none; padding: 0; margin-bottom: 20px; color: #E2E8F0; font-size: 0.9em; }
+    .features li { margin-bottom: 5px; }
+    
+    .pricing-card.popular {
+        border: 2px solid #38A169;
+        transform: scale(1.05);
+        z-index: 1;
+    }
+    
+    @media (max-width: 768px) {
+        .pricing-card.popular { transform: none; }
+    }
+</style>
+
     <h1>VIP Zóna</h1>
 
     {% if is_subscribed %}
@@ -10,7 +46,7 @@
         {# --- 1. SZERKESZTŐI (VIP) TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
-                <h3>Szerkesztői Szelvény(ek)</h3>
+                <h3>Szerkesztői Szelvények</h3>
                 
                 <div class="manual-slips-grid">
                 {% for slip in active_manual_slips %}
@@ -28,10 +64,10 @@
             </div>
         {% endif %}
 
-        {# --- 2. INGYENES TIPPEK (EZ HIÁNYZOTT!) --- #}
+        {# --- 2. INGYENES TIPPEK --- #}
         {% if active_free_slips %}
             <div class="manual-slips-section" style="margin-top: 30px;">
-                <h3>Ingyenes Tipp(ek)</h3>
+                <h3>Ingyenes Tippek</h3>
                 
                 <div class="manual-slips-grid">
                 {% for slip in active_free_slips %}
@@ -51,10 +87,10 @@
 
         {# --- 3. BOT TIPPEK --- #}
         {% if todays_slips or tomorrows_slips %}
-            <h3 style="margin-top: 30px;">Napi AI Tipp(ek)</h3>
+            <h3 style="margin-top: 30px;">Bot Által Javasolt Napi Tippek</h3>
             
             {% if todays_slips %}
-                <h4>Mai tipp(ek)</h4>
+                <h4>Mai tippek</h4>
                 <div class="slips-container">
                     {% for slip in todays_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -85,7 +121,7 @@
             {% endif %}
 
             {% if tomorrows_slips %}
-                <h4 style="margin-top: 30px;">Holnapi tipp(ek)</h4>
+                <h4 style="margin-top: 30px;">Holnapi tippek</h4>
                 <div class="slips-container">
                     {% for slip in tomorrows_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -116,7 +152,6 @@
             {% endif %}
         {% endif %}
 
-        {# --- ÜRES ÁLLAPOT ELLENŐRZÉSE (Most már az ingyenes tippeket is figyeli) --- #}
         {% if not todays_slips and not tomorrows_slips and not active_manual_slips and not active_free_slips %}
              <div class="alert alert-info">{{ daily_status_message | default("Jelenleg nincsenek aktív szelvények. Nézz vissza később!") }}</div>
         {% endif %}
@@ -133,26 +168,52 @@
                 <li>A szelvényeket gondosan válogatjuk, de a sportfogadásban nincs 100%. Mindig felelősségteljesen játssz!</li>
             </ul>
         </div>
-        {% else %}
+        
+    {% else %}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
-        <p>Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
-        <div class="pricing-grid" style="margin-top: 30px;">
-            <div class="price-card">
-                <h3>HETI CSOMAG</h3>
-                <div class="price">3,490 Ft</div>
-                <p>Ideális, ha kipróbálnád a szolgáltatást.</p>
+        <p style="text-align: center; font-size: 1.1em;">Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
+        
+        <div class="pricing-container">
+            <div class="pricing-card" style="border: 1px solid #F6E05E;">
+                <h3 style="color: #F6E05E;">🎫 Próbanap</h3>
+                <p class="price" style="color: #F6E05E;">1.190 Ft<span>/nap</span></p>
+                <ul class="features">
+                    <li>24 órás hozzáférés</li>
+                    <li>Kockázatmentes teszt</li>
+                    <li>Azonnali VIP tippek</li>
+                </ul>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="daily">
+                    <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
+                </form>
+            </div>
+    
+            <div class="pricing-card">
+                <h3>🗓️ Heti Csomag</h3>
+                <p class="price">3.490 Ft<span>/hét</span></p>
+                <ul class="features">
+                    <li>7 napos hozzáférés</li>
+                    <li>Minden VIP tipp</li>
+                    <li>Kedvező ár</li>
+                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="weekly">
                     <button type="submit" class="button">Előfizetek</button>
                 </form>
             </div>
-            <div class="price-card">
-                <h3>HAVI CSOMAG</h3>
-                <div class="price">9,999 Ft</div>
-                <p>A legjobb ár-érték arányú választás.</p>
+    
+            <div class="pricing-card popular">
+                <div style="background: #38A169; color: white; font-size: 0.8em; padding: 5px; border-radius: 5px; margin-bottom: 10px; display: inline-block;">LEGJOBB AJÁNLAT</div>
+                <h3>📅 Havi Csomag</h3>
+                <p class="price">9.999 Ft<span>/hó</span></p>
+                <ul class="features">
+                    <li>30 napos hozzáférés</li>
+                    <li>Legjobb ár/érték arány</li>
+                    <li>Folyamatos profit lehetőség</li>
+                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="monthly">
-                    <button type="submit" class="button">Előfizetek</button>
+                    <button type="submit" class="button" style="background-color: #38A169;">Kérem a Profitot</button>
                 </form>
             </div>
         </div>
