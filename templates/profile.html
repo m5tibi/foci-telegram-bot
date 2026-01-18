@@ -3,32 +3,113 @@
 {% block title %}Profilom - Mondom a Tutit!{% endblock %}
 
 {% block content %}
-    <h1>Profilom</h1>
-    <p><strong>E-mail címed:</strong> {{ user.email }}</p>
-    <p><strong>Előfizetés állapota:</strong> {% if is_subscribed %}Aktív ✅{% else %}Inaktív ❌{% endif %}</p>
+<style>
+    .pricing-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+    }
+    .pricing-card {
+        background: #2D3748;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        flex: 1;
+        min-width: 250px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: 1px solid #4A5568;
+    }
+    .pricing-card h3 { color: #fff; margin-bottom: 10px; }
+    .price { font-size: 1.5rem; font-weight: bold; color: #38A169; margin-bottom: 15px; }
+    .features { list-style: none; padding: 0; margin-bottom: 20px; color: #E2E8F0; font-size: 0.9em; }
+    .features li { margin-bottom: 5px; }
+</style>
 
-    <hr>
+    <h1>Profilom</h1>
+    <div style="background: #2D3748; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
+        <p><strong>E-mail címed:</strong> {{ user.email }}</p>
+        <p><strong>Előfizetés állapota:</strong> 
+            {% if is_subscribed %}
+                <span style="color: #4CAF50; font-weight: bold;">Aktív ✅</span>
+            {% else %}
+                <span style="color: #F44336; font-weight: bold;">Inaktív ❌</span>
+            {% endif %}
+        </p>
+    </div>
+
+    {% if not is_subscribed %}
+    <hr style="border-color: #4A5568;">
+    <h2 style="text-align: center;">Nincs aktív előfizetésed. Válassz csomagot!</h2>
+    
+    <div class="pricing-container">
+        <div class="pricing-card" style="border: 2px solid #F6E05E;">
+            <h3>🎫 Próbanap</h3>
+            <p class="price">1190 Ft<span>/nap</span></p>
+            <ul class="features">
+                <li>24 órás hozzáférés</li>
+                <li>Kockázatmentes teszt</li>
+                <li>Azonnali VIP tippek</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="daily">
+                <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
+            </form>
+        </div>
+
+        <div class="pricing-card">
+            <h3>🗓️ Heti Csomag</h3>
+            <p class="price">3.490 Ft<span>/hét</span></p>
+            <ul class="features">
+                <li>7 napos hozzáférés</li>
+                <li>Minden VIP tipp</li>
+                <li>Kedvezőbb ár</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="weekly">
+                <button type="submit" class="button">Előfizetek</button>
+            </form>
+        </div>
+
+        <div class="pricing-card" style="border: 2px solid #38A169;">
+            <h3>📅 Havi Csomag</h3>
+            <p class="price">9.999 Ft<span>/hó</span></p>
+            <ul class="features">
+                <li>30 napos hozzáférés</li>
+                <li>Legjobb ár/érték arány</li>
+                <li>Folyamatos profit lehetőség</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="monthly">
+                <button type="submit" class="button" style="background-color: #38A169;">Kérem a Profitot</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <hr style="border-color: #4A5568; margin-top: 30px;">
 
     <h2>Előfizetés Kezelése</h2>
     <p>Itt tudod kezelni a bankkártyaadataidat vagy lemondani a megújuló előfizetésedet a Stripe biztonságos felületén.</p>
-    <form action="/create-portal-session" method="POST" target="_blank">
-        <button type="submit" class="button">Ugrás az Ügyfélportálra</button>
+    <form action="/create-portal-session" method="POST">
+        <button type="submit" class="button" style="background-color: #4A5568;">Ugrás az Ügyfélportálra</button>
     </form>
 
-    <hr>
+    <hr style="border-color: #4A5568;">
 
     <h2>Telegram Összekötés</h2>
     {% if user.chat_id %}
-        <div class="alert alert-success">
-            <strong>A Telegram fiókod már össze van kötve!</strong>
+        <div class="alert alert-success" style="background-color: #2F855A; color: white; padding: 15px; border-radius: 5px;">
+            <strong>✅ A Telegram fiókod sikeresen össze van kötve!</strong>
         </div>
     {% else %}
-        <p>Szeretnél értesítéseket kapni a Telegramon? Kösd össze a fiókodat!</p>
+        <p>Szeretnél azonnali értesítéseket kapni a telefonodra, amikor új tipp kerül fel? Kösd össze a fiókodat!</p>
         <form action="/generate-telegram-link" method="POST" id="telegram-form">
-            <button type="submit" class="button">Összekötés Indítása</button>
+            <button type="submit" class="button" style="background-color: #0088cc;">Telegram Összekötés ✈️</button>
         </form>
-        <div id="telegram-link-container" style="display:none; margin-top: 15px;">
-            </div>
+        <div id="telegram-link-container" style="display:none; margin-top: 15px; background: #2D3748; padding: 15px; border-radius: 5px;">
+        </div>
     {% endif %}
 
 <script>
@@ -44,7 +125,7 @@ if (form) {
         
         if (response.ok) {
             const content = await response.text();
-            telegramLinkContainer.innerHTML = content + '<button onclick="closeTelegramLink()" class="button" style="margin-top: 15px;">Bezárás</button>';
+            telegramLinkContainer.innerHTML = content + '<button onclick="closeTelegramLink()" class="button" style="margin-top: 15px; background-color: #444;">Bezárás</button>';
             telegramLinkContainer.style.display = 'block';
             form.style.display = 'none';
         } else {
