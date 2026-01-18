@@ -10,7 +10,7 @@
         {# --- 1. SZERKESZTŐI (VIP) TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
-                <h3>Szerkesztői Szelvények</h3>
+                <h3>Szerkesztői Szelvény(ek)</h3>
                 
                 <div class="manual-slips-grid">
                 {% for slip in active_manual_slips %}
@@ -31,7 +31,7 @@
         {# --- 2. INGYENES TIPPEK (EZ HIÁNYZOTT!) --- #}
         {% if active_free_slips %}
             <div class="manual-slips-section" style="margin-top: 30px;">
-                <h3>Ingyenes Tippek</h3>
+                <h3>Ingyenes Tipp(ek)</h3>
                 
                 <div class="manual-slips-grid">
                 {% for slip in active_free_slips %}
@@ -51,10 +51,10 @@
 
         {# --- 3. BOT TIPPEK --- #}
         {% if todays_slips or tomorrows_slips %}
-            <h3 style="margin-top: 30px;">Bot Által Javasolt Napi Tippek</h3>
+            <h3 style="margin-top: 30px;">Napi AI Tipp(ek)</h3>
             
             {% if todays_slips %}
-                <h4>Mai tippek</h4>
+                <h4>Mai tipp(ek)</h4>
                 <div class="slips-container">
                     {% for slip in todays_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
@@ -85,7 +85,7 @@
             {% endif %}
 
             {% if tomorrows_slips %}
-                <h4 style="margin-top: 30px;">Holnapi tippek</h4>
+                <h4 style="margin-top: 30px;">Holnapi tipp(ek)</h4>
                 <div class="slips-container">
                     {% for slip in tomorrows_slips %}
                         <div class="slip-card {% if slip.is_admin_only %}admin-only{% endif %}">
