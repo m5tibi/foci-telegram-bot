@@ -1,4 +1,4 @@
-# main.py (V9.12 - Javítva: Ingyenes Tippek lekérdezése visszapótolva + Stripe javítások)
+# main.py (V9.13 - Jelszó visszaállítás funkcióval bővítve)
 
 import os
 import asyncio
@@ -9,6 +9,8 @@ import secrets
 import pytz
 import time
 import io
+import smtplib # ÚJ IMPORT
+from email.mime.text import MIMEText # ÚJ IMPORT
 from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import redirect_stdout
@@ -65,6 +67,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 # --- Segédfüggvények ---
 def get_password_hash(password): return pwd_context.hash(password)
 def verify_password(plain_password, hashed_password): return pwd_context.verify(plain_password, hashed_password)
+
 def get_current_user(request: Request):
     user_id = request.session.get("user_id")
     if user_id:
@@ -73,6 +76,7 @@ def get_current_user(request: Request):
             return res.data
         except Exception: return None
     return None
+
 def is_web_user_subscribed(user: dict) -> bool:
     if not user: return False
     if user.get("subscription_status") == "active":
@@ -81,12 +85,52 @@ def is_web_user_subscribed(user: dict) -> bool:
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
             if expires_at > datetime.now(pytz.utc): return True
     return False
+
 async def send_admin_notification(message: str):
     if not TOKEN or not ADMIN_CHAT_ID: return
     try:
         bot = telegram.Bot(token=TOKEN)
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
+
+# --- ÚJ: EMAIL KÜLDŐ FÜGGVÉNY (cPanel) ---
+def send_reset_email(to_email: str, token: str):
+    # --- cPanel Email Beállítások (EZEKET ÍRD ÁT!) ---
+    SMTP_SERVER = "mail.mondomatutit.hu"     # Pl. mail.teoldalad.hu
+    SMTP_PORT = 465                          # SSL port
+    SENDER_EMAIL = "noreply@mondomatutit.hu" # A feladó email címe
+    SENDER_PASSWORD = "IDE_IRD_AZ_EMAIL_JELSZOT" # A feladó jelszava
+    
+    # Link összeállítása
+    reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
+
+    subject = "🔑 Jelszó visszaállítás - Mondom a Tutit!"
+    body = f"""Szia!
+    
+    Kérted a jelszavad visszaállítását a Mondom a Tutit! oldalon.
+    Kattints az alábbi linkre az új jelszó megadásához:
+    
+    {reset_link}
+    
+    Ez a link 1 óráig érvényes.
+    Ha nem te kérted a visszaállítást, egyszerűen hagyd figyelmen kívül ezt az emailt.
+    """
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = to_email
+
+    try:
+        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+        server.quit()
+        print(f"✅ Email sikeresen elküldve ide: {to_email}")
+    except Exception as e:
+        print(f"❌ HIBA az email küldésnél: {e}")
+
+# ----------------------------------------
 
 @api.on_event("startup")
 async def startup():
@@ -128,6 +172,82 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
 async def logout(request: Request):
     request.session.pop("user_id", None)
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
+
+# --- ÚJ: JELSZÓ VISSZAÁLLÍTÁS ROUTE-OK ---
+
+@api.get("/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page(request: Request):
+    return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+@api.post("/forgot-password")
+async def handle_forgot_password(request: Request, email: str = Form(...)):
+    # 1. Megnézzük, létezik-e a felhasználó
+    user_res = supabase.table("felhasznalok").select("*").eq("email", email).execute()
+    
+    if user_res.data:
+        # 2. Token generálása és mentése
+        token = secrets.token_urlsafe(32)
+        expiry = datetime.now(pytz.utc) + timedelta(hours=1)
+        
+        supabase.table("felhasznalok").update({
+            "reset_token": token,
+            "reset_token_expiry": expiry.isoformat()
+        }).eq("email", email).execute()
+        
+        # 3. Email küldése
+        # (Ideális esetben ezt background taskban kéne futtatni, de így is működik)
+        send_reset_email(email, token)
+        
+    # Biztonsági okból mindig azt írjuk ki, hogy elküldtük (ha létezik)
+    return templates.TemplateResponse("forgot_password.html", {
+        "request": request, 
+        "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"
+    })
+
+@api.get("/new-password", response_class=HTMLResponse)
+async def new_password_page(request: Request, token: str):
+    # Ellenőrizzük a tokent érvényességét megjelenítés előtt
+    user_res = supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
+    error = None
+    if not user_res.data:
+        error = "Érvénytelen vagy lejárt link."
+    else:
+        # Időzóna kezelés (UTC)
+        expiry_str = user_res.data[0]['reset_token_expiry']
+        expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
+        if datetime.now(pytz.utc) > expiry:
+            error = "A link lejárt. Kérj újat!"
+
+    return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": error})
+
+@api.post("/new-password")
+async def handle_new_password(request: Request, token: str = Form(...), password: str = Form(...)):
+    # 1. Token ellenőrzése
+    user_res = supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
+    
+    if not user_res.data:
+        return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
+    
+    user = user_res.data[0]
+    expiry_str = user['reset_token_expiry']
+    expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
+    
+    if datetime.now(pytz.utc) > expiry:
+        return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "A link lejárt."})
+    
+    # 2. Új jelszó hashelése és mentése
+    new_hashed = get_password_hash(password)
+    
+    supabase.table("felhasznalok").update({
+        "hashed_password": new_hashed,
+        "reset_token": None,       # Token törlése
+        "reset_token_expiry": None
+    }).eq("id", user['id']).execute()
+    
+    # 3. Átirányítás a főoldalra
+    return RedirectResponse(url="/?message=Sikeres jelszócsere! Most már bejelentkezhetsz.", status_code=303)
+
+# -----------------------------------------
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
@@ -180,7 +300,7 @@ async def vip_area(request: Request):
             if manual.data: 
                 active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
 
-            # --- 3. INGYENES TIPPEK (EZ HIÁNYZOTT!) ---
+            # --- 3. INGYENES TIPPEK ---
             free = supabase_client.table("free_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if free.data:
                 active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
@@ -202,7 +322,7 @@ async def vip_area(request: Request):
         "todays_slips": todays_slips, 
         "tomorrows_slips": tomorrows_slips, 
         "active_manual_slips": active_manual_slips,
-        "active_free_slips": active_free_slips,  # <--- ITT ADJUK ÁT
+        "active_free_slips": active_free_slips,
         "daily_status_message": daily_status_message
     })
 
@@ -339,7 +459,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # DEBUG
         print(f"WEBHOOK EVENT: {event['type']}")
         
         if event['type'] == 'checkout.session.completed':
@@ -349,7 +468,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid:
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                # JAVÍTÁS: 30 -> 32 nap
                 duration = 32 if is_monthly else 7
                 plan_name = "Havi Csomag 📅" if is_monthly else "Heti Csomag 🗓️"
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
@@ -386,7 +504,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     
                     if usr_res.data:
                         usr = usr_res.data
-                        # JAVÍTÁS: 30 -> 32 nap
                         dur = 32 if is_monthly else 7
                         start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                         new_expiry = (start + timedelta(days=dur)).isoformat()
