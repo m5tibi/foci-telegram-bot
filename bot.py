@@ -1,4 +1,4 @@
-# bot.py (V6.9 - Javítva: Gombkezelés átállítása kettőspontra [:])
+# bot.py (V7.0 - Javítva: confirm_send gomb kezelése)
 
 import os
 import telegram
@@ -119,19 +119,18 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
-    # JAVÍTÁS: Aláhúzás (_) helyett kettőspont (:) a szétválasztáshoz
+    
     date_str = query.data.split(":")[-1] 
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     
-    # JAVÍTÁS: A láthatóságot is publikusra állítjuk (is_admin_only = False)
     supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{date_str}%").execute()
     
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
     confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
                        "A tippek mostantól láthatóak a weboldalon.\n\n"
                        "Biztosan kiküldöd az értesítést a VIP tagoknak?")
-    # JAVÍTÁS: Itt is kettőspontot használunk a belső gombnál
+    
     keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send:{date_str}")],
                 [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -140,7 +139,7 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
-    # JAVÍTÁS: Kettőspontos split
+    
     date_str = query.data.split(":")[-1]
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
@@ -152,7 +151,7 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
-    # JAVÍTÁS: Kettőspontos split
+    
     date_str = query.data.split(":")[-1]
     def sync_delete_rejected_tips(date_to_delete):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -552,6 +551,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
 
 def add_handlers(application: Application):
     # JAVÍTÁS: Itt is átírjuk a pattern-t, hogy elfogadja a kettőspontot is
+    # JAVÍTÁS: pattern='^confirm_send:' lett a pattern='^confirm_send_' helyett
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     vip_broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')], states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     application.add_handler(CommandHandler("start", start))
@@ -559,7 +559,7 @@ def add_handlers(application: Application):
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
     application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
-    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send_'))
+    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send:'))
     application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
