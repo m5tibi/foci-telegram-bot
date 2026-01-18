@@ -98,8 +98,8 @@ def send_reset_email(to_email: str, token: str):
     # --- cPanel Email Beállítások (EZEKET ÍRD ÁT!) ---
     SMTP_SERVER = "mail.mondomatutit.hu"     # Pl. mail.teoldalad.hu
     SMTP_PORT = 465                          # SSL port
-    SENDER_EMAIL = "noreply@mondomatutit.hu" # A feladó email címe
-    SENDER_PASSWORD = "IDE_IRD_AZ_EMAIL_JELSZOT" # A feladó jelszava
+    SENDER_EMAIL = "info@mondomatutit.hu" # A feladó email címe
+    SENDER_PASSWORD = "TAJBOr.53981" # A feladó jelszava
     
     # Link összeállítása
     reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
@@ -517,3 +517,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
+
