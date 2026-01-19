@@ -1,4 +1,4 @@
-# main.py (V20.0 - Self-Healing Profile & Smart Webhook)
+# main.py (V20.1 - Debug & Multi-Subscription Handling)
 
 import os
 import asyncio
@@ -43,8 +43,8 @@ STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY") # Publikus kulcs
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Titkos kulcs
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
@@ -69,7 +69,6 @@ api.add_middleware(
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Supabase kliens
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
@@ -107,7 +106,7 @@ async def send_admin_notification(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
-# --- EMAIL KÜLDŐ FÜGGVÉNY ---
+# --- EMAIL ---
 def send_reset_email(to_email: str, token: str):
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
@@ -141,7 +140,7 @@ def send_reset_email(to_email: str, token: str):
     except Exception as e:
         print(f"❌ HIBA az email küldésnél: {e}")
 
-# --- TELEGRAM ÉRTESÍTÉS KÜLDŐ FÜGGVÉNYEK ---
+# --- TELEGRAM ---
 def get_chat_ids_for_notification(tip_type: str):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     chat_ids = []
@@ -180,7 +179,6 @@ async def startup():
     await application.initialize()
     print("FastAPI alkalmazás elindult.")
 
-# --- WEBOLDAL VÉGPONTOK ---
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return HTMLResponse(content="<h1>Mondom a Tutit! Backend</h1><p>A weboldal a mondomatutit.hu címen érhető el.</p>")
@@ -322,34 +320,45 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message
     })
 
-# --- ÖNGYÓGYÍTÓ PROFIL OLDAL ---
+# --- JAVÍTOTT, DEBUG PROFIL (ÖNGYÓGYÍTÓ) ---
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
-    # -----------------------------------------------------
-    # AUTOMATIKUS SZINKRONIZÁLÁS (Self-Healing)
-    # Ha van Stripe ID, lekérdezzük a valós státuszt és frissítjük a DB-t
     if user.get("stripe_customer_id"):
         try:
-            # Lekérjük az utolsó előfizetését
-            subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=1)
+            # 1. Lekérjük az összes előfizetést (limit=5), hogy lássuk, ha több van
+            subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
+            
+            # 2. DEBUG KIÍRÁS A LOGBA
+            print(f"\n🔍 [PROFILE DEBUG] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
+            print(f"   Talált előfizetések száma: {len(subs.data)}")
+            
+            final_cancelled_status = False
+            
+            # 3. Végigpörgetjük az összeset
             if subs.data:
-                sub = subs.data[0]
-                # Megnézzük: Le van-e mondva? (Vagy a végén, vagy azonnal)
-                is_cancelled = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
-                
-                # Ha eltér a DB-től, akkor frissítünk!
-                if user.get("subscription_cancelled") != is_cancelled:
-                    print(f"🔧 SELF-HEALING: {user['email']} státusza javítva -> {is_cancelled}")
-                    admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    admin_client.table("felhasznalok").update({"subscription_cancelled": is_cancelled}).eq("id", user['id']).execute()
-                    user["subscription_cancelled"] = is_cancelled # Frissítjük a nézethez is
+                for i, sub in enumerate(subs.data):
+                    is_canc = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
+                    print(f"   👉 #{i+1} Sub ID: {sub['id']} | Status: {sub['status']} | CancelAtEnd: {sub.get('cancel_at_period_end')} => {is_canc}")
+                    
+                    # Ha ez egy AKTÍV előfizetés (vagy trialing), akkor ennek a státusza a mérvadó
+                    if sub['status'] in ['active', 'trialing']:
+                        final_cancelled_status = is_canc
+            
+            # 4. Javítás az adatbázisban
+            if user.get("subscription_cancelled") != final_cancelled_status:
+                print(f"   🔧 SELF-HEALING JAVÍTÁS: DB={user.get('subscription_cancelled')} -> ÚJ={final_cancelled_status}")
+                admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                admin_client.table("felhasznalok").update({"subscription_cancelled": final_cancelled_status}).eq("id", user['id']).execute()
+                user["subscription_cancelled"] = final_cancelled_status
+            else:
+                print(f"   ✅ DB státusz egyezik a Stripe-pal ({final_cancelled_status}). Nincs teendő.")
+
         except Exception as e:
             print(f"Self-healing hiba: {e}")
-    # -----------------------------------------------------
-
+    
     is_subscribed = is_web_user_subscribed(user)
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
@@ -498,15 +507,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # --- JAVÍTOTT LEMONDÁS FIGYELÉS (STATUS + CANCEL_AT_PERIOD_END) ---
+        # --- DEBUG WEBHOOK KIÍRÁS ---
         if event['type'] == 'customer.subscription.updated' or event['type'] == 'customer.subscription.deleted':
             sub = event['data']['object']
             cid = sub.get('customer')
+            sub_id = sub.get('id')
             
-            # Okos ellenőrzés: Vagy a végén jár le, Vagy már törölve van
             is_cancelled = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
             
-            print(f"📢 Webhook Info: CID: {cid} | Státusz: {sub.get('status')} | Lemondva a végén?: {sub.get('cancel_at_period_end')} => EREDMÉNY: {is_cancelled}")
+            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {sub.get('status')} | Lemondva a végén?: {sub.get('cancel_at_period_end')} => EREDMÉNY: {is_cancelled}")
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
