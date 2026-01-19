@@ -1,4 +1,4 @@
-# main.py (V19.1 - Javított Webhook: Lemondás figyelés visszatéve)
+# main.py (V20.0 - Self-Healing Profile & Smart Webhook)
 
 import os
 import asyncio
@@ -26,7 +26,6 @@ from passlib.context import CryptContext
 from supabase import create_client, Client
 
 from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
-# Importáljuk a külső generátort
 from tipp_generator import main as run_tipp_generator
 from eredmeny_ellenorzo import main as run_result_checker
 
@@ -323,10 +322,34 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message
     })
 
+# --- ÖNGYÓGYÍTÓ PROFIL OLDAL ---
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    
+    # -----------------------------------------------------
+    # AUTOMATIKUS SZINKRONIZÁLÁS (Self-Healing)
+    # Ha van Stripe ID, lekérdezzük a valós státuszt és frissítjük a DB-t
+    if user.get("stripe_customer_id"):
+        try:
+            # Lekérjük az utolsó előfizetését
+            subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=1)
+            if subs.data:
+                sub = subs.data[0]
+                # Megnézzük: Le van-e mondva? (Vagy a végén, vagy azonnal)
+                is_cancelled = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
+                
+                # Ha eltér a DB-től, akkor frissítünk!
+                if user.get("subscription_cancelled") != is_cancelled:
+                    print(f"🔧 SELF-HEALING: {user['email']} státusza javítva -> {is_cancelled}")
+                    admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    admin_client.table("felhasznalok").update({"subscription_cancelled": is_cancelled}).eq("id", user['id']).execute()
+                    user["subscription_cancelled"] = is_cancelled # Frissítjük a nézethez is
+        except Exception as e:
+            print(f"Self-healing hiba: {e}")
+    # -----------------------------------------------------
+
     is_subscribed = is_web_user_subscribed(user)
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
@@ -449,7 +472,6 @@ async def admin_test_run(request: Request):
     try:
         with redirect_stdout(f):
             print("=== TIPP GENERÁTOR TESZT FUTTATÁS (Nincs mentés) ===\n")
-            # FONTOS: Most már a multi-sport generátort futtatjuk!
             await asyncio.to_thread(run_tipp_generator, run_as_test=True)
             print("\n=== TESZT VÉGE ===")
     except Exception as e: print(f"Hiba: {e}")
@@ -476,17 +498,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # --- LEMONDÁS ÉS STÁTUSZ VÁLTOZÁS FIGYELÉSE ---
+        # --- JAVÍTOTT LEMONDÁS FIGYELÉS (STATUS + CANCEL_AT_PERIOD_END) ---
         if event['type'] == 'customer.subscription.updated' or event['type'] == 'customer.subscription.deleted':
             sub = event['data']['object']
             cid = sub.get('customer')
             
-            # Két dolgot nézünk:
-            # 1. Be van-e állítva, hogy a végén lemondja? (cancel_at_period_end)
-            # 2. Vagy MÁR le van mondva/törölve? (status == 'canceled')
+            # Okos ellenőrzés: Vagy a végén jár le, Vagy már törölve van
             is_cancelled = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
             
-            print(f"📢 Előfizetés Info: CID: {cid} | Státusz: {sub.get('status')} | Lemondva a végén?: {sub.get('cancel_at_period_end')} => EREDMÉNY: {is_cancelled}")
+            print(f"📢 Webhook Info: CID: {cid} | Státusz: {sub.get('status')} | Lemondva a végén?: {sub.get('cancel_at_period_end')} => EREDMÉNY: {is_cancelled}")
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -494,13 +514,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     "subscription_cancelled": is_cancelled
                 }).eq("stripe_customer_id", cid).execute()
 
-        # --- VÁSÁRLÁS (Új előfizetés) ---
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
             print(f"Checkout completed. UID: {uid}, CID: {cid}")
             if uid and cid:
-                # ... (Ez a rész változatlan marad, csak a helyhiány miatt rövidítem) ...
                 pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                 is_daily = (pid == STRIPE_PRICE_ID_DAILY)
@@ -512,14 +530,12 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
-        # --- SIKERES MEGÚJULÁS (Számla fizetve) ---
         elif event['type'] == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             cid = invoice.get('customer')
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
-                # ... (Ez a rész is változatlan, csak a logikát tartjuk meg) ...
                 subscription_details = invoice.get('parent', {}).get('subscription_details', {})
                 sub_id = subscription_details.get('subscription') or invoice.get('subscription')
                 if not sub_id:
@@ -543,7 +559,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                             start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
                             new_expiry = (start + timedelta(days=dur)).isoformat()
                             
-                            # Megújuláskor MINDENKÉPP aktívra és nem lemondottra állítjuk
                             client.table("felhasznalok").update({
                                 "subscription_status": "active", 
                                 "subscription_expires_at": new_expiry,
