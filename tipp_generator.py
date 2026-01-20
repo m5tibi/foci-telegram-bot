@@ -1,4 +1,4 @@
-# tipp_generator.py (V20.2 - Timezone Fix & Past Game Filter)
+# tipp_generator.py (V21.0 - Next 24h Lookahead for US Sports)
 
 import os
 import requests
@@ -57,8 +57,6 @@ DERBY_LIST = [(50, 66), (85, 106), (40, 50), (33, 34), (529, 541), (541, 529)]
 def is_valid_future_match(game_date_str, status_short):
     """ 
     Ellenőrzi, hogy a meccs a jövőben van-e, és még nem kezdődött-e el.
-    game_date_str: ISO formátumú dátum az API-ból
-    status_short: Meccs státuszkód (pl. 'NS', 'FT', '1H')
     """
     try:
         # Státusz ellenőrzés: Csak 'NS' (Not Started) mehet
@@ -77,7 +75,7 @@ def is_valid_future_match(game_date_str, status_short):
             
         return True
     except Exception as e:
-        print(f"Dátum hiba: {e}")
+        # print(f"Dátum hiba: {e}")
         return False
 
 def get_api_data(sport, endpoint, params, retries=3, delay=5):
@@ -121,9 +119,7 @@ def prefetch_data_for_fixtures(fixtures):
                 if stats: TEAM_STATS_CACHE[stats_key] = stats
 
 def analyze_fixture_smart_stats(fixture):
-    # IDŐ ÉS STÁTUSZ ELLENŐRZÉS (ÚJ!)
-    if not is_valid_future_match(fixture['fixture']['date'], fixture['fixture']['status']['short']):
-        return []
+    if not is_valid_future_match(fixture['fixture']['date'], fixture['fixture']['status']['short']): return []
 
     teams, league, fixture_id = fixture['teams'], fixture['league'], fixture['fixture']['id']
     home_id, away_id = teams['home']['id'], teams['away']['id']
@@ -182,9 +178,7 @@ def analyze_fixture_smart_stats(fixture):
 # =========================================================================
 
 def analyze_hockey(game):
-    # IDŐ ÉS STÁTUSZ ELLENŐRZÉS (ÚJ!)
-    if not is_valid_future_match(game['date'], game['status']['short']):
-        return []
+    if not is_valid_future_match(game['date'], game['status']['short']): return []
 
     game_id = game['id']
     teams = game['teams']
@@ -211,9 +205,7 @@ def analyze_hockey(game):
 # =========================================================================
 
 def analyze_basketball(game):
-    # IDŐ ÉS STÁTUSZ ELLENŐRZÉS (ÚJ!)
-    if not is_valid_future_match(game['date'], game['status']['short']):
-        return []
+    if not is_valid_future_match(game['date'], game['status']['short']): return []
 
     game_id = game['id']
     teams = game['teams']
@@ -270,9 +262,13 @@ def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     start_time = datetime.now(BUDAPEST_TZ)
     target_date_str = start_time.strftime("%Y-%m-%d")
-    print(f"🚀 Multi-Sport Tipp Generátor (V20.2) indítása ({target_date_str})...")
+    tomorrow_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d") # ÚJ!
+    
+    print(f"🚀 Multi-Sport Tipp Generátor (V21.0) indítása ({target_date_str} + {tomorrow_date_str})...")
     all_found_tips = []
 
+    # 1. FOCI (Csak MAI nap)
+    print("\n--- 1. FOCI ELEMZÉS ---")
     football_data = get_api_data("football", "fixtures", {"date": target_date_str})
     if football_data:
         relevant_fb = [f for f in football_data if f['league']['id'] in RELEVANT_LEAGUES_FOOTBALL]
@@ -282,17 +278,32 @@ def main(run_as_test=False):
                 new_tips = analyze_fixture_smart_stats(fix)
                 if new_tips: all_found_tips.extend(new_tips)
     
+    # 2. HOKI & KOSÁR (MAI ÉS HOLNAPI NAP!)
     if len(all_found_tips) < 3:
         print(f"\n⚠️ Kevés a foci tipp ({len(all_found_tips)} db), nézzük a többi sportot...")
-        hockey_data = get_api_data("hockey", "games", {"date": target_date_str})
-        if hockey_data:
-            relevant_hk = [g for g in hockey_data if g['league']['id'] in RELEVANT_LEAGUES_HOCKEY]
+        
+        # HOKI: MA + HOLNAP
+        print("--- 2. HOKI ELEMZÉS (MA + HOLNAP) ---")
+        hockey_today = get_api_data("hockey", "games", {"date": target_date_str}) or []
+        hockey_tomorrow = get_api_data("hockey", "games", {"date": tomorrow_date_str}) or []
+        hockey_all = hockey_today + hockey_tomorrow
+        
+        if hockey_all:
+            relevant_hk = [g for g in hockey_all if g['league']['id'] in RELEVANT_LEAGUES_HOCKEY]
+            print(f"   Vizsgált hoki meccsek száma: {len(relevant_hk)}")
             for game in relevant_hk:
                 new_tips = analyze_hockey(game)
                 if new_tips: all_found_tips.extend(new_tips)
-        basket_data = get_api_data("basketball", "games", {"date": target_date_str})
-        if basket_data:
-            relevant_bk = [g for g in basket_data if g['league']['id'] in RELEVANT_LEAGUES_BASKETBALL]
+        
+        # KOSÁR: MA + HOLNAP
+        print("--- 3. KOSÁR (NBA) ELEMZÉS (MA + HOLNAP) ---")
+        basket_today = get_api_data("basketball", "games", {"date": target_date_str}) or []
+        basket_tomorrow = get_api_data("basketball", "games", {"date": tomorrow_date_str}) or []
+        basket_all = basket_today + basket_tomorrow
+        
+        if basket_all:
+            relevant_bk = [g for g in basket_all if g['league']['id'] in RELEVANT_LEAGUES_BASKETBALL]
+            print(f"   Vizsgált kosár meccsek száma: {len(relevant_bk)}")
             for game in relevant_bk:
                 new_tips = analyze_basketball(game)
                 if new_tips: all_found_tips.extend(new_tips)
