@@ -1,4 +1,4 @@
-# main.py (V21.1 - Delayed Profile Sync for Better Accuracy)
+# main.py (V21.2 - Aggressive Cancellation Check: Checks Date too!)
 
 import os
 import asyncio
@@ -320,7 +320,7 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message
     })
 
-# --- KÉSLELTETETT ÉS DEBUG PROFIL ---
+# --- V21.2 JAVÍTOTT PROFIL: Dátum alapú lemondás-ellenőrzés ---
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
@@ -328,22 +328,32 @@ async def profile_page(request: Request):
     
     if user.get("stripe_customer_id"):
         try:
-            # 1. KÉSLELTETÉS BEÉPÍTÉSE (2.0 másodperc)
-            # Ez ad időt a Stripe-nak, hogy frissítse az adatbázisát a portálos művelet után.
+            # 1. KÉSLELTETÉS
             await asyncio.sleep(2.0)
 
-            # 2. Lekérjük az összes előfizetést (limit=5)
+            # 2. Lekérjük az összes előfizetést
             subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
             
-            print(f"\n🔍 [PROFILE DEBUG] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
+            print(f"\n🔍 [PROFILE DEBUG V21.2] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
             print(f"   Talált előfizetések száma: {len(subs.data)}")
             
             final_cancelled_status = False
             
             if subs.data:
                 for i, sub in enumerate(subs.data):
-                    is_canc = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
-                    print(f"   👉 #{i+1} Sub ID: {sub['id']} | Status: {sub['status']} | CancelAtEnd: {sub.get('cancel_at_period_end')} => {is_canc}")
+                    # --- ITT A LÉNYEG: ---
+                    # 1. Van-e "cancel_at_period_end" kapcsoló?
+                    # 2. Van-e "status" = 'canceled'?
+                    # 3. ÉS VAN-E "cancel_at" DÁTUM? (Ha van dátum, akkor tuti lemondta!)
+                    
+                    has_cancel_switch = sub.get('cancel_at_period_end')
+                    has_canceled_status = sub.get('status') == 'canceled'
+                    has_cancel_date = sub.get('cancel_at') is not None
+                    
+                    is_canc = has_cancel_switch or has_canceled_status or has_cancel_date
+                    
+                    print(f"   👉 #{i+1} Sub ID: {sub['id']} | Status: {sub['status']}")
+                    print(f"      Switch: {has_cancel_switch} | CanceledState: {has_canceled_status} | HasDate: {has_cancel_date} => EREDMÉNY: {is_canc}")
                     
                     if sub['status'] in ['active', 'trialing']:
                         final_cancelled_status = is_canc
@@ -513,9 +523,14 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             cid = sub.get('customer')
             sub_id = sub.get('id')
             
-            is_cancelled = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
+            # V21.2: ITT IS BEVEZETJÜK A DÁTUM ELLENŐRZÉST
+            has_cancel_switch = sub.get('cancel_at_period_end')
+            has_canceled_status = sub.get('status') == 'canceled'
+            has_cancel_date = sub.get('cancel_at') is not None
             
-            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {sub.get('status')} | Lemondva a végén?: {sub.get('cancel_at_period_end')} => EREDMÉNY: {is_cancelled}")
+            is_cancelled = has_cancel_switch or has_canceled_status or has_cancel_date
+            
+            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {sub.get('status')} | DátumVan?: {has_cancel_date} => EREDMÉNY: {is_cancelled}")
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
