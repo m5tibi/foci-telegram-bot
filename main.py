@@ -1,4 +1,4 @@
-# main.py (V20.1 - Debug & Multi-Subscription Handling)
+# main.py (V21.1 - Delayed Profile Sync for Better Accuracy)
 
 import os
 import asyncio
@@ -320,7 +320,7 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message
     })
 
-# --- JAVÍTOTT, DEBUG PROFIL (ÖNGYÓGYÍTÓ) ---
+# --- KÉSLELTETETT ÉS DEBUG PROFIL ---
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
@@ -328,26 +328,27 @@ async def profile_page(request: Request):
     
     if user.get("stripe_customer_id"):
         try:
-            # 1. Lekérjük az összes előfizetést (limit=5), hogy lássuk, ha több van
+            # 1. KÉSLELTETÉS BEÉPÍTÉSE (2.0 másodperc)
+            # Ez ad időt a Stripe-nak, hogy frissítse az adatbázisát a portálos művelet után.
+            await asyncio.sleep(2.0)
+
+            # 2. Lekérjük az összes előfizetést (limit=5)
             subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
             
-            # 2. DEBUG KIÍRÁS A LOGBA
             print(f"\n🔍 [PROFILE DEBUG] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
             print(f"   Talált előfizetések száma: {len(subs.data)}")
             
             final_cancelled_status = False
             
-            # 3. Végigpörgetjük az összeset
             if subs.data:
                 for i, sub in enumerate(subs.data):
                     is_canc = sub.get('cancel_at_period_end') or sub.get('status') == 'canceled'
                     print(f"   👉 #{i+1} Sub ID: {sub['id']} | Status: {sub['status']} | CancelAtEnd: {sub.get('cancel_at_period_end')} => {is_canc}")
                     
-                    # Ha ez egy AKTÍV előfizetés (vagy trialing), akkor ennek a státusza a mérvadó
                     if sub['status'] in ['active', 'trialing']:
                         final_cancelled_status = is_canc
             
-            # 4. Javítás az adatbázisban
+            # 3. Javítás az adatbázisban
             if user.get("subscription_cancelled") != final_cancelled_status:
                 print(f"   🔧 SELF-HEALING JAVÍTÁS: DB={user.get('subscription_cancelled')} -> ÚJ={final_cancelled_status}")
                 admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -507,7 +508,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # --- DEBUG WEBHOOK KIÍRÁS ---
         if event['type'] == 'customer.subscription.updated' or event['type'] == 'customer.subscription.deleted':
             sub = event['data']['object']
             cid = sub.get('customer')
