@@ -1,202 +1,227 @@
-# eredmeny_ellenorzo.py (V2.6 - DEBUG Verzió + API Key Fix)
+# eredmeny_ellenorzo.py (V22.0 - Multi-Sport Support)
+
 import os
-import sys
 import requests
+import asyncio
 import json
 from supabase import create_client, Client
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import pytz
+import telegram
 
 # --- Konfiguráció ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+if not SUPABASE_KEY:
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# --- API BEÁLLÍTÁSOK (KULCS JAVÍTÁSSAL!) ---
+# API Kulcsok és Hostok
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
-API_KEY = raw_key.strip() # <--- EZ A LÉNYEG! Levágja a felesleges szóközöket
-API_HOST = "v3.football.api-sports.io"
+API_KEY = raw_key.strip()
+
+HOSTS = {
+    "football": "v3.football.api-sports.io",
+    "hockey": "v1.hockey.api-sports.io",
+    "basketball": "v1.basketball.api-sports.io"
+}
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = 1326707238
+LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except:
+    supabase = None
+
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-def send_telegram_report(report_text):
-    if not TELEGRAM_TOKEN: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": report_text, "parse_mode": "Markdown"})
-        print("📩 Telegram jelentés elküldve.")
-    except Exception as e: print(f"Telegram hiba: {e}")
-
-def get_fixtures_to_check(force_check=False):
-    # Modern időkezelés (UTC) - Nincs több DeprecationWarning
-    now_utc = datetime.now(timezone.utc)
+# --- Segédfüggvények ---
+def get_api_data(sport, endpoint, params):
+    """Lekéri az adatokat a megfelelő sport API-tól"""
+    host = HOSTS.get(sport)
+    if not host: return None
     
-    if force_check:
-        print(f"⚠️ FORCE CHECK aktív: Időkorlát figyelmen kívül hagyása! Minden 'Tipp leadva' státuszú meccs ellenőrzése.")
-        return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute().data
-    else:
-        # Csak a 115 perce (kb 2 órája) kezdődött meccseket nézzük
-        check_threshold = now_utc - timedelta(minutes=115)
-        print(f"🕒 Időbélyeg ellenőrzés: Csak {check_threshold.strftime('%H:%M')} (UTC) előtt kezdődött meccsek.")
-        return supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").lt("kezdes", str(check_threshold)).execute().data
-
-def get_completed_tips_for_date(target_date):
-    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).isoformat()
-    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(pytz.utc).isoformat()
-    response = supabase.table("meccsek").select("*").gte("kezdes", start_of_day).lte("kezdes", end_of_day).neq("eredmeny", "Tipp leadva").execute()
-    return response.data
-
-def get_fixture_result_debug(fixture_id):
-    """Részletes hibakereső API hívás"""
-    url = f"https://{API_HOST}/fixtures"
+    url = f"https://{host}/{endpoint}"
     headers = {
         "x-apisports-key": API_KEY,
-        "x-apisports-host": API_HOST
+        "x-apisports-host": host
     }
     try:
-        resp = requests.get(url, headers=headers, params={"id": str(fixture_id)}, timeout=15)
-        
-        # 1. Státusz kód ellenőrzés
-        if resp.status_code == 403:
-            print(f"❌ KRITIKUS HIBA (ID: {fixture_id}): 403 Forbidden! A kulcs még mindig rossz, vagy nincs jogod.")
-            return None
-            
-        resp.raise_for_status()
-        data_json = resp.json()
-        
-        # 2. API hibaüzenet ellenőrzés
-        if "errors" in data_json and data_json["errors"]:
-            print(f"❌ API HIBAVÁLASZ (ID: {fixture_id}):")
-            print(json.dumps(data_json["errors"], indent=2))
-            return None
-            
-        # 3. Üres válasz ellenőrzés
-        response_list = data_json.get('response', [])
-        if not response_list:
-            print(f"⚠️ ÜRES VÁLASZ (ID: {fixture_id}): Az API nem talált adatot ehhez a meccshez.")
-            return None
-            
-        return response_list[0]
-        
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        response.raise_for_status()
+        return response.json().get('response', [])
     except Exception as e:
-        print(f"💥 KIVÉTEL Hiba (ID: {fixture_id}): {e}")
+        print(f"API Hiba ({sport}): {e}")
         return None
 
-def evaluate_tip(tip_text, fixture_data):
-    score = fixture_data.get('score', {}).get('fulltime', {})
-    h, a = score.get('home'), score.get('away')
+def determine_sport(match):
+    """Eldönti a liga neve vagy a tipp alapján, hogy milyen sport"""
+    liga = match.get('liga_nev', '').lower()
+    tipp = match.get('tipp', '').lower()
     
-    if h is None or a is None: return None, None
+    if 'nba' in liga or 'nba' in tipp or 'basketball' in liga:
+        return 'basketball'
+    if 'nhl' in liga or 'ml' in tipp or 'hockey' in liga or 'ice' in liga:
+        return 'hockey'
+    return 'football' # Alapértelmezett
+
+def check_match_result(match):
+    fixture_id = match['fixture_id']
+    tipp_type = match['tipp']
+    sport = determine_sport(match)
     
-    total = h + a
-    res = "Veszített"
+    print(f"🔍 Ellenőrzés: {match['csapat_H']} vs {match['csapat_V']} ({sport.upper()}) - ID: {fixture_id}")
+
+    # API hívás a megfelelő sporthoz
+    if sport == 'football':
+        data = get_api_data("football", "fixtures", {"id": str(fixture_id)})
+    elif sport == 'basketball':
+        data = get_api_data("basketball", "games", {"id": str(fixture_id)})
+    elif sport == 'hockey':
+        data = get_api_data("hockey", "games", {"id": str(fixture_id)})
+    else:
+        return None
+
+    if not data:
+        print("   ⚠️ Nincs adat az API-tól.")
+        return None
+
+    game_data = data[0]
     
-    if tip_text == "Home" and h > a: res = "Nyert"
-    elif tip_text == "Away" and a > h: res = "Nyert"
-    elif tip_text == "Draw" and h == a: res = "Nyert"
-    elif tip_text == "Over 2.5" and total > 2.5: res = "Nyert"
-    elif tip_text == "Under 2.5" and total < 2.5: res = "Nyert"
-    elif tip_text == "Over 1.5" and total > 1.5: res = "Nyert"
-    elif tip_text == "BTTS" and h > 0 and a > 0: res = "Nyert"
-    elif tip_text == "1X" and h >= a: res = "Nyert"
-    elif tip_text == "X2" and a >= h: res = "Nyert"
+    # Státusz ellenőrzése (Vége van-e?)
+    status = None
+    if sport == 'football':
+        status = game_data['fixture']['status']['short']
+    else:
+        status = game_data['status']['short']
+
+    if status not in ['FT', 'AOT', 'PEN', 'HT']: # HT (Half Time) még nem vége, de fut
+        if status in ['NS', 'TBD', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4']:
+            print(f"   ⏳ Még tart vagy nem kezdődött el ({status}).")
+            return None # Még nincs vége
+
+    # EREDMÉNYEK KINYERÉSE SPORTONKÉNT
+    home_score = 0
+    away_score = 0
     
-    return res, f"{h}-{a}"
+    try:
+        if sport == 'football':
+            # Focinál a 'goals' objektumot nézzük
+            home_score = game_data['goals']['home']
+            away_score = game_data['goals']['away']
+            if home_score is None: return None # Még nincs gól adat
+            
+        elif sport == 'basketball':
+            # Kosárnál a 'scores' -> 'total'
+            home_score = game_data['scores']['home']['total']
+            away_score = game_data['scores']['away']['total']
+            
+        elif sport == 'hockey':
+            # Hokinál a végeredményt nézzük (scores.home / away)
+            # Figyelem: A hoki API néha null-t ad vissza, ha még nincs vége, de itt már szűrtük a státuszt
+            home_score = game_data['scores']['home']
+            away_score = game_data['scores']['away']
+            
+    except Exception as e:
+        print(f"   ❌ Hiba az eredmény olvasásakor: {e}")
+        return None
+
+    print(f"   📊 Eredmény: {home_score} - {away_score} | Tipp: {tipp_type}")
+
+    # KIÉRTÉKELÉS
+    result_status = "Veszített" # Alapértelmezett
+
+    # 1. Hazai győzelem logika (Minden sportnál)
+    if "Hazai" in tipp_type or "Home" in tipp_type:
+        if home_score > away_score:
+            result_status = "Nyert"
+    
+    # 2. Foci specifikus tippek
+    elif sport == 'football':
+        if "BTTS" in tipp_type:
+            if home_score > 0 and away_score > 0:
+                result_status = "Nyert"
+        elif "Over 2.5" in tipp_type:
+            if (home_score + away_score) > 2.5:
+                result_status = "Nyert"
+    
+    # 3. Egyéb (Vendég, Döntetlen) - ha bővülne a rendszer
+    elif "Vendég" in tipp_type or "Away" in tipp_type:
+        if away_score > home_score:
+            result_status = "Nyert"
+
+    return result_status
+
+async def send_daily_report(matches, date_str):
+    if not TELEGRAM_TOKEN or not LIVE_CHANNEL_ID: return
+    
+    # Csak azokat jelentjük, amik most frissültek vagy véget értek
+    finished_matches = [m for m in matches if m['eredmeny'] in ['Nyert', 'Veszített']]
+    if not finished_matches: return
+
+    # ROI számítás
+    total_bets = len(finished_matches)
+    wins = len([m for m in finished_matches if m['eredmeny'] == 'Nyert'])
+    
+    profit = 0
+    for m in finished_matches:
+        if m['eredmeny'] == 'Nyert':
+            profit += (m['odds'] - 1)
+        else:
+            profit -= 1
+            
+    roi = (profit / total_bets) * 100 if total_bets > 0 else 0
+    emoji = "✅" if profit > 0 else "❌"
+
+    msg = f"📝 *Napi Tipp Kiértékelés*\n📅 Dátum: {date_str}\n\n"
+    
+    for m in finished_matches:
+        status_icon = "✅" if m['eredmeny'] == 'Nyert' else "❌"
+        sport_icon = "🏀" if "NBA" in m['tipp'] else ("🏒" if "(ML)" in m['tipp'] else "⚽️")
+        msg += f"{status_icon} *{m['eredmeny']}*:\n{sport_icon} {m['csapat_H']} ({m['tipp']})\n"
+
+    msg += f"\n---\n📝 Összesen: {total_bets} db (✅ {wins})\n💰 Profit: {profit:.2f} egység\n📈 ROI: {roi:.1f}%"
+    
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    try:
+        await bot.send_message(chat_id=LIVE_CHANNEL_ID, text=msg, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Telegram hiba: {e}")
 
 def main():
-    force_yesterday = '--tegnap' in sys.argv
-    force_check = '--force-check' in sys.argv
+    print("=== EREDMÉNY ELLENŐRZŐ (V22.0 - Multi-Sport) ===")
     
-    # DEBUG KIÍRÁS A KULCSRÓL (Hogy lásd a logban, jó-e)
-    print(f"DEBUG: API Kulcs hossza: {len(API_KEY)} karakter.")
+    # 1. Lekérjük a még nyitott tippeket (Tipp leadva)
+    # Figyeljük a mai és tegnapi tippeket is, hátha átcsúszott éjfél utánra
+    res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute()
+    matches = res.data
     
-    now_bp = datetime.now(BUDAPEST_TZ)
-    
-    if force_yesterday:
-        target_date = now_bp - timedelta(days=1)
-        print(f"🔙 'Tegnapi Összefoglaló' mód aktív.")
-    elif now_bp.hour < 6:
-        target_date = now_bp - timedelta(days=1)
-        print(f"🌙 Hajnali futás. Tegnapi nap zárása.")
-    else:
-        target_date = now_bp
-        print(f"☀️ Napi futás. Mai nap ellenőrzése.")
+    if not matches:
+        print("Nincs kiértékelendő nyitott tipp.")
+        return
 
-    print("--- 1. Függő tippek ellenőrzése ---")
-    try: 
-        fixtures = get_fixtures_to_check(force_check)
-        if not fixtures:
-            print("ℹ️ Nincs ellenőrizendő meccs (az időkorlát vagy státusz miatt).")
-            if not force_check: print("TIPP: Használd a --force-check kapcsolót a parancssorban!")
-    except Exception as e: 
-        print(f"Hiba a lekérdezésnél: {e}")
-        fixtures = []
+    updated_matches = []
+    today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
 
-    updates_count = 0
-    FINISHED = ["FT", "AET", "PEN"]
-    
-    if fixtures:
-        print(f"🔍 {len(fixtures)} db függő meccs vizsgálata...")
-        for f in fixtures:
-            # ITT HASZNÁLJUK AZ ÚJ DEBUG FÜGGVÉNYT
-            data = get_fixture_result_debug(f['fixture_id'])
-            
-            if data:
-                status = data['fixture']['status']['short']
-                print(f"   ⚽ {f['csapat_H']} vs {f['csapat_V']} -> Státusz: {status}")
-                
-                if status in FINISHED:
-                    res, score = evaluate_tip(f['tipp'], data)
-                    if res:
-                        supabase.table("meccsek").update({"eredmeny": res, "veg_eredmeny": score}).eq("id", f['id']).execute()
-                        print(f"      ✅ EREDMÉNY: {res} ({score})")
-                        updates_count += 1
-                elif status in ["PST", "CANC", "ABD"]:
-                    supabase.table("meccsek").update({"eredmeny": "Érvénytelen", "veg_eredmeny": status}).eq("id", f['id']).execute()
-                    updates_count += 1
-                    print(f"      ⚠️ Törölve/Elhalasztva")
-                else:
-                    print(f"      ⏳ Még tart vagy nincs vége.")
-            else:
-                print(f"   ❌ SIKERTELEN LEKÉRDEZÉS: {f['csapat_H']} vs {f['csapat_V']} (ID: {f['fixture_id']})")
-    
-    # --- 2. JELENTÉS KÜLDÉSE ---
-    if force_yesterday or updates_count > 0:
-        print("Statisztika generálása...")
-        all_tips = get_completed_tips_for_date(target_date)
+    for match in matches:
+        # Csak akkor ellenőrizzük, ha már eltelt a kezdés időpontja
+        match_time = datetime.fromisoformat(match['kezdes'].replace('Z', '+00:00'))
+        if datetime.now(pytz.utc) < match_time:
+            continue # Még el se kezdődött
+
+        new_result = check_match_result(match)
         
-        if all_tips:
-            wins = [t for t in all_tips if t['eredmeny'] == 'Nyert']
-            losses = [t for t in all_tips if t['eredmeny'] == 'Veszített']
-            total = len(all_tips)
-            win_cnt = len(wins)
-            profit = sum(t['odds'] for t in wins) - total
-            roi = (profit / total * 100) if total > 0 else 0
-            
-            report_title = "🔙 Tegnapi Összefoglaló" if force_yesterday else "📊 Napi Tipp Kiértékelés"
-            msg = f"{report_title}\n📅 Dátum: {target_date.strftime('%Y-%m-%d')}\n\n"
-            
-            if wins:
-                msg += "✅ *Nyertes:*\n"
-                for t in wins: msg += f"⚽️ {t['csapat_H']} ({t['tipp']}) @{t['odds']}\n"
-                msg += "\n"
-            if losses:
-                msg += "❌ *Vesztes:*\n"
-                for t in losses: msg += f"⚽️ {t['csapat_H']} ({t['tipp']})\n"
-                msg += "\n"
-                
-            sign = "+" if profit > 0 else ""
-            msg += "---\n"
-            msg += f"📝 Összesen: *{total} db* (✅ {win_cnt})\n"
-            msg += f"💰 Profit: *{sign}{profit:.2f} egység*\n"
-            msg += f"📈 ROI: *{sign}{roi:.1f}%*"
-            
-            send_telegram_report(msg)
-
-    print("--- Kész ---")
+        if new_result:
+            # Update DB
+            supabase.table("meccsek").update({"eredmeny": new_result}).eq("id", match['id']).execute()
+            match['eredmeny'] = new_result
+            updated_matches.append(match)
+            print(f"   💾 Mentve: {new_result}")
+    
+    # Ha volt változás, küldjünk értesítést
+    # (Opcionális: itt csoportosíthatnánk dátum szerint, ha több napot vizsgálunk)
+    if updated_matches:
+        asyncio.run(send_daily_report(updated_matches, today_str))
 
 if __name__ == "__main__":
     main()
