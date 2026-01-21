@@ -1,4 +1,4 @@
-# tipp_generator.py (V23.1 - Full Competition: Always Check All Sports)
+# tipp_generator.py (V23.2 - VERSENY MÓD: Minden sport indul!)
 
 import os
 import requests
@@ -53,7 +53,7 @@ RELEVANT_LEAGUES_BASKETBALL = {
 }
 DERBY_LIST = [(50, 66), (85, 106), (40, 50), (33, 34), (529, 541), (541, 529)] 
 
-# --- SEGÉDFÜGGVÉNY: Jövőbeli meccs ellenőrzése ---
+# --- SEGÉDFÜGGVÉNYEK ---
 def is_valid_future_match(game_date_str, status_short):
     try:
         if status_short not in ['NS', 'TBD']: return False
@@ -256,7 +256,7 @@ def main(run_as_test=False):
     target_date_str = start_time.strftime("%Y-%m-%d")
     tomorrow_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"🚀 Multi-Sport Tipp Generátor (V23.1 - Full Competition) indítása...")
+    print(f"🚀 Multi-Sport Tipp Generátor (V23.2 - VERSENY MÓD) indítása...")
     all_found_tips = []
 
     # 1. FOCI
