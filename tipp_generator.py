@@ -1,4 +1,4 @@
-# tipp_generator.py (V23.2 - VERSENY MÓD: Minden sport indul!)
+# tipp_generator.py (V23.3 - FIX: Team Names in Output)
 
 import os
 import requests
@@ -256,7 +256,7 @@ def main(run_as_test=False):
     target_date_str = start_time.strftime("%Y-%m-%d")
     tomorrow_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"🚀 Multi-Sport Tipp Generátor (V23.2 - VERSENY MÓD) indítása...")
+    print(f"🚀 Multi-Sport Tipp Generátor (V23.3 - Team Names Fix) indítása...")
     all_found_tips = []
 
     # 1. FOCI
@@ -270,7 +270,7 @@ def main(run_as_test=False):
                 new_tips = analyze_fixture_smart_stats(fix)
                 if new_tips: all_found_tips.extend(new_tips)
     
-    # 2. HOKI (Mindenképp fut!)
+    # 2. HOKI
     print("\n--- 2. HOKI ELEMZÉS (MA + HOLNAP) ---")
     hockey_today = get_api_data("hockey", "games", {"date": target_date_str}) or []
     hockey_tomorrow = get_api_data("hockey", "games", {"date": tomorrow_date_str}) or []
@@ -281,7 +281,7 @@ def main(run_as_test=False):
             new_tips = analyze_hockey(game)
             if new_tips: all_found_tips.extend(new_tips)
     
-    # 3. KOSÁR (Mindenképp fut!)
+    # 3. KOSÁR
     print("\n--- 3. KOSÁR (NBA) ELEMZÉS (MA + HOLNAP) ---")
     basket_today = get_api_data("basketball", "games", {"date": target_date_str}) or []
     basket_tomorrow = get_api_data("basketball", "games", {"date": tomorrow_date_str}) or []
@@ -299,7 +299,8 @@ def main(run_as_test=False):
         if is_test_mode:
             print("\n[TESZT EREDMÉNYEK]:")
             for t in best_tips:
-                print(f"🏆 {t['liga_nev']} | {t['kezdes']}")
+                print(f"🏆 {t['liga_nev']} | ⏰ {t['kezdes']}")
+                print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']}")
                 print(f"   💡 {t['tipp']} @ {t['odds']} | Conf: {t['confidence']}")
         else:
             save_tips_split_by_date(best_tips, target_date_str)
