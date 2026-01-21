@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V22.1 - Verbose Telegram & Force Report)
+# eredmeny_ellenorzo.py (V22.2 - Multi-Sport + Fallback to Admin ID)
 
 import os
 import requests
@@ -26,8 +26,19 @@ HOSTS = {
 }
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-# Itt megadhatsz egy alapértelmezett értéket, ha a környezeti változó hiányozna
-LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID", "-100xxxxxxxxxxxxx") 
+
+# --- ITT A JAVÍTÁS ---
+# Ha nincs Live Channel beállítva, akkor az Admin ID-t használjuk (a régi kódodból)
+ADMIN_CHAT_ID = 1326707238 
+LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID") 
+
+# Ha a Live ID a placeholder vagy üres, akkor az Adminra küldjük
+TARGET_CHAT_ID = LIVE_CHANNEL_ID
+if not TARGET_CHAT_ID or TARGET_CHAT_ID == "-100xxxxxxxxxxxxx":
+    print(f"⚠️ Nincs LIVE_CHANNEL_ID, a jelentést az ADMIN-nak küldöm ({ADMIN_CHAT_ID}).")
+    TARGET_CHAT_ID = ADMIN_CHAT_ID
+else:
+    print(f"✅ Jelentés célpontja: LIVE CHANNEL ({TARGET_CHAT_ID})")
 
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -147,13 +158,10 @@ def check_match_result(match):
     return result_status
 
 async def send_daily_report(matches, date_str):
-    print(f"📧 Telegram jelentés küldése... (Token: {'OK' if TELEGRAM_TOKEN else 'MISSING'}, Channel: {LIVE_CHANNEL_ID})")
+    print(f"📧 Telegram jelentés küldése... Célpont: {TARGET_CHAT_ID}")
     
     if not TELEGRAM_TOKEN:
         print("❌ HIBA: Nincs TELEGRAM_TOKEN beállítva!")
-        return
-    if not LIVE_CHANNEL_ID or LIVE_CHANNEL_ID == "-100xxxxxxxxxxxxx":
-        print(f"❌ HIBA: Érvénytelen LIVE_CHANNEL_ID: {LIVE_CHANNEL_ID}")
         return
     
     finished_matches = [m for m in matches if m['eredmeny'] in ['Nyert', 'Veszített']]
@@ -191,13 +199,13 @@ async def send_daily_report(matches, date_str):
     
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     try:
-        await bot.send_message(chat_id=LIVE_CHANNEL_ID, text=msg, parse_mode='Markdown')
+        await bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode='Markdown')
         print("✅ Telegram üzenet elküldve!")
     except Exception as e:
         print(f"❌ Telegram küldési hiba: {e}")
 
 def main():
-    print("=== EREDMÉNY ELLENŐRZŐ (V22.1 - Verbose & Force Report) ===")
+    print("=== EREDMÉNY ELLENŐRZŐ (V22.2 - Multi-Sport & Admin Fallback) ===")
     
     today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
     
@@ -227,28 +235,21 @@ def main():
         asyncio.run(send_daily_report(updated_matches, today_str))
         
     # 3. KÉNYSZERÍTETT JELENTÉS (HA nincs frissítés, de vannak mai eredmények)
-    # Ez azért kell, mert az előző futtatásnál már frissítetted a DB-t, de a Telegram nem ment el.
-    # Most újra lekérjük a MAI, már LEZÁRT meccseket.
     else:
         print("🔄 Nem történt frissítés. Ellenőrzöm a mai lezárt meccseket kényszerített jelentéshez...")
         
-        # Lekérjük a mai meccseket, amik már NEM 'Tipp leadva'
-        # Figyelem: A Supabase szűrésnél a dátumot sztringként kezeljük
-        # Mivel a 'kezdes' ISO formátumú, egyszerű 'like' vagy dátum szűrés kell.
-        # Itt egyszerűsítünk: lekérjük az utolsó 20 meccset és Pythonban szűrjük a dátumot.
-        
+        # Lekérjük az utolsó 30 meccset a biztonság kedvéért
         history = supabase.table("meccsek").select("*").order("kezdes", desc=True).limit(30).execute()
         today_finished = []
         
         if history.data:
             for m in history.data:
-                # Dátum egyezés vizsgálata (csak a nap)
                 match_date = m['kezdes'][:10]
                 if match_date == today_str and m['eredmeny'] in ['Nyert', 'Veszített']:
                     today_finished.append(m)
         
         if today_finished:
-            print(f"found {len(today_finished)} finished matches for today. Sending report...")
+            print(f"Megtalálva {len(today_finished)} mai lezárt meccs. Jelentés küldése...")
             asyncio.run(send_daily_report(today_finished, today_str))
         else:
             print("Nem találtam mai lezárt meccset a jelentéshez.")
