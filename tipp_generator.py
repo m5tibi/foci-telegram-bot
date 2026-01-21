@@ -1,4 +1,4 @@
-# tipp_generator.py (V21.0 - Next 24h Lookahead for US Sports)
+# tipp_generator.py (V23.0 - Smart Split: Today & Tomorrow Slips)
 
 import os
 import requests
@@ -55,27 +55,13 @@ DERBY_LIST = [(50, 66), (85, 106), (40, 50), (33, 34), (529, 541), (541, 529)]
 
 # --- SEGÉDFÜGGVÉNY: Jövőbeli meccs ellenőrzése ---
 def is_valid_future_match(game_date_str, status_short):
-    """ 
-    Ellenőrzi, hogy a meccs a jövőben van-e, és még nem kezdődött-e el.
-    """
     try:
-        # Státusz ellenőrzés: Csak 'NS' (Not Started) mehet
-        if status_short not in ['NS', 'TBD']: 
-            return False
-
-        # Dátum konvertálása UTC-re
+        if status_short not in ['NS', 'TBD']: return False
         game_time = datetime.fromisoformat(game_date_str.replace('Z', '+00:00'))
-        
-        # Jelenlegi idő UTC-ben
         now_utc = datetime.now(timezone.utc)
-        
-        # Ha a meccs kezdése korábbi, mint a mostani idő + 5 perc puffer, akkor KUKA
-        if game_time < (now_utc + timedelta(minutes=5)):
-            return False
-            
+        if game_time < (now_utc + timedelta(minutes=5)): return False
         return True
-    except Exception as e:
-        # print(f"Dátum hiba: {e}")
+    except Exception:
         return False
 
 def get_api_data(sport, endpoint, params, retries=3, delay=5):
@@ -174,17 +160,13 @@ def analyze_fixture_smart_stats(fixture):
     return [{"fixture_id": fixture_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": fixture['fixture']['date'], "liga_nev": league['name'], "tipp": best_tip['tipp'], "odds": best_tip['odds'], "confidence": best_tip['confidence']}]
 
 # =========================================================================
-# 🏒 HOKI LOGIKA
+# 🏒 HOKI & 🏀 KOSÁR LOGIKA
 # =========================================================================
 
 def analyze_hockey(game):
     if not is_valid_future_match(game['date'], game['status']['short']): return []
-
-    game_id = game['id']
-    teams = game['teams']
-    league_name = game['league']['name']
-    start_date = game['date']
-
+    game_id, teams = game['id'], game['teams']
+    league_name, start_date = game['league']['name'], game['date']
     odds_data = get_api_data("hockey", "odds", {"game": str(game_id)})
     if not odds_data: return []
     bookmakers = odds_data[0].get('bookmakers', [])
@@ -200,17 +182,10 @@ def analyze_hockey(game):
         tips.append({"fixture_id": game_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": start_date, "liga_nev": league_name, "tipp": "Hazai győzelem (ML)", "odds": home_win_odd, "confidence": 75})
     return tips
 
-# =========================================================================
-# 🏀 KOSÁRLABDA LOGIKA
-# =========================================================================
-
 def analyze_basketball(game):
     if not is_valid_future_match(game['date'], game['status']['short']): return []
-
-    game_id = game['id']
-    teams = game['teams']
-    league_name = game['league']['name']
-    start_date = game['date']
+    game_id, teams = game['id'], game['teams']
+    league_name, start_date = game['league']['name'], game['date']
     odds_data = get_api_data("basketball", "odds", {"game": str(game_id)})
     if not odds_data: return []
     bookmakers = odds_data[0].get('bookmakers', [])
@@ -226,7 +201,8 @@ def analyze_basketball(game):
         tips.append({"fixture_id": game_id, "csapat_H": teams['home']['name'], "csapat_V": teams['away']['name'], "kezdes": start_date, "liga_nev": league_name, "tipp": "Hazai győzelem (NBA)", "odds": home_win_odd, "confidence": 78})
     return tips
 
-# ... FŐVEZÉRLŐ ...
+# ... FŐVEZÉRLŐ & MENTÉS ...
+
 def select_best_single_tips(all_potential_tips, max_tips=5):
     unique_fixtures = {}
     for tip in all_potential_tips:
@@ -235,16 +211,46 @@ def select_best_single_tips(all_potential_tips, max_tips=5):
             unique_fixtures[fid] = tip
     return sorted(unique_fixtures.values(), key=lambda x: x['confidence'], reverse=True)[:max_tips]
 
-def save_tips_for_day(single_tips, date_str):
+def save_tips_split_by_date(single_tips, today_str):
+    """
+    V23.0: Szétválogatja a tippeket dátum szerint, és külön szelvényekre menti őket.
+    Így a holnapi tippek a "Holnapi" fülön jelennek meg, és holnap is láthatók maradnak.
+    """
     if not single_tips: return
-    try:
-        tips_to_insert = [{"fixture_id": t['fixture_id'], "csapat_H": t['csapat_H'], "csapat_V": t['csapat_V'], "kezdes": t['kezdes'], "liga_nev": t['liga_nev'], "tipp": t['tipp'], "odds": t['odds'], "eredmeny": "Tipp leadva", "confidence_score": t['confidence']} for t in single_tips]
-        saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
-        slips_to_insert = [{"tipp_neve": f"Napi Tuti #{i + 1} - {date_str}", "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]], "confidence_percent": tip["confidence_score"]} for i, tip in enumerate(saved_tips)]
-        if slips_to_insert:
-            supabase.table("napi_tuti").insert(slips_to_insert).execute()
-            print(f"💾 Sikeresen elmentve {len(slips_to_insert)} tipp.")
-    except Exception as e: print(f"!!! HIBA a mentésnél: {e}")
+
+    # 1. Csoportosítás dátum szerint (YYYY-MM-DD)
+    grouped_tips = {}
+    for tip in single_tips:
+        # A 'kezdes' formátuma: "2026-01-21T20:00:00+00:00"
+        # Kivesszük az első 10 karaktert (a dátumot)
+        date_key = tip['kezdes'][:10]
+        if date_key not in grouped_tips:
+            grouped_tips[date_key] = []
+        grouped_tips[date_key].append(tip)
+    
+    # 2. Mentés csoportonként
+    for date_key, tips_in_group in grouped_tips.items():
+        print(f"📦 Mentés erre a napra: {date_key} ({len(tips_in_group)} db tipp)")
+        
+        try:
+            # Meccsek beszúrása
+            tips_to_insert = [{"fixture_id": t['fixture_id'], "csapat_H": t['csapat_H'], "csapat_V": t['csapat_V'], "kezdes": t['kezdes'], "liga_nev": t['liga_nev'], "tipp": t['tipp'], "odds": t['odds'], "eredmeny": "Tipp leadva", "confidence_score": t['confidence']} for t in tips_in_group]
+            saved_tips = supabase.table("meccsek").insert(tips_to_insert, returning='representation').execute().data
+            
+            # Szelvény létrehozása a Dátumhoz igazítva
+            slips_to_insert = [{"tipp_neve": f"Napi Tuti - {date_key}", "eredo_odds": tip["odds"], "tipp_id_k": [tip["id"]], "confidence_percent": tip["confidence_score"]} for tip in saved_tips]
+            
+            if slips_to_insert:
+                supabase.table("napi_tuti").insert(slips_to_insert).execute()
+                
+                # Státusz frissítése erre a napra is!
+                record_daily_status(date_key, "Jóváhagyásra vár", f"{len(slips_to_insert)} tipp.")
+                
+        except Exception as e:
+            print(f"!!! HIBA a mentésnél ({date_key}): {e}")
+
+    # Értesítés küldése (összesítve)
+    send_approval_request(today_str, len(single_tips))
 
 def record_daily_status(date_str, status, reason=""):
     try: supabase.table("daily_status").upsert({"date": date_str, "status": status, "reason": reason}, on_conflict="date").execute()
@@ -253,8 +259,9 @@ def record_daily_status(date_str, status, reason=""):
 def send_approval_request(date_str, count):
     if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    keyboard = {"inline_keyboard": [[{"text": f"✅ {date_str} Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]]}
-    msg = (f"🤖 *Új Multi-Sport Tippek*\n\n📅 Dátum: *{date_str}*\n🔢 Mennyiség: *{count} db*\n\nA tippek 'Jóváhagyásra vár' státusszal bekerültek.")
+    # A dátum itt csak tájékoztató jellegű, a gomb a mai napra vonatkozik, de az admin felületen látni fogod mindet.
+    keyboard = {"inline_keyboard": [[{"text": f"✅ Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]]}
+    msg = (f"🤖 *Új Multi-Sport Tippek Generálva*\n\nÖsszesen: *{count} db* tipp.\n(A rendszer automatikusan szétválogatta őket a megfelelő napokra!)")
     try: requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard}).raise_for_status()
     except: pass
 
@@ -262,9 +269,9 @@ def main(run_as_test=False):
     is_test_mode = '--test' in sys.argv or run_as_test
     start_time = datetime.now(BUDAPEST_TZ)
     target_date_str = start_time.strftime("%Y-%m-%d")
-    tomorrow_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d") # ÚJ!
+    tomorrow_date_str = (start_time + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    print(f"🚀 Multi-Sport Tipp Generátor (V21.0) indítása ({target_date_str} + {tomorrow_date_str})...")
+    print(f"🚀 Multi-Sport Tipp Generátor (V23.0 - Dátum Szétválasztó) indítása...")
     all_found_tips = []
 
     # 1. FOCI (Csak MAI nap)
@@ -278,50 +285,43 @@ def main(run_as_test=False):
                 new_tips = analyze_fixture_smart_stats(fix)
                 if new_tips: all_found_tips.extend(new_tips)
     
-    # 2. HOKI & KOSÁR (MAI ÉS HOLNAPI NAP!)
+    # 2. HOKI & KOSÁR (MA + HOLNAP)
     if len(all_found_tips) < 3:
         print(f"\n⚠️ Kevés a foci tipp ({len(all_found_tips)} db), nézzük a többi sportot...")
         
-        # HOKI: MA + HOLNAP
-        print("--- 2. HOKI ELEMZÉS (MA + HOLNAP) ---")
+        # HOKI
+        print("--- 2. HOKI ELEMZÉS ---")
         hockey_today = get_api_data("hockey", "games", {"date": target_date_str}) or []
         hockey_tomorrow = get_api_data("hockey", "games", {"date": tomorrow_date_str}) or []
         hockey_all = hockey_today + hockey_tomorrow
-        
         if hockey_all:
             relevant_hk = [g for g in hockey_all if g['league']['id'] in RELEVANT_LEAGUES_HOCKEY]
-            print(f"   Vizsgált hoki meccsek száma: {len(relevant_hk)}")
             for game in relevant_hk:
                 new_tips = analyze_hockey(game)
                 if new_tips: all_found_tips.extend(new_tips)
         
-        # KOSÁR: MA + HOLNAP
-        print("--- 3. KOSÁR (NBA) ELEMZÉS (MA + HOLNAP) ---")
+        # KOSÁR
+        print("--- 3. KOSÁR (NBA) ELEMZÉS ---")
         basket_today = get_api_data("basketball", "games", {"date": target_date_str}) or []
         basket_tomorrow = get_api_data("basketball", "games", {"date": tomorrow_date_str}) or []
         basket_all = basket_today + basket_tomorrow
-        
         if basket_all:
             relevant_bk = [g for g in basket_all if g['league']['id'] in RELEVANT_LEAGUES_BASKETBALL]
-            print(f"   Vizsgált kosár meccsek száma: {len(relevant_bk)}")
             for game in relevant_bk:
                 new_tips = analyze_basketball(game)
                 if new_tips: all_found_tips.extend(new_tips)
     
     best_tips = select_best_single_tips(all_found_tips, max_tips=5)
+    
     if best_tips:
         if is_test_mode:
             print("\n[TESZT EREDMÉNYEK]:")
             for t in best_tips:
-                kezdes_ido = t['kezdes'][11:16] if len(t['kezdes']) > 16 else t['kezdes']
-                print(f"🏆 {t['liga_nev']} | {kezdes_ido}")
-                print(f"   ⚽ {t['csapat_H']} vs {t['csapat_V']}")
-                print(f"   💡 Tipp: {t['tipp']} | Odds: {t['odds']} | Biztonság: {t['confidence']}%")
-                print("   ---------------------------------------")
+                print(f"🏆 {t['liga_nev']} | {t['kezdes']}")
+                print(f"   💡 {t['tipp']} @ {t['odds']}")
         else:
-            save_tips_for_day(best_tips, target_date_str)
-            record_daily_status(target_date_str, "Jóváhagyásra vár", f"{len(best_tips)} tipp.")
-            send_approval_request(target_date_str, len(best_tips))
+            # ITT A LÉNYEG: Az új mentési függvény hívása
+            save_tips_split_by_date(best_tips, target_date_str)
     else:
         print("❌ Sajnos ma semmilyen sportból nem találtam tuti tippet.")
         if not is_test_mode: record_daily_status(target_date_str, "Nincs megfelelő tipp")
