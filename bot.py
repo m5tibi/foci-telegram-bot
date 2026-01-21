@@ -1,4 +1,4 @@
-# bot.py (V7.0 - Javítva: confirm_send gomb kezelése)
+# bot.py (V24.0 - Smart Approval: Approves Today AND Tomorrow + Full Admin Features)
 
 import os
 import telegram
@@ -41,7 +41,8 @@ def get_tip_details(tip_name: str):
         "3.5 UNDER": "Kevesebb, mint 3.5 gól", "4.5 UNDER": "Kevesebb, mint 4.5 gól",
         "GG": "Mindkét csapat szerez gólt (GG)", "NG": "Nem szerez mindkét csapat gólt (NG)",
         "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Under 2.5": "Gólok 2.5 alatt", 
-        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt"
+        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt",
+        "Hazai győzelem (NBA)": "Hazai győzelem (NBA) 🏀", "Hazai győzelem (ML)": "Hazai győzelem (Hoki ML) 🏒"
     }
     return tip_mapping.get(tip_name, tip_name)
 
@@ -116,18 +117,42 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
         return successful_sends, failed_sends
     except Exception: return 0, 0
 
+# --- JÓVÁHAGYÁS HANDLER (OKOSÍTOTT VERZIÓ) ---
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
     
     date_str = query.data.split(":")[-1] 
     supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     
+    # 1. A MAI NAP jóváhagyása
+    supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{date_str}%").execute()
     
+    # 2. A HOLNAPI NAP kiszámítása és jóváhagyása (HA VAN)
+    today_dt = datetime.strptime(date_str, "%Y-%m-%d")
+    tomorrow_dt = today_dt + timedelta(days=1)
+    tomorrow_str = tomorrow_dt.strftime("%Y-%m-%d")
+    
+    # Megnézzük, létezik-e holnapi bejegyzés a daily_status táblában
+    tomorrow_check = supabase_admin.table("daily_status").select("*").eq("date", tomorrow_str).execute()
+    tomorrow_approved = False
+    
+    if tomorrow_check.data:
+        # Ha van holnapi bejegyzés, azt is átállítjuk "Kiküldve" státuszra
+        supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", tomorrow_str).execute()
+        # És a szelvényeket is láthatóvá tesszük
+        supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{tomorrow_str}%").execute()
+        tomorrow_approved = True
+
+    # Üzenet összeállítása
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
-    confirmation_text = (f"{original_message_text}\n\n*Állapot: ✅ Jóváhagyva!*\n"
+    
+    status_text = "✅ Jóváhagyva!"
+    if tomorrow_approved:
+        status_text += f"\n➕ A holnapi ({tomorrow_str}) tippek is élesítve lettek!"
+
+    confirmation_text = (f"{original_message_text}\n\n*Állapot: {status_text}*\n"
                        "A tippek mostantól láthatóak a weboldalon.\n\n"
                        "Biztosan kiküldöd az értesítést a VIP tagoknak?")
     
@@ -355,7 +380,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 year_month = target_month_start.strftime('%Y-%m')
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
                 
-                # JAVÍTOTT: Név alapú szűrés a created_at helyett
                 response_tuti = supabase.table("napi_tuti").select("*, is_admin_only") \
                     .ilike("tipp_neve", f"%{year_month}%") \
                     .order('tipp_neve', desc=True).execute()
@@ -550,8 +574,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_close": await query.answer(); await query.message.delete()
 
 def add_handlers(application: Application):
-    # JAVÍTÁS: Itt is átírjuk a pattern-t, hogy elfogadja a kettőspontot is
-    # JAVÍTÁS: pattern='^confirm_send:' lett a pattern='^confirm_send_' helyett
     broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     vip_broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')], states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
     application.add_handler(CommandHandler("start", start))
