@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V22.0 - Multi-Sport Support)
+# eredmeny_ellenorzo.py (V22.1 - Verbose Telegram & Force Report)
 
 import os
 import requests
@@ -26,7 +26,8 @@ HOSTS = {
 }
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID")
+# Itt megadhatsz egy alapértelmezett értéket, ha a környezeti változó hiányozna
+LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID", "-100xxxxxxxxxxxxx") 
 
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -95,7 +96,7 @@ def check_match_result(match):
     else:
         status = game_data['status']['short']
 
-    if status not in ['FT', 'AOT', 'PEN', 'HT']: # HT (Half Time) még nem vége, de fut
+    if status not in ['FT', 'AOT', 'PEN', 'HT']: 
         if status in ['NS', 'TBD', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4']:
             print(f"   ⏳ Még tart vagy nem kezdődött el ({status}).")
             return None # Még nincs vége
@@ -106,19 +107,15 @@ def check_match_result(match):
     
     try:
         if sport == 'football':
-            # Focinál a 'goals' objektumot nézzük
             home_score = game_data['goals']['home']
             away_score = game_data['goals']['away']
-            if home_score is None: return None # Még nincs gól adat
+            if home_score is None: return None
             
         elif sport == 'basketball':
-            # Kosárnál a 'scores' -> 'total'
             home_score = game_data['scores']['home']['total']
             away_score = game_data['scores']['away']['total']
             
         elif sport == 'hockey':
-            # Hokinál a végeredményt nézzük (scores.home / away)
-            # Figyelem: A hoki API néha null-t ad vissza, ha még nincs vége, de itt már szűrtük a státuszt
             home_score = game_data['scores']['home']
             away_score = game_data['scores']['away']
             
@@ -131,12 +128,10 @@ def check_match_result(match):
     # KIÉRTÉKELÉS
     result_status = "Veszített" # Alapértelmezett
 
-    # 1. Hazai győzelem logika (Minden sportnál)
     if "Hazai" in tipp_type or "Home" in tipp_type:
         if home_score > away_score:
             result_status = "Nyert"
     
-    # 2. Foci specifikus tippek
     elif sport == 'football':
         if "BTTS" in tipp_type:
             if home_score > 0 and away_score > 0:
@@ -145,7 +140,6 @@ def check_match_result(match):
             if (home_score + away_score) > 2.5:
                 result_status = "Nyert"
     
-    # 3. Egyéb (Vendég, Döntetlen) - ha bővülne a rendszer
     elif "Vendég" in tipp_type or "Away" in tipp_type:
         if away_score > home_score:
             result_status = "Nyert"
@@ -153,11 +147,19 @@ def check_match_result(match):
     return result_status
 
 async def send_daily_report(matches, date_str):
-    if not TELEGRAM_TOKEN or not LIVE_CHANNEL_ID: return
+    print(f"📧 Telegram jelentés küldése... (Token: {'OK' if TELEGRAM_TOKEN else 'MISSING'}, Channel: {LIVE_CHANNEL_ID})")
     
-    # Csak azokat jelentjük, amik most frissültek vagy véget értek
+    if not TELEGRAM_TOKEN:
+        print("❌ HIBA: Nincs TELEGRAM_TOKEN beállítva!")
+        return
+    if not LIVE_CHANNEL_ID or LIVE_CHANNEL_ID == "-100xxxxxxxxxxxxx":
+        print(f"❌ HIBA: Érvénytelen LIVE_CHANNEL_ID: {LIVE_CHANNEL_ID}")
+        return
+    
     finished_matches = [m for m in matches if m['eredmeny'] in ['Nyert', 'Veszített']]
-    if not finished_matches: return
+    if not finished_matches: 
+        print("ℹ️ Nincs lezárt meccs a listában, nem küldök üzenetet.")
+        return
 
     # ROI számítás
     total_bets = len(finished_matches)
@@ -171,13 +173,18 @@ async def send_daily_report(matches, date_str):
             profit -= 1
             
     roi = (profit / total_bets) * 100 if total_bets > 0 else 0
-    emoji = "✅" if profit > 0 else "❌"
-
+    
     msg = f"📝 *Napi Tipp Kiértékelés*\n📅 Dátum: {date_str}\n\n"
     
     for m in finished_matches:
         status_icon = "✅" if m['eredmeny'] == 'Nyert' else "❌"
-        sport_icon = "🏀" if "NBA" in m['tipp'] else ("🏒" if "(ML)" in m['tipp'] else "⚽️")
+        
+        # Sport ikonok
+        sport_icon = "⚽️"
+        tipp_lower = m['tipp'].lower()
+        if "nba" in tipp_lower: sport_icon = "🏀"
+        elif "ml" in tipp_lower or "nhl" in tipp_lower: sport_icon = "🏒"
+            
         msg += f"{status_icon} *{m['eredmeny']}*:\n{sport_icon} {m['csapat_H']} ({m['tipp']})\n"
 
     msg += f"\n---\n📝 Összesen: {total_bets} db (✅ {wins})\n💰 Profit: {profit:.2f} egység\n📈 ROI: {roi:.1f}%"
@@ -185,43 +192,66 @@ async def send_daily_report(matches, date_str):
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     try:
         await bot.send_message(chat_id=LIVE_CHANNEL_ID, text=msg, parse_mode='Markdown')
+        print("✅ Telegram üzenet elküldve!")
     except Exception as e:
-        print(f"Telegram hiba: {e}")
+        print(f"❌ Telegram küldési hiba: {e}")
 
 def main():
-    print("=== EREDMÉNY ELLENŐRZŐ (V22.0 - Multi-Sport) ===")
+    print("=== EREDMÉNY ELLENŐRZŐ (V22.1 - Verbose & Force Report) ===")
     
-    # 1. Lekérjük a még nyitott tippeket (Tipp leadva)
-    # Figyeljük a mai és tegnapi tippeket is, hátha átcsúszott éjfél utánra
-    res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute()
-    matches = res.data
-    
-    if not matches:
-        print("Nincs kiértékelendő nyitott tipp.")
-        return
-
-    updated_matches = []
     today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
-
-    for match in matches:
-        # Csak akkor ellenőrizzük, ha már eltelt a kezdés időpontja
-        match_time = datetime.fromisoformat(match['kezdes'].replace('Z', '+00:00'))
-        if datetime.now(pytz.utc) < match_time:
-            continue # Még el se kezdődött
-
-        new_result = check_match_result(match)
-        
-        if new_result:
-            # Update DB
-            supabase.table("meccsek").update({"eredmeny": new_result}).eq("id", match['id']).execute()
-            match['eredmeny'] = new_result
-            updated_matches.append(match)
-            print(f"   💾 Mentve: {new_result}")
     
-    # Ha volt változás, küldjünk értesítést
-    # (Opcionális: itt csoportosíthatnánk dátum szerint, ha több napot vizsgálunk)
+    # 1. Először megnézzük a NYITOTT tippeket (Normál működés)
+    res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").execute()
+    matches = res.data or []
+    
+    updated_matches = []
+
+    if matches:
+        print(f"🔍 {len(matches)} nyitott tipp ellenőrzése...")
+        for match in matches:
+            match_time = datetime.fromisoformat(match['kezdes'].replace('Z', '+00:00'))
+            if datetime.now(pytz.utc) < match_time: continue
+
+            new_result = check_match_result(match)
+            if new_result:
+                supabase.table("meccsek").update({"eredmeny": new_result}).eq("id", match['id']).execute()
+                match['eredmeny'] = new_result
+                updated_matches.append(match)
+                print(f"   💾 Mentve: {new_result}")
+    else:
+        print("ℹ️ Nincs nyitott 'Tipp leadva' státuszú meccs.")
+
+    # 2. HA volt frissítés -> Küldünk jelentést
     if updated_matches:
         asyncio.run(send_daily_report(updated_matches, today_str))
+        
+    # 3. KÉNYSZERÍTETT JELENTÉS (HA nincs frissítés, de vannak mai eredmények)
+    # Ez azért kell, mert az előző futtatásnál már frissítetted a DB-t, de a Telegram nem ment el.
+    # Most újra lekérjük a MAI, már LEZÁRT meccseket.
+    else:
+        print("🔄 Nem történt frissítés. Ellenőrzöm a mai lezárt meccseket kényszerített jelentéshez...")
+        
+        # Lekérjük a mai meccseket, amik már NEM 'Tipp leadva'
+        # Figyelem: A Supabase szűrésnél a dátumot sztringként kezeljük
+        # Mivel a 'kezdes' ISO formátumú, egyszerű 'like' vagy dátum szűrés kell.
+        # Itt egyszerűsítünk: lekérjük az utolsó 20 meccset és Pythonban szűrjük a dátumot.
+        
+        history = supabase.table("meccsek").select("*").order("kezdes", desc=True).limit(30).execute()
+        today_finished = []
+        
+        if history.data:
+            for m in history.data:
+                # Dátum egyezés vizsgálata (csak a nap)
+                match_date = m['kezdes'][:10]
+                if match_date == today_str and m['eredmeny'] in ['Nyert', 'Veszített']:
+                    today_finished.append(m)
+        
+        if today_finished:
+            print(f"found {len(today_finished)} finished matches for today. Sending report...")
+            asyncio.run(send_daily_report(today_finished, today_str))
+        else:
+            print("Nem találtam mai lezárt meccset a jelentéshez.")
 
 if __name__ == "__main__":
     main()
