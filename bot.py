@@ -1,4 +1,4 @@
-# bot.py (V24.0 - Smart Approval: Approves Today AND Tomorrow + Full Admin Features)
+# bot.py (V24.1 - Smart Reject: Deletes Today AND Tomorrow)
 
 import os
 import telegram
@@ -117,7 +117,7 @@ async def send_public_notification(bot: telegram.Bot, date_str: str):
         return successful_sends, failed_sends
     except Exception: return 0, 0
 
-# --- JÓVÁHAGYÁS HANDLER (OKOSÍTOTT VERZIÓ) ---
+# --- JÓVÁHAGYÁS HANDLER (OKOSÍTOTT - MA + HOLNAP) ---
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Jóváhagyás...")
@@ -134,18 +134,14 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
     tomorrow_dt = today_dt + timedelta(days=1)
     tomorrow_str = tomorrow_dt.strftime("%Y-%m-%d")
     
-    # Megnézzük, létezik-e holnapi bejegyzés a daily_status táblában
     tomorrow_check = supabase_admin.table("daily_status").select("*").eq("date", tomorrow_str).execute()
     tomorrow_approved = False
     
     if tomorrow_check.data:
-        # Ha van holnapi bejegyzés, azt is átállítjuk "Kiküldve" státuszra
         supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", tomorrow_str).execute()
-        # És a szelvényeket is láthatóvá tesszük
         supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{tomorrow_str}%").execute()
         tomorrow_approved = True
 
-    # Üzenet összeállítása
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
     
     status_text = "✅ Jóváhagyva!"
@@ -164,7 +160,6 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
 @admin_only
 async def confirm_and_send_notification(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Értesítés küldése folyamatban...")
-    
     date_str = query.data.split(":")[-1]
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*Értesítés küldése folyamatban...*", parse_mode='Markdown')
@@ -173,23 +168,57 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
                          f"Sikeres: {successful_sends} | Sikertelen: {failed_sends}")
     await query.edit_message_text(text=f"{original_message_text}\n\n*🚀 Értesítés Elküldve!*\n_{final_admin_message}_", parse_mode='Markdown')
 
+# --- ELUTASÍTÁS HANDLER (OKOSÍTOTT - MA + HOLNAP TÖRLÉSE) ---
 @admin_only
 async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Elutasítás és törlés folyamatban...")
     
     date_str = query.data.split(":")[-1]
-    def sync_delete_rejected_tips(date_to_delete):
+    
+    def sync_delete_rejected_tips(date_main):
         supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-        slips_to_delete = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_to_delete}%").execute().data
-        if not slips_to_delete:
-            supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
-            return "Nem találhatóak szelvények, a státusz frissítve."
-        tip_ids_to_delete = {tid for slip in slips_to_delete for tid in slip.get('tipp_id_k', [])}
-        if tip_ids_to_delete:
-            supabase_admin.table("meccsek").delete().in_("id", list(tip_ids_to_delete)).execute()
-        supabase_admin.table("napi_tuti").delete().like("tipp_neve", f"%{date_to_delete}%").execute()
-        supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", date_to_delete).execute()
-        return f"Sikeresen törölve {len(slips_to_delete)} szelvény és {len(tip_ids_to_delete)} tipp."
+        report = []
+
+        # Segédfüggvény egy konkrét nap teljes takarítására
+        def delete_single_day(target_date):
+            # 1. Megkeressük a szelvényeket az adott napra
+            slips = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{target_date}%").execute().data
+            if not slips:
+                # Csak státusz frissítés, ha nincs szelvény
+                supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", target_date).execute()
+                return False
+
+            # 2. Tipp ID-k kigyűjtése
+            tip_ids = {tid for slip in slips for tid in slip.get('tipp_id_k', [])}
+
+            # 3. Törlések: Meccsek -> Szelvények -> Státusz
+            if tip_ids:
+                supabase_admin.table("meccsek").delete().in_("id", list(tip_ids)).execute()
+            
+            supabase_admin.table("napi_tuti").delete().like("tipp_neve", f"%{target_date}%").execute()
+            supabase_admin.table("daily_status").update({"status": "Admin által elutasítva"}).eq("date", target_date).execute()
+            return True
+
+        # --- MAI NAP TÖRLÉSE ---
+        if delete_single_day(date_main):
+            report.append(f"✅ {date_main}: Szelvények és tippek törölve.")
+        else:
+            report.append(f"ℹ️ {date_main}: Státusz elutasítva (nem voltak szelvények).")
+
+        # --- HOLNAPI NAP TÖRLÉSE (Ha létezik) ---
+        today_dt = datetime.strptime(date_main, "%Y-%m-%d")
+        tomorrow_str = (today_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        # Ellenőrzés: Van-e bejegyzés holnapra a státusz táblában?
+        check = supabase_admin.table("daily_status").select("*").eq("date", tomorrow_str).execute()
+        if check.data:
+            if delete_single_day(tomorrow_str):
+                report.append(f"✅ {tomorrow_str} (Holnap): Szelvények és tippek is törölve.")
+            else:
+                report.append(f"ℹ️ {tomorrow_str}: Holnapi státusz is elutasítva.")
+        
+        return "\n".join(report)
+
     delete_summary = await asyncio.to_thread(sync_delete_rejected_tips, date_str)
     await query.edit_message_text(text=f"{query.message.text_markdown}\n\n*Állapot: ❌ Elutasítva és Törölve!*\n_{delete_summary}_", parse_mode='Markdown')
 
