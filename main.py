@@ -1,4 +1,4 @@
-# main.py (V21.3 - FIX: Chat ID lekérdezés javítása - Python oldali szűrés)
+# main.py (V21.4 - FIX: Syntax Error in Function Name)
 
 import os
 import asyncio
@@ -416,7 +416,7 @@ async def create_portal_session(request: Request):
     except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web")
-async def create_checkout_session-web(request: Request, plan: str = Form(...)):
+async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
