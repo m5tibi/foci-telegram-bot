@@ -1,4 +1,4 @@
-# main.py (V21.2 - Aggressive Cancellation Check: Checks Date too!)
+# main.py (V21.3 - FIX: Chat ID lekérdezés javítása - Python oldali szűrés)
 
 import os
 import asyncio
@@ -145,13 +145,23 @@ def get_chat_ids_for_notification(tip_type: str):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     chat_ids = []
     try:
-        query = admin_supabase.table("felhasznalok").select("chat_id").neq("chat_id", "null")
+        # V21.3 FIX: Kivettük a .neq("chat_id", "null") szűrést, mert az 'invalid input syntax' hibát okoz bigint mezőknél.
+        # Helyette lekérjük a chat_id-kat, és Pythonban válogatjuk ki az érvényeseket.
+        query = admin_supabase.table("felhasznalok").select("chat_id")
+        
         if tip_type == "vip":
             now_iso = datetime.now(pytz.utc).isoformat()
             query = query.eq("subscription_status", "active").gt("subscription_expires_at", now_iso)
+            
         res = query.execute()
+        
         if res.data:
-            chat_ids = [u['chat_id'] for u in res.data if u.get('chat_id')]
+            # Python oldali szűrés: Csak azokat vesszük fel, akiknek van érvényes Chat ID-juk
+            for u in res.data:
+                cid = u.get('chat_id')
+                if cid:  # Ez kiszűri a None, 0, üres string, és egyéb falsy értékeket
+                    chat_ids.append(cid)
+                    
     except Exception as e: print(f"Hiba a Chat ID-k lekérésénél: {e}")
     return chat_ids
 
@@ -406,7 +416,7 @@ async def create_portal_session(request: Request):
     except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web")
-async def create_checkout_session_web(request: Request, plan: str = Form(...)):
+async def create_checkout_session-web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
