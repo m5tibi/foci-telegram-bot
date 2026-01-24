@@ -37,9 +37,13 @@
         </div>
 
         <div class="form-group">
-            <label for="slip_image">Szelvénykép kiválasztása (JPG, PNG)</label>
-            <input type="file" id="slip_image" name="slip_image" accept="image/png, image/jpeg, image/jpg" required>
+            <label for="slip_image">Szelvény Képe (Screenshot)</label>
+            <input type="file" id="slip_image" name="slip_image" accept="image/*" required>
         </div>
-        <button type="submit" class="button">Feltöltés</button>
+
+        <div class="form-group" style="display: flex; gap: 10px;">
+            <button type="submit" class="button">Feltöltés és Küldés</button>
+            <a href="/vip" class="button" style="background-color: #6c757d; text-align: center; text-decoration: none;">Vissza a VIP-be</a>
+        </div>
     </form>
 {% endblock %}
