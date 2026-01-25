@@ -1,4 +1,4 @@
-# main.py (V21.6 - FIXED: Unlink Telegram Endpoint)
+# main.py (V21.7 - FIXED: Unlink with Service Key permission)
 
 import os
 import asyncio
@@ -145,8 +145,6 @@ def get_chat_ids_for_notification(tip_type: str):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     chat_ids = []
     try:
-        # V21.3 FIX: Kivettük a .neq("chat_id", "null") szűrést, mert az 'invalid input syntax' hibát okoz bigint mezőknél.
-        # Helyette lekérjük a chat_id-kat, és Pythonban válogatjuk ki az érvényeseket.
         query = admin_supabase.table("felhasznalok").select("chat_id")
         
         if tip_type == "vip":
@@ -156,10 +154,9 @@ def get_chat_ids_for_notification(tip_type: str):
         res = query.execute()
         
         if res.data:
-            # Python oldali szűrés: Csak azokat vesszük fel, akiknek van érvényes Chat ID-juk
             for u in res.data:
                 cid = u.get('chat_id')
-                if cid:  # Ez kiszűri a None, 0, üres string, és egyéb falsy értékeket
+                if cid:
                     chat_ids.append(cid)
                     
     except Exception as e: print(f"Hiba a Chat ID-k lekérésénél: {e}")
@@ -392,25 +389,32 @@ async def generate_telegram_link(request: Request):
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
-# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.6 FIX) ---
+# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.7 FIX - SERVICE KEY HASZNÁLATTAL) ---
 @api.post("/unlink-telegram")
 async def unlink_telegram(request: Request):
     user = get_current_user(request)
     if not user: return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     try:
-        # Töröljük a chat_id-t és a tokent
-        supabase.table("felhasznalok").update({
-            "chat_id": None,
-            "telegram_connect_token": None
-        }).eq("id", user['id']).execute()
+        # V21.7 FIX: Admin jogosultságú kliens használata a törléshez
+        # Ez garantálja, hogy az RLS szabályok nem blokkolják a módosítást
+        if SUPABASE_SERVICE_KEY:
+            admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            admin_client.table("felhasznalok").update({
+                "chat_id": None,
+                "telegram_connect_token": None
+            }).eq("id", user['id']).execute()
+        else:
+            # Fallback (ha nincs service key, ami baj)
+            supabase.table("felhasznalok").update({
+                "chat_id": None,
+                "telegram_connect_token": None
+            }).eq("id", user['id']).execute()
         
-        # Adminnak logolás (Opcionális, de hasznos)
-        print(f"✅ Telegram fiók szétválasztva: {user['email']}")
-        
+        print(f"✅ Telegram fiók sikeresen szétválasztva: {user['email']}")
         return JSONResponse({"success": True})
     except Exception as e:
-        print(f"❌ Hiba a szétválasztásnál: {e}")
+        print(f"❌ KRITIKUS HIBA a szétválasztásnál: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @api.post("/generate-live-invite", response_class=RedirectResponse)
