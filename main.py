@@ -1,4 +1,4 @@
-# main.py (V21.4 - FIX: Syntax Error in Function Name)
+# main.py (V21.5 - Added Unlink Telegram Endpoint)
 
 import os
 import asyncio
@@ -16,7 +16,7 @@ from typing import Optional
 from contextlib import redirect_stdout
 
 from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -391,6 +391,23 @@ async def generate_telegram_link(request: Request):
     supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
+
+# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.5) ---
+@api.post("/unlink-telegram")
+async def unlink_telegram(request: Request):
+    user = get_current_user(request)
+    if not user: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    try:
+        # Töröljük a chat_id-t és a tokent
+        supabase.table("felhasznalok").update({
+            "chat_id": None,
+            "telegram_connect_token": None
+        }).eq("id", user['id']).execute()
+        
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @api.post("/generate-live-invite", response_class=RedirectResponse)
 async def generate_live_invite(request: Request):
