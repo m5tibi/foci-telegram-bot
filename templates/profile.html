@@ -100,9 +100,12 @@
 
     <h2>Telegram Összekötés</h2>
     {% if user.chat_id %}
-        <div class="alert alert-success" style="background-color: #2F855A; color: white; padding: 15px; border-radius: 5px;">
+        <div class="alert alert-success" style="background-color: #2F855A; color: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
             <strong>✅ A Telegram fiókod sikeresen össze van kötve!</strong>
         </div>
+        <button onclick="unlinkTelegram()" class="button" style="background-color: #dc3545; width: 100%; max-width: 300px;">
+            ❌ Szétválasztás (Teszteléshez)
+        </button>
     {% else %}
         <p>Szeretnél azonnali értesítéseket kapni a telefonodra, amikor új tipp kerül fel? Kösd össze a fiókodat!</p>
         <form action="/generate-telegram-link" method="POST" id="telegram-form">
@@ -140,6 +143,23 @@ function closeTelegramLink() {
     telegramLinkContainer.style.display = 'none';
     form.style.display = 'block';
     telegramLinkContainer.innerHTML = '';
+}
+
+async function unlinkTelegram() {
+    if (!confirm("Biztosan szétválasztod a fiókot?")) return;
+    
+    try {
+        const response = await fetch('/unlink-telegram', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            location.reload(); 
+        } else {
+            alert("Hiba történt: " + (data.error || "Ismeretlen hiba"));
+        }
+    } catch (error) {
+        alert("Hiba történt a szerverrel való kommunikációban.");
+    }
 }
 </script>
 
