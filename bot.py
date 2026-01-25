@@ -1,4 +1,4 @@
-# bot.py (V24.6 - CLEAN VERSION: Fixed Linking + Optimized Admin Menu)
+# bot.py (V24.7 - FIXED: Restored 'get_tip_details' + Clean Admin)
 
 import os
 import telegram
@@ -32,6 +32,22 @@ def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+
+# --- EZT A FÜGGVÉNYT KELLETT VISSZARAKNI A MAIN.PY MIATT ---
+def get_tip_details(tip_name: str):
+    tip_mapping = {
+        "H": "Hazai győzelem (1)", "D": "Döntetlen (X)", "V": "Vendég győzelem (2)",
+        "1X": "Hazai vagy döntetlen (1X)", "X2": "Vendég vagy döntetlen (X2)", "12": "Hazai vagy vendég (12)",
+        "0.5 OVER": "Több, mint 0.5 gól", "1.5 OVER": "Több, mint 1.5 gól", "2.5 OVER": "Több, mint 2.5 gól",
+        "3.5 OVER": "Több, mint 3.5 gól", "4.5 OVER": "Több, mint 4.5 gól",
+        "0.5 UNDER": "Kevesebb, mint 0.5 gól", "1.5 UNDER": "Kevesebb, mint 1.5 gól", "2.5 UNDER": "Kevesebb, mint 2.5 gól",
+        "3.5 UNDER": "Kevesebb, mint 3.5 gól", "4.5 UNDER": "Kevesebb, mint 4.5 gól",
+        "GG": "Mindkét csapat szerez gólt (GG)", "NG": "Nem szerez mindkét csapat gólt (NG)",
+        "Home": "Hazai nyer", "Away": "Vendég nyer", "Over 2.5": "Gólok 2.5 felett", "Under 2.5": "Gólok 2.5 alatt", 
+        "Over 1.5": "Gólok 1.5 felett", "BTTS": "Mindkét csapat szerez gólt",
+        "Hazai győzelem (NBA)": "Hazai győzelem (NBA) 🏀", "Hazai győzelem (ML)": "Hazai győzelem (Hoki ML) 🏒"
+    }
+    return tip_mapping.get(tip_name, tip_name)
 
 def admin_only(func):
     @wraps(func)
@@ -87,12 +103,10 @@ async def start(update: telegram.Update, context: CallbackContext):
     if args and len(args) > 0:
         token = args[0]
         try:
-            # ITT A LÉNYEG: A Service Key-t használjuk keresésre
             if not SUPABASE_SERVICE_KEY:
                 await context.bot.send_message(chat_id=chat_id, text="❌ Rendszerhiba: Admin kulcs hiányzik.")
                 return
 
-            # Admin kliens létrehozása a kereséshez
             supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
             
             # Keresés a Mesterkulccsal (így átlát az RLS-en és megtalálja a tokent)
