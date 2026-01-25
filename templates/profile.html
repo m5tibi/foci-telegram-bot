@@ -98,13 +98,14 @@
 
     <hr style="border-color: #4A5568;">
 
-    <h2>Telegram Összekötés</h2>
+    <h2>Telegram Értesítések</h2>
     {% if user.chat_id %}
         <div class="alert alert-success" style="background-color: #2F855A; color: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-            <strong>✅ A Telegram fiókod sikeresen össze van kötve!</strong>
+            <strong>✅ A Telegram fiókod sikeresen össze van kötve!</strong><br>
+            <small>Mostantól itt (is) megkapod az értesítéseket.</small>
         </div>
         <button onclick="unlinkTelegram()" class="button" style="background-color: #dc3545; width: 100%; max-width: 300px;">
-            ❌ Szétválasztás (Teszteléshez)
+            ❌ Kapcsolat Megszüntetése
         </button>
     {% else %}
         <p>Szeretnél azonnali értesítéseket kapni a telefonodra, amikor új tipp kerül fel? Kösd össze a fiókodat!</p>
@@ -146,19 +147,23 @@ function closeTelegramLink() {
 }
 
 async function unlinkTelegram() {
-    if (!confirm("Biztosan szétválasztod a fiókot?")) return;
+    if (!confirm("Biztosan meg akarod szüntetni a Telegram kapcsolatot? Így nem kapod meg az értesítéseket telefonon.")) return;
     
     try {
         const response = await fetch('/unlink-telegram', { method: 'POST' });
-        const data = await response.json();
         
-        if (data.success) {
-            location.reload(); 
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                location.reload(); // Oldal újratöltése a frissítéshez
+            } else {
+                alert("Hiba történt: " + (data.error || "Ismeretlen hiba"));
+            }
         } else {
-            alert("Hiba történt: " + (data.error || "Ismeretlen hiba"));
+            alert("Szerver hiba (Státusz: " + response.status + ")");
         }
     } catch (error) {
-        alert("Hiba történt a szerverrel való kommunikációban.");
+        alert("Hiba történt a szerverrel való kommunikációban: " + error);
     }
 }
 </script>
