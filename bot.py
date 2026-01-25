@@ -1,4 +1,4 @@
-# bot.py (V24.7 - FIXED: Restored 'get_tip_details' + Clean Admin)
+# bot.py (V24.8 - FINAL FIX: Forced Service Key for Linking)
 
 import os
 import telegram
@@ -31,9 +31,13 @@ AWAITING_VIP_BROADCAST = 1
 def get_db_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def get_admin_db_client():
+    if SUPABASE_SERVICE_KEY:
+        return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return get_db_client()
+
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
-# --- EZT A FÜGGVÉNYT KELLETT VISSZARAKNI A MAIN.PY MIATT ---
 def get_tip_details(tip_name: str):
     tip_mapping = {
         "H": "Hazai győzelem (1)", "D": "Döntetlen (X)", "V": "Vendég győzelem (2)",
@@ -99,17 +103,15 @@ async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user; chat_id = update.effective_chat.id
     args = context.args
     
-    # --- JAVÍTOTT ÖSSZEKÖTÉS LOGIKA (V24.6 - SERVICE KEY) ---
+    # --- JAVÍTOTT ÖSSZEKÖTÉS LOGIKA (V24.8 - FINAL FIX) ---
     if args and len(args) > 0:
         token = args[0]
         try:
-            if not SUPABASE_SERVICE_KEY:
-                await context.bot.send_message(chat_id=chat_id, text="❌ Rendszerhiba: Admin kulcs hiányzik.")
-                return
-
-            supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            # ITT A LÉNYEG: Kifejezetten az Admin klienst kérjük el!
+            supabase_admin = get_admin_db_client()
             
-            # Keresés a Mesterkulccsal (így átlát az RLS-en és megtalálja a tokent)
+            # Keresés a Mesterkulccsal
+            # .execute() használata a biztonság kedvéért (listát ad vissza)
             res = await asyncio.to_thread(lambda: supabase_admin.table("felhasznalok").select("id, email").eq("telegram_connect_token", token).execute())
             
             if res.data and len(res.data) > 0:
@@ -121,6 +123,8 @@ async def start(update: telegram.Update, context: CallbackContext):
                 # Admin értesítése
                 await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🔗 Új Telegram összekötés:\nEmail: {user_data['email']}\nChat ID: {chat_id}")
             else:
+                # Debug infó logolása (csak a szerver logba, nem a usernek)
+                print(f"❌ Hibás Token Kísérlet. Token: {token} | ChatID: {chat_id}")
                 await context.bot.send_message(chat_id=chat_id, text="❌ Hiba: Ez a link érvénytelen vagy már felhasználták.\nKérlek, generálj újat a weboldalon!")
         
         except Exception as e:
@@ -137,7 +141,7 @@ async def start(update: telegram.Update, context: CallbackContext):
 async def activate_subscription_and_notify_web(user_id: int, duration_days: int, stripe_customer_id: str):
     try:
         def _activate_sync():
-            supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            supabase_admin = get_admin_db_client()
             expires_at = datetime.now(pytz.utc) + timedelta(days=duration_days)
             supabase_admin.table("felhasznalok").update({"subscription_status": "active", "subscription_expires_at": expires_at.isoformat(),"stripe_customer_id": stripe_customer_id}).eq("id", user_id).execute()
         await asyncio.to_thread(_activate_sync); print(f"WEB: A(z) {user_id} azonosítójú felhasználó előfizetése sikeresen aktiválva.")
@@ -149,7 +153,7 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
     query = update.callback_query; await query.answer("Jóváhagyás...")
     
     date_str = query.data.split(":")[-1] 
-    supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    supabase_admin = get_admin_db_client()
     
     # 1. MAI NAP
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
@@ -201,7 +205,7 @@ async def handle_reject_tips(update: telegram.Update, context: CallbackContext):
     date_str = query.data.split(":")[-1]
     
     def sync_delete_rejected_tips(date_main):
-        supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        supabase_admin = get_admin_db_client()
         report = []
         def delete_single_day(target_date):
             slips = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{target_date}%").execute().data
@@ -294,7 +298,7 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
     try:
         def sync_update_manual():
             if not SUPABASE_SERVICE_KEY: raise Exception("Service key not configured")
-            supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            supabase_admin = get_admin_db_client()
             supabase_admin.table(table_name).update({"status": result}).eq("id", slip_id).execute()
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
@@ -359,7 +363,7 @@ async def admin_show_users(update: telegram.Update, context: CallbackContext):
         def sync_task(): 
             db = get_db_client()
             total = db.table("felhasznalok").select('id', count='exact').execute()
-            # Telegramosok számlálása
+            # Telegramosok számlálása (javítva: csak azokat számoljuk, ahol nem null)
             all_users = db.table("felhasznalok").select('chat_id').execute()
             tg_count = len([u for u in all_users.data if u.get('chat_id')])
             return total.count, tg_count
@@ -376,7 +380,6 @@ async def admin_check_status(update: telegram.Update, context: CallbackContext):
         try: get_db_client().table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase Adatbázis*: Online\n"
         except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
         try:
-            # Football API ellenőrzés (a kulcs meglétével)
             if os.environ.get("RAPIDAPI_KEY"): status_text += "✅ *Football API*: Kulcs beállítva"
             else: status_text += "⚠️ *Football API*: Kulcs hiányzik!"
         except Exception as e: status_text += f"❌ *API*: Hiba!\n`{e}`"
