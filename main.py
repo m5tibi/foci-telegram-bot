@@ -1,4 +1,4 @@
-# main.py (V21.7 - FIXED: Unlink with Service Key permission)
+# main.py (V21.8 - FINAL FIX: Forced Service Key for Token Generation)
 
 import os
 import asyncio
@@ -380,12 +380,24 @@ async def profile_page(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
 
+# --- V21.8 FIX: GENERATE TELEGRAM LINK WITH SERVICE KEY ---
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    
+    # ÚJ TOKEN GENERÁLÁSA
     token = secrets.token_hex(16)
-    supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+    
+    # ITT A LÉNYEG: Service Key-t használunk az íráshoz is!
+    # Így biztosan bekerül a token az adatbázisba, az RLS nem blokkolja.
+    if SUPABASE_SERVICE_KEY:
+        admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        admin_client.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+    else:
+        # Fallback
+        supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
+        
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
