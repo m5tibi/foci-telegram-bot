@@ -1,4 +1,4 @@
-# main.py (V21.5 - Added Unlink Telegram Endpoint)
+# main.py (V21.6 - FIXED: Unlink Telegram Endpoint)
 
 import os
 import asyncio
@@ -392,7 +392,7 @@ async def generate_telegram_link(request: Request):
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
 
-# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.5) ---
+# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.6 FIX) ---
 @api.post("/unlink-telegram")
 async def unlink_telegram(request: Request):
     user = get_current_user(request)
@@ -405,8 +405,12 @@ async def unlink_telegram(request: Request):
             "telegram_connect_token": None
         }).eq("id", user['id']).execute()
         
+        # Adminnak logolás (Opcionális, de hasznos)
+        print(f"✅ Telegram fiók szétválasztva: {user['email']}")
+        
         return JSONResponse({"success": True})
     except Exception as e:
+        print(f"❌ Hiba a szétválasztásnál: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @api.post("/generate-live-invite", response_class=RedirectResponse)
