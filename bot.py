@@ -1,4 +1,4 @@
-# bot.py (V24.8 - FINAL FIX: Forced Service Key for Linking)
+# bot.py (V24.10 - FIX: Auto-Unlink Duplicate Chat IDs)
 
 import os
 import telegram
@@ -103,27 +103,30 @@ async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user; chat_id = update.effective_chat.id
     args = context.args
     
-    # --- JAVÍTOTT ÖSSZEKÖTÉS LOGIKA (V24.8 - FINAL FIX) ---
+    # --- JAVÍTOTT ÖSSZEKÖTÉS LOGIKA (V24.10 - AUTO UNLINK DUPLICATES) ---
     if args and len(args) > 0:
         token = args[0]
         try:
-            # ITT A LÉNYEG: Kifejezetten az Admin klienst kérjük el!
+            # 1. Admin kliens
             supabase_admin = get_admin_db_client()
             
-            # Keresés a Mesterkulccsal
-            # .execute() használata a biztonság kedvéért (listát ad vissza)
+            # 2. Token ellenőrzése
             res = await asyncio.to_thread(lambda: supabase_admin.table("felhasznalok").select("id, email").eq("telegram_connect_token", token).execute())
             
             if res.data and len(res.data) > 0:
                 user_data = res.data[0]
-                # Frissítés (Chat ID beírása)
+                
+                # 3. FONTOS: Töröljük ezt a Chat ID-t minden más felhasználótól, hogy elkerüljük az ütközést!
+                # Így ha már össze volt kötve mással, onnan lekerül.
+                await asyncio.to_thread(lambda: supabase_admin.table("felhasznalok").update({"chat_id": None}).eq("chat_id", chat_id).execute())
+                
+                # 4. Mentés az új helyre
                 await asyncio.to_thread(lambda: supabase_admin.table("felhasznalok").update({"chat_id": chat_id, "telegram_connect_token": None}).eq("id", user_data['id']).execute())
                 
                 await context.bot.send_message(chat_id=chat_id, text=f"✅ Szia! Sikeresen összekötötted a Telegramodat a fiókoddal ({user_data['email']})!\nMostantól itt is megkapod az értesítéseket.")
                 # Admin értesítése
                 await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🔗 Új Telegram összekötés:\nEmail: {user_data['email']}\nChat ID: {chat_id}")
             else:
-                # Debug infó logolása (csak a szerver logba, nem a usernek)
                 print(f"❌ Hibás Token Kísérlet. Token: {token} | ChatID: {chat_id}")
                 await context.bot.send_message(chat_id=chat_id, text="❌ Hiba: Ez a link érvénytelen vagy már felhasználták.\nKérlek, generálj újat a weboldalon!")
         
