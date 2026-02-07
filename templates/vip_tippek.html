@@ -34,24 +34,30 @@
         z-index: 1;
     }
 
-    /* --- ÚJ: RUGALMAS KÉPES ELRENDEZÉS (FLEXBOX) --- */
+    /* --- ÚJ: RUGALMAS KÉPES ELRENDEZÉS (FLEXBOX - JAVÍTOTT) --- */
     .manual-slips-grid {
         display: flex;
-        flex-wrap: wrap;
-        justify-content: center; /* Ez húzza középre, ha kevés elem van! */
-        gap: 20px;
+        flex-wrap: wrap; /* Engedi a törést több sorba */
+        justify-content: center; /* VÍZSZINTESEN KÖZÉPRE IGAZÍT! */
+        gap: 20px; /* Távolság a kártyák között */
         margin-top: 15px;
+        width: 100%;
         max-width: 1000px;
         margin-left: auto;
         margin-right: auto;
+        box-sizing: border-box;
     }
 
     .manual-slip-card {
-        /* Számolás: (100% - 20px gap) / 2 = kb. 50% - 10px */
-        /* Így pont 2 fér el egymás mellett gépen */
-        flex: 0 0 calc(50% - 10px);
+        /* FONTOS: Ez biztosítja, hogy a szegély ne tolja szét a méretet */
+        box-sizing: border-box;
         
-        /* De ne legyen óriási se */
+        /* GÉPEN: (100% - 20px gap) / 2 = 50% - 10px */
+        /* Kicsit kevesebbet adunk (12px), hogy biztosan elférjen a kerekítések miatt */
+        flex: 0 0 calc(50% - 12px);
+        width: calc(50% - 12px); /* Fallback */
+        
+        /* De ne legyen túl széles */
         max-width: 450px;
         
         /* Stílusok */
@@ -76,7 +82,7 @@
         width: 100%;
         height: auto;
         display: block;
-        object-fit: contain; /* Biztosítja, hogy a teljes kép látsszon */
+        object-fit: contain;
     }
 
     .manual-card-footer {
@@ -99,13 +105,14 @@
         color: #A0AEC0;
     }
     
-    /* --- MOBIL NÉZET --- */
+    /* --- MOBIL NÉZET (768px alatt) --- */
     @media (max-width: 768px) {
         .pricing-card.popular { transform: none; }
         
         /* Mobilon mindenki 100% széles (egymás alatt) */
         .manual-slip-card {
             flex: 0 0 100%;
+            width: 100%;
             max-width: 100%;
         }
     }
