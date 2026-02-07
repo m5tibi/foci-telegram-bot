@@ -312,8 +312,8 @@ async def vip_area(request: Request):
                 st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
                 if st == "Nincs megfelelő tipp": daily_status_message = "Az algoritmus nem talált megfelelő tippet."
                 elif st == "Jóváhagyásra vár": daily_status_message = "A tippek jóváhagyásra várnak."
-                elif st == "Admin által elutasítva": daily_status_message = "Az adminisztrátor elutasította a tippeket."
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
+                elif st == "Admin által elutasítva": daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
+                else: daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
         except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
     
     return templates.TemplateResponse("vip_tippek.html", {
@@ -643,3 +643,4 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
+
