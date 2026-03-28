@@ -1,4 +1,4 @@
-# main.py (V21.8 - FINAL FIX: Forced Service Key for Token Generation)
+# main.py (V21.13 - FIX: Updated TemplateResponse syntax for new FastAPI/Starlette versions)
 
 import os
 import asyncio
@@ -219,7 +219,7 @@ async def logout(request: Request):
 
 @api.get("/forgot-password", response_class=HTMLResponse)
 async def forgot_password_page(request: Request):
-    return templates.TemplateResponse("forgot_password.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="forgot_password.html", context={"request": request})
 
 @api.post("/forgot-password")
 async def handle_forgot_password(request: Request, email: str = Form(...)):
@@ -230,7 +230,7 @@ async def handle_forgot_password(request: Request, email: str = Form(...)):
         expiry = datetime.now(pytz.utc) + timedelta(hours=1)
         admin_supabase.table("felhasznalok").update({"reset_token": token, "reset_token_expiry": expiry.isoformat()}).eq("email", email).execute()
         send_reset_email(email, token)
-    return templates.TemplateResponse("forgot_password.html", {"request": request, "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"})
+    return templates.TemplateResponse(request=request, name="forgot_password.html", context={"request": request, "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"})
 
 @api.get("/new-password", response_class=HTMLResponse)
 async def new_password_page(request: Request, token: str):
@@ -241,17 +241,19 @@ async def new_password_page(request: Request, token: str):
     else:
         expiry = datetime.fromisoformat(user_res.data[0]['reset_token_expiry'].replace('Z', '+00:00'))
         if datetime.now(pytz.utc) > expiry: error = "A link lejárt. Kérj újat!"
-    return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": error})
+    return templates.TemplateResponse(request=request, name="new_password.html", context={"request": request, "token": token, "error": error})
 
 @api.post("/new-password")
 async def handle_new_password(request: Request, token: str = Form(...), password: str = Form(...)):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
-    if not user_res.data: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "Érvénytelen link."})
+    if not user_res.data: 
+        return templates.TemplateResponse(request=request, name="new_password.html", context={"request": request, "token": token, "error": "Érvénytelen link."})
     
     user = user_res.data[0]
     expiry = datetime.fromisoformat(user['reset_token_expiry'].replace('Z', '+00:00'))
-    if datetime.now(pytz.utc) > expiry: return templates.TemplateResponse("new_password.html", {"request": request, "token": token, "error": "A link lejárt."})
+    if datetime.now(pytz.utc) > expiry: 
+        return templates.TemplateResponse(request=request, name="new_password.html", context={"request": request, "token": token, "error": "A link lejárt."})
     
     new_hashed = get_password_hash(password)
     admin_supabase.table("felhasznalok").update({"hashed_password": new_hashed, "reset_token": None, "reset_token_expiry": None}).eq("id", user['id']).execute()
@@ -312,11 +314,11 @@ async def vip_area(request: Request):
                 st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
                 if st == "Nincs megfelelő tipp": daily_status_message = "Az algoritmus nem talált megfelelő tippet."
                 elif st == "Jóváhagyásra vár": daily_status_message = "A tippek jóváhagyásra várnak."
-                elif st == "Admin által elutasítva": daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények. Nézz vissza később!"
+                elif st == "Admin által elutasítva": daily_status_message = "Az adminisztrátor elutasította a tippeket."
+                else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
         except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
     
-    return templates.TemplateResponse("vip_tippek.html", {
+    return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
         "request": request, 
         "user": user, 
         "is_subscribed": is_subscribed, 
@@ -327,7 +329,6 @@ async def vip_area(request: Request):
         "daily_status_message": daily_status_message
     })
 
-# --- V21.2 JAVÍTOTT PROFIL: Dátum alapú lemondás-ellenőrzés ---
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
@@ -335,10 +336,7 @@ async def profile_page(request: Request):
     
     if user.get("stripe_customer_id"):
         try:
-            # 1. KÉSLELTETÉS
             await asyncio.sleep(2.0)
-
-            # 2. Lekérjük az összes előfizetést
             subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
             
             print(f"\n🔍 [PROFILE DEBUG V21.2] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
@@ -348,11 +346,6 @@ async def profile_page(request: Request):
             
             if subs.data:
                 for i, sub in enumerate(subs.data):
-                    # --- ITT A LÉNYEG: ---
-                    # 1. Van-e "cancel_at_period_end" kapcsoló?
-                    # 2. Van-e "status" = 'canceled'?
-                    # 3. ÉS VAN-E "cancel_at" DÁTUM? (Ha van dátum, akkor tuti lemondta!)
-                    
                     has_cancel_switch = sub.get('cancel_at_period_end')
                     has_canceled_status = sub.get('status') == 'canceled'
                     has_cancel_date = sub.get('cancel_at') is not None
@@ -365,7 +358,6 @@ async def profile_page(request: Request):
                     if sub['status'] in ['active', 'trialing']:
                         final_cancelled_status = is_canc
             
-            # 3. Javítás az adatbázisban
             if user.get("subscription_cancelled") != final_cancelled_status:
                 print(f"   🔧 SELF-HEALING JAVÍTÁS: DB={user.get('subscription_cancelled')} -> ÚJ={final_cancelled_status}")
                 admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -378,38 +370,30 @@ async def profile_page(request: Request):
             print(f"Self-healing hiba: {e}")
     
     is_subscribed = is_web_user_subscribed(user)
-    return templates.TemplateResponse("profile.html", {"request": request, "user": user, "is_subscribed": is_subscribed})
+    return templates.TemplateResponse(request=request, name="profile.html", context={"request": request, "user": user, "is_subscribed": is_subscribed})
 
-# --- V21.8 FIX: GENERATE TELEGRAM LINK WITH SERVICE KEY ---
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
 async def generate_telegram_link(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
-    # ÚJ TOKEN GENERÁLÁSA
     token = secrets.token_hex(16)
     
-    # ITT A LÉNYEG: Service Key-t használunk az íráshoz is!
-    # Így biztosan bekerül a token az adatbázisba, az RLS nem blokkolja.
     if SUPABASE_SERVICE_KEY:
         admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         admin_client.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
     else:
-        # Fallback
         supabase.table("felhasznalok").update({"telegram_connect_token": token}).eq("id", user['id']).execute()
         
     link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
-    return templates.TemplateResponse("telegram_link.html", {"request": request, "link": link})
+    return templates.TemplateResponse(request=request, name="telegram_link.html", context={"request": request, "link": link})
 
-# --- ÚJ VÉGPONT: TELEGRAM SZÉTVÁLASZTÁS (V21.7 FIX - SERVICE KEY HASZNÁLATTAL) ---
 @api.post("/unlink-telegram")
 async def unlink_telegram(request: Request):
     user = get_current_user(request)
     if not user: return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     try:
-        # V21.7 FIX: Admin jogosultságú kliens használata a törléshez
-        # Ez garantálja, hogy az RLS szabályok nem blokkolják a módosítást
         if SUPABASE_SERVICE_KEY:
             admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
             admin_client.table("felhasznalok").update({
@@ -417,7 +401,6 @@ async def unlink_telegram(request: Request):
                 "telegram_connect_token": None
             }).eq("id", user['id']).execute()
         else:
-            # Fallback (ha nincs service key, ami baj)
             supabase.table("felhasznalok").update({
                 "chat_id": None,
                 "telegram_connect_token": None
@@ -487,7 +470,7 @@ async def upload_form(request: Request, message: Optional[str] = None, error: Op
     context = {"request": request, "user": user}
     if message: context["message"] = message
     if error: context["error"] = error
-    return templates.TemplateResponse("admin_upload.html", context)
+    return templates.TemplateResponse(request=request, name="admin_upload.html", context=context)
 
 @api.post("/admin/upload")
 async def handle_upload(
@@ -570,7 +553,6 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             cid = sub.get('customer')
             sub_id = sub.get('id')
             
-            # V21.2: ITT IS BEVEZETJÜK A DÁTUM ELLENŐRZÉST
             has_cancel_switch = sub.get('cancel_at_period_end')
             has_canceled_status = sub.get('status') == 'canceled'
             has_cancel_date = sub.get('cancel_at') is not None
@@ -643,4 +625,3 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except Exception as e:
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
-
