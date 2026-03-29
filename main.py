@@ -1,4 +1,4 @@
-# main.py (V21.13 - FIX: Updated TemplateResponse syntax for new FastAPI/Starlette versions)
+# main.py (V21.15 - FIX: Szigorú Stripe objektum kezelés s_get függvénnyel)
 
 import os
 import asyncio
@@ -76,6 +76,13 @@ except Exception as e:
     supabase = None
 
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
+
+# --- BIZTONSÁGOS STRIPE ADATKINYERŐ (ÚJ - V21.15) ---
+def s_get(obj, key, default=None):
+    """Kivédi a dict vs objektum (KeyError / AttributeError) hibákat."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
 
 # --- Segédfüggvények ---
 def get_password_hash(password): return pwd_context.hash(password)
@@ -339,23 +346,26 @@ async def profile_page(request: Request):
             await asyncio.sleep(2.0)
             subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
             
-            print(f"\n🔍 [PROFILE DEBUG V21.2] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
-            print(f"   Talált előfizetések száma: {len(subs.data)}")
+            print(f"\n🔍 [PROFILE DEBUG V21.15] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
+            
+            subs_data = s_get(subs, 'data', [])
+            print(f"   Talált előfizetések száma: {len(subs_data)}")
             
             final_cancelled_status = False
             
-            if subs.data:
-                for i, sub in enumerate(subs.data):
-                    has_cancel_switch = sub.get('cancel_at_period_end')
-                    has_canceled_status = sub.get('status') == 'canceled'
-                    has_cancel_date = sub.get('cancel_at') is not None
+            if subs_data:
+                for i, sub in enumerate(subs_data):
+                    has_cancel_switch = s_get(sub, 'cancel_at_period_end', False)
+                    sub_status = s_get(sub, 'status')
+                    has_canceled_status = (sub_status == 'canceled')
+                    has_cancel_date = s_get(sub, 'cancel_at') is not None
                     
                     is_canc = has_cancel_switch or has_canceled_status or has_cancel_date
                     
-                    print(f"   👉 #{i+1} Sub ID: {sub['id']} | Status: {sub['status']}")
+                    print(f"   👉 #{i+1} Sub ID: {s_get(sub, 'id')} | Status: {sub_status}")
                     print(f"      Switch: {has_cancel_switch} | CanceledState: {has_canceled_status} | HasDate: {has_cancel_date} => EREDMÉNY: {is_canc}")
                     
-                    if sub['status'] in ['active', 'trialing']:
+                    if sub_status in ['active', 'trialing']:
                         final_cancelled_status = is_canc
             
             if user.get("subscription_cancelled") != final_cancelled_status:
@@ -367,6 +377,8 @@ async def profile_page(request: Request):
                 print(f"   ✅ DB státusz egyezik a Stripe-pal ({final_cancelled_status}). Nincs teendő.")
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Self-healing hiba: {e}")
     
     is_subscribed = is_web_user_subscribed(user)
@@ -548,21 +560,22 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        # Biztonságos esemény típus kiolvasás
-        event_type = event.get('type') if isinstance(event, dict) else event.type
+        event_type = s_get(event, 'type')
+        event_data = s_get(event, 'data', {})
+        obj = s_get(event_data, 'object', {})
         
         if event_type in ['customer.subscription.updated', 'customer.subscription.deleted']:
-            sub = event['data']['object']
-            cid = sub.get('customer')
-            sub_id = sub.get('id')
+            cid = s_get(obj, 'customer')
+            sub_id = s_get(obj, 'id')
             
-            has_cancel_switch = sub.get('cancel_at_period_end', False)
-            has_canceled_status = sub.get('status') == 'canceled'
-            has_cancel_date = sub.get('cancel_at') is not None
+            has_cancel_switch = s_get(obj, 'cancel_at_period_end', False)
+            obj_status = s_get(obj, 'status')
+            has_canceled_status = (obj_status == 'canceled')
+            has_cancel_date = s_get(obj, 'cancel_at') is not None
             
             is_cancelled = has_cancel_switch or has_canceled_status or has_cancel_date
             
-            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {sub.get('status')} | DátumVan?: {has_cancel_date} => EREDMÉNY: {is_cancelled}")
+            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {obj_status} | DátumVan?: {has_cancel_date} => EREDMÉNY: {is_cancelled}")
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -571,49 +584,51 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 }).eq("stripe_customer_id", cid).execute()
 
         if event_type == 'checkout.session.completed':
-            session = event['data']['object']
-            metadata = session.get('metadata') or {}
-            uid = metadata.get('user_id')
-            cid = session.get('customer')
-            session_id = session.get('id')
+            metadata = s_get(obj, 'metadata', {})
+            uid = s_get(metadata, 'user_id')
+            cid = s_get(obj, 'customer')
+            session_id = s_get(obj, 'id')
             
             print(f"Checkout completed. UID: {uid}, CID: {cid}")
             if uid and cid and session_id:
-                # Biztonságos lekérdezés
                 line_items = stripe.checkout.Session.list_line_items(session_id, limit=1)
-                pid = line_items.data[0].price.id
-                
-                is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                is_daily = (pid == STRIPE_PRICE_ID_DAILY)
-                duration = 32 if is_monthly else (1 if is_daily else 7)
-                plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
-                
-                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
-                await activate_subscription_and_notify_web(int(uid), duration, cid)
-                await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
+                lines_data = s_get(line_items, 'data', [])
+                if lines_data:
+                    price_obj = s_get(lines_data[0], 'price', {})
+                    pid = s_get(price_obj, 'id')
+                    
+                    is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
+                    is_daily = (pid == STRIPE_PRICE_ID_DAILY)
+                    duration = 32 if is_monthly else (1 if is_daily else 7)
+                    plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
+                    
+                    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
+                    await activate_subscription_and_notify_web(int(uid), duration, cid)
+                    await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
         elif event_type == 'invoice.payment_succeeded':
-            invoice = event['data']['object']
-            billing_reason = invoice.get('billing_reason')
-            cid = invoice.get('customer')
+            billing_reason = s_get(obj, 'billing_reason')
+            cid = s_get(obj, 'customer')
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
-                sub_id = invoice.get('subscription')
+                sub_id = s_get(obj, 'subscription')
                 
                 if not sub_id:
-                    try:
-                        lines = invoice.get('lines', {}).get('data', [])
-                        if lines:
-                            sub_id = lines[0].get('subscription')
-                    except Exception: pass
+                    lines = s_get(obj, 'lines', {})
+                    lines_data = s_get(lines, 'data', [])
+                    if lines_data:
+                        sub_id = s_get(lines_data[0], 'subscription')
                 
                 if sub_id:
                     try:
                         sub = stripe.Subscription.retrieve(sub_id)
-                        items = sub.get('items', {}).get('data', [])
-                        if items:
-                            pid = items[0].get('price', {}).get('id')
+                        items = s_get(sub, 'items', {})
+                        items_data = s_get(items, 'data', [])
+                        
+                        if items_data:
+                            price_obj = s_get(items_data[0], 'price', {})
+                            pid = s_get(price_obj, 'id')
                             is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                             is_daily = (pid == STRIPE_PRICE_ID_DAILY)
                             plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
@@ -642,11 +657,13 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                                 
                                 await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
                     except Exception as e:
+                        import traceback
+                        traceback.print_exc()
                         print(f"!!! Megújítás hiba (Exception): {e}")
 
         return {"status": "success"}
     except Exception as e:
         import traceback
-        traceback.print_exc()  # Ez a sor fogja kiírni a jövőben a pontos hiba okát
+        traceback.print_exc()
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
