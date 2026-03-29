@@ -564,6 +564,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         event_data = s_get(event, 'data', {})
         obj = s_get(event_data, 'object', {})
         
+        # --- ELŐFIZETÉS ÁLLAPOTVÁLTOZÁSA VAGY TÖRLÉSE ---
         if event_type in ['customer.subscription.updated', 'customer.subscription.deleted']:
             cid = s_get(obj, 'customer')
             sub_id = s_get(obj, 'id')
@@ -579,10 +580,18 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({
-                    "subscription_cancelled": is_cancelled
-                }).eq("stripe_customer_id", cid).execute()
+                
+                # Alapértelmezett frissítés (a lemondás gomb állapota)
+                update_payload = {"subscription_cancelled": is_cancelled}
+                
+                # 🛑 HA A STRIPE VÉGLEGESEN TÖRÖLTE (pl. sikertelen fizetés miatt)
+                if has_canceled_status or event_type == 'customer.subscription.deleted':
+                    update_payload["subscription_status"] = "inactive"
+                    print(f"   ⚠️ Végleges törlés érzékelve! Státusz inaktívra állítva: {cid}")
+                
+                client.table("felhasznalok").update(update_payload).eq("stripe_customer_id", cid).execute()
 
+        # --- ÚJ VÁSÁRLÁS (CHECKOUT) ---
         if event_type == 'checkout.session.completed':
             metadata = s_get(obj, 'metadata', {})
             uid = s_get(metadata, 'user_id')
@@ -607,6 +616,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     await activate_subscription_and_notify_web(int(uid), duration, cid)
                     await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
+        # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
         elif event_type == 'invoice.payment_succeeded':
             billing_reason = s_get(obj, 'billing_reason')
             cid = s_get(obj, 'customer')
