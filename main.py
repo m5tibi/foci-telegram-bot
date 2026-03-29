@@ -548,12 +548,15 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     try:
         event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
         
-        if event['type'] == 'customer.subscription.updated' or event['type'] == 'customer.subscription.deleted':
+        # Biztonságos esemény típus kiolvasás
+        event_type = event.get('type') if isinstance(event, dict) else event.type
+        
+        if event_type in ['customer.subscription.updated', 'customer.subscription.deleted']:
             sub = event['data']['object']
             cid = sub.get('customer')
             sub_id = sub.get('id')
             
-            has_cancel_switch = sub.get('cancel_at_period_end')
+            has_cancel_switch = sub.get('cancel_at_period_end', False)
             has_canceled_status = sub.get('status') == 'canceled'
             has_cancel_date = sub.get('cancel_at') is not None
             
@@ -567,12 +570,19 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     "subscription_cancelled": is_cancelled
                 }).eq("stripe_customer_id", cid).execute()
 
-        if event['type'] == 'checkout.session.completed':
+        if event_type == 'checkout.session.completed':
             session = event['data']['object']
-            uid, cid = session.get('metadata', {}).get('user_id'), session.get('customer')
+            metadata = session.get('metadata') or {}
+            uid = metadata.get('user_id')
+            cid = session.get('customer')
+            session_id = session.get('id')
+            
             print(f"Checkout completed. UID: {uid}, CID: {cid}")
-            if uid and cid:
-                pid = stripe.checkout.Session.list_line_items(session.id, limit=1).data[0].price.id
+            if uid and cid and session_id:
+                # Biztonságos lekérdezés
+                line_items = stripe.checkout.Session.list_line_items(session_id, limit=1)
+                pid = line_items.data[0].price.id
+                
                 is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
                 is_daily = (pid == STRIPE_PRICE_ID_DAILY)
                 duration = 32 if is_monthly else (1 if is_daily else 7)
@@ -583,45 +593,60 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
         
-        elif event['type'] == 'invoice.payment_succeeded':
+        elif event_type == 'invoice.payment_succeeded':
             invoice = event['data']['object']
             billing_reason = invoice.get('billing_reason')
             cid = invoice.get('customer')
             
             if billing_reason in ['subscription_cycle', 'subscription_update']:
-                subscription_details = invoice.get('parent', {}).get('subscription_details', {})
-                sub_id = subscription_details.get('subscription') or invoice.get('subscription')
+                sub_id = invoice.get('subscription')
+                
                 if not sub_id:
-                    try: sub_id = invoice['lines']['data'][0]['subscription']
-                    except: pass
+                    try:
+                        lines = invoice.get('lines', {}).get('data', [])
+                        if lines:
+                            sub_id = lines[0].get('subscription')
+                    except Exception: pass
                 
                 if sub_id:
                     try:
                         sub = stripe.Subscription.retrieve(sub_id)
-                        pid = sub['items']['data'][0]['price']['id']
-                        is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                        is_daily = (pid == STRIPE_PRICE_ID_DAILY)
-                        plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
-                        
-                        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                        usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
-                        
-                        if usr_res.data:
-                            usr = usr_res.data
-                            dur = 32 if is_monthly else (1 if is_daily else 7)
-                            start = max(datetime.now(pytz.utc), datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))) if usr.get('subscription_expires_at') else datetime.now(pytz.utc)
-                            new_expiry = (start + timedelta(days=dur)).isoformat()
+                        items = sub.get('items', {}).get('data', [])
+                        if items:
+                            pid = items[0].get('price', {}).get('id')
+                            is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
+                            is_daily = (pid == STRIPE_PRICE_ID_DAILY)
+                            plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
                             
-                            client.table("felhasznalok").update({
-                                "subscription_status": "active", 
-                                "subscription_expires_at": new_expiry,
-                                "subscription_cancelled": False 
-                            }).eq("id", usr['id']).execute()
+                            client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                            usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
                             
-                            await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
-                    except Exception as e: print(f"!!! Megújítás hiba (Exception): {e}")
+                            if usr_res.data:
+                                usr = usr_res.data
+                                dur = 32 if is_monthly else (1 if is_daily else 7)
+                                
+                                start_dt = datetime.now(pytz.utc)
+                                if usr.get('subscription_expires_at'):
+                                    try:
+                                        db_expiry = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
+                                        start_dt = max(start_dt, db_expiry)
+                                    except: pass
+                                
+                                new_expiry = (start_dt + timedelta(days=dur)).isoformat()
+                                
+                                client.table("felhasznalok").update({
+                                    "subscription_status": "active", 
+                                    "subscription_expires_at": new_expiry,
+                                    "subscription_cancelled": False 
+                                }).eq("id", usr['id']).execute()
+                                
+                                await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
+                    except Exception as e:
+                        print(f"!!! Megújítás hiba (Exception): {e}")
 
         return {"status": "success"}
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # Ez a sor fogja kiírni a jövőben a pontos hiba okát
         print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
         return {"error": str(e)}, 400
