@@ -459,15 +459,25 @@ async def create_portal_session(request: Request):
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-    if is_web_user_subscribed(user): return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
     
-    price_id = ""
-    if plan == 'monthly': price_id = STRIPE_PRICE_ID_MONTHLY
-    elif plan == 'weekly': price_id = STRIPE_PRICE_ID_WEEKLY
-    elif plan == 'daily': price_id = STRIPE_PRICE_ID_DAILY
-
-    # Teszt fiók esetén teszt kulcs használata
-    sk = STRIPE_TEST_SECRET_KEY if user.get("email") == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
+    # Tesztelésnél engedjük a rávásárlást, élesben tilthatjuk
+    is_test_user = user.get("email") == "m5tibi77@gmail.com"
+    if not is_test_user and is_web_user_subscribed(user):
+        return RedirectResponse(url=f"{RENDER_APP_URL}/profile?error=active_subscription", status_code=303)
+    
+    # --- OKOS ÁRVÁLASZTÓ ---
+    if is_test_user:
+        # Itt a Teszt ID-kat húzzuk be a környezeti változókból
+        price_id = os.environ.get("STRIPE_TEST_PRICE_ID_MONTHLY") if plan == 'monthly' else \
+                   (os.environ.get("STRIPE_TEST_PRICE_ID_WEEKLY") if plan == 'weekly' else \
+                    os.environ.get("STRIPE_TEST_PRICE_ID_DAILY"))
+        sk = STRIPE_TEST_SECRET_KEY
+    else:
+        # Éles ID-k
+        price_id = STRIPE_PRICE_ID_MONTHLY if plan == 'monthly' else \
+                   (STRIPE_PRICE_ID_WEEKLY if plan == 'weekly' else \
+                    STRIPE_PRICE_ID_DAILY)
+        sk = STRIPE_SECRET_KEY
 
     try:
         params = {
@@ -480,11 +490,18 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
             'allow_promotion_codes': True,
             'metadata': {'user_id': user['id']}
         }
-        if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
-        else: params['customer_email'] = user['email']
+        
+        # Tesztelésnél fontos: ha éles CID-d van, ne küldjük be a teszt checkoutba
+        if user.get('stripe_customer_id') and not is_test_user:
+            params['customer'] = user.get('stripe_customer_id')
+        else:
+            params['customer_email'] = user.get('email')
+            
         checkout_session = stripe.checkout.Session.create(**params, api_key=sk)
         return RedirectResponse(checkout_session.url, status_code=303)
-    except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
+    except Exception as e:
+        print(f"Checkout error: {e}")
+        return HTMLResponse(f"Hiba: {e}", status_code=500)
 
 @api.get("/admin/upload", response_class=HTMLResponse)
 async def upload_form(request: Request, message: Optional[str] = None, error: Optional[str] = None):
