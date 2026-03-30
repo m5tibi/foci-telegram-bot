@@ -580,11 +580,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             
             if cid:
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                
-                # Alapértelmezett frissítés (a lemondás gomb állapota)
                 update_payload = {"subscription_cancelled": is_cancelled}
                 
-                # 🛑 HA A STRIPE VÉGLEGESEN TÖRÖLTE (pl. sikertelen fizetés miatt)
                 if has_canceled_status or event_type == 'customer.subscription.deleted':
                     update_payload["subscription_status"] = "inactive"
                     print(f"   ⚠️ Végleges törlés érzékelve! Státusz inaktívra állítva: {cid}")
@@ -602,26 +599,39 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             if uid and cid and session_id:
                 line_items = stripe.checkout.Session.list_line_items(session_id, limit=1)
                 lines_data = s_get(line_items, 'data', [])
+                
+                duration = 32
+                plan_name = "Havi Csomag 📅"
+                
                 if lines_data:
                     price_obj = s_get(lines_data[0], 'price', {})
-                    pid = s_get(price_obj, 'id')
+                    recurring = s_get(price_obj, 'recurring') or {}
+                    interval = s_get(recurring, 'interval')
                     
-                    is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                    is_daily = (pid == STRIPE_PRICE_ID_DAILY)
-                    duration = 32 if is_monthly else (1 if is_daily else 7)
-                    plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
-                    
-                    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                    client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
-                    await activate_subscription_and_notify_web(int(uid), duration, cid)
-                    await send_admin_notification(f"🎉 *Új Előfizető!*\nCsomag: *{plan_name}*\nID: `{cid}`")
+                    if interval == 'month':
+                        duration = 32
+                        plan_name = "Havi Csomag 📅"
+                    elif interval == 'week':
+                        duration = 7
+                        plan_name = "Heti Csomag 🗓️"
+                    elif interval == 'day':
+                        duration = 1
+                        plan_name = "Napi Jegy 🎫"
+                
+                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
+                await activate_subscription_and_notify_web(int(uid), duration, cid)
+                
+                # Biztonságos email formázás Telegramhoz
+                safe_email_new = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*') if 'usr' in locals() else cid
+                await send_admin_notification(f"🎉 *Új Előfizető!*\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
         
         # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
         elif event_type == 'invoice.payment_succeeded':
             billing_reason = s_get(obj, 'billing_reason')
             cid = s_get(obj, 'customer')
             
-            if billing_reason in ['subscription_cycle', 'subscription_update']:
+            if billing_reason in ['subscription_cycle', 'subscription_update', 'subscription_create']:
                 sub_id = s_get(obj, 'subscription')
                 
                 if not sub_id:
@@ -633,39 +643,47 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 if sub_id:
                     try:
                         sub = stripe.Subscription.retrieve(sub_id)
+                        
+                        # OKOS DÁTUM: Lekérjük a Stripe hivatalos, másodpercre pontos lejárati idejét!
+                        current_period_end = s_get(sub, 'current_period_end')
+                        
+                        # Csomag nevének kiderítése
                         items = s_get(sub, 'items', {})
                         items_data = s_get(items, 'data', [])
+                        plan_name = "VIP Csomag ⭐️"
                         
                         if items_data:
                             price_obj = s_get(items_data[0], 'price', {})
-                            pid = s_get(price_obj, 'id')
-                            is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                            is_daily = (pid == STRIPE_PRICE_ID_DAILY)
-                            plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy (Próbanap) 🎫" if is_daily else "Heti Csomag 🗓️")
+                            recurring = s_get(price_obj, 'recurring') or {}
+                            interval = s_get(recurring, 'interval')
                             
-                            client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                            usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                            if interval == 'month': plan_name = "Havi Csomag 📅"
+                            elif interval == 'week': plan_name = "Heti Csomag 🗓️"
+                            elif interval == 'day': plan_name = "Napi Jegy 🎫"
+                        
+                        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                        usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                        
+                        if usr_res.data:
+                            usr = usr_res.data
                             
-                            if usr_res.data:
-                                usr = usr_res.data
-                                dur = 32 if is_monthly else (1 if is_daily else 7)
+                            if current_period_end:
+                                # Hozzáadunk 12 óra türelmi időt a Stripe lejárathoz, hogy a következő levonásnál ne essen ki
+                                dt = datetime.fromtimestamp(current_period_end, tz=pytz.utc) + timedelta(hours=12)
+                                new_expiry = dt.isoformat()
+                            else:
+                                new_expiry = (datetime.now(pytz.utc) + timedelta(days=32)).isoformat()
                                 
-                                start_dt = datetime.now(pytz.utc)
-                                if usr.get('subscription_expires_at'):
-                                    try:
-                                        db_expiry = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
-                                        start_dt = max(start_dt, db_expiry)
-                                    except: pass
-                                
-                                new_expiry = (start_dt + timedelta(days=dur)).isoformat()
-                                
-                                client.table("felhasznalok").update({
-                                    "subscription_status": "active", 
-                                    "subscription_expires_at": new_expiry,
-                                    "subscription_cancelled": False 
-                                }).eq("id", usr['id']).execute()
-                                
-                                await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {usr['email']}\n📦 Csomag: *{plan_name}*")
+                            client.table("felhasznalok").update({
+                                "subscription_status": "active", 
+                                "subscription_expires_at": new_expiry,
+                                "subscription_cancelled": False 
+                            }).eq("id", usr['id']).execute()
+                            
+                            # Biztonságos email formázás Telegramhoz (kivédi az alulvonás okozta összeomlást)
+                            safe_email = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*')
+                            await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {safe_email}\n📦 Csomag: *{plan_name}*")
+                            
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
