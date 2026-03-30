@@ -1,4 +1,4 @@
-# main.py (V21.15 - FIX: Szigorú Stripe objektum kezelés s_get függvénnyel)
+# main.py (V21.17 - Dinamikus Stripe kulcsok & 31 napos havi hosszabbítás)
 
 import os
 import asyncio
@@ -34,8 +34,12 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_TOKEN = TOKEN 
 
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+# STRIPE KULCSOK (ÉLES ÉS TESZT)
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+STRIPE_TEST_SECRET_KEY = os.environ.get("STRIPE_TEST_SECRET_KEY")
+STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
 
 # ÁRAZÁSI ID-k
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
@@ -77,7 +81,7 @@ except Exception as e:
 
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-# --- BIZTONSÁGOS STRIPE ADATKINYERŐ (ÚJ - V21.15) ---
+# --- BIZTONSÁGOS STRIPE ADATKINYERŐ ---
 def s_get(obj, key, default=None):
     """Kivédi a dict vs objektum (KeyError / AttributeError) hibákat."""
     if isinstance(obj, dict):
@@ -343,8 +347,10 @@ async def profile_page(request: Request):
     
     if user.get("stripe_customer_id"):
         try:
+            # Profil oldalon is dinamikus kulcskezelés
+            sk = STRIPE_TEST_SECRET_KEY if user.get("email") == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
             await asyncio.sleep(2.0)
-            subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
+            subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5, api_key=sk)
             
             print(f"\n🔍 [PROFILE DEBUG V21.15] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
             
@@ -442,8 +448,10 @@ async def create_portal_session(request: Request):
     user = get_current_user(request)
     if not user or not user.get("stripe_customer_id"): return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
     try:
+        # Teszt fiók esetén teszt kulcs használata
+        sk = STRIPE_TEST_SECRET_KEY if user.get("email") == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
         return_url = f"{RENDER_APP_URL}/profile"
-        portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url)
+        portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url, api_key=sk)
         return RedirectResponse(portal_session.url, status_code=303)
     except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
 
@@ -458,6 +466,9 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     elif plan == 'weekly': price_id = STRIPE_PRICE_ID_WEEKLY
     elif plan == 'daily': price_id = STRIPE_PRICE_ID_DAILY
 
+    # Teszt fiók esetén teszt kulcs használata
+    sk = STRIPE_TEST_SECRET_KEY if user.get("email") == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
+
     try:
         params = {
             'payment_method_types': ['card'],
@@ -471,7 +482,7 @@ async def create_checkout_session_web(request: Request, plan: str = Form(...)):
         }
         if user.get('stripe_customer_id'): params['customer'] = user['stripe_customer_id']
         else: params['customer_email'] = user['email']
-        checkout_session = stripe.checkout.Session.create(**params)
+        checkout_session = stripe.checkout.Session.create(**params, api_key=sk)
         return RedirectResponse(checkout_session.url, status_code=303)
     except Exception as e: return HTMLResponse(f"Hiba: {e}", status_code=500)
 
@@ -556,9 +567,14 @@ async def process_telegram_update(request: Request):
 
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    data = await request.body()
+    payload_body = await request.body()
     try:
-        event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
+        # --- Dinamikus Kulcsválasztó (V21.17) ---
+        is_test = b'"livemode": false' in payload_body
+        wh_secret = STRIPE_TEST_WEBHOOK_SECRET if is_test else STRIPE_WEBHOOK_SECRET
+        sk_key = STRIPE_TEST_SECRET_KEY if is_test else STRIPE_SECRET_KEY
+
+        event = stripe.Webhook.construct_event(payload=payload_body, sig_header=stripe_signature, secret=wh_secret)
         
         event_type = s_get(event, 'type')
         event_data = s_get(event, 'data', {})
@@ -597,10 +613,10 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             
             print(f"Checkout completed. UID: {uid}, CID: {cid}")
             if uid and cid and session_id:
-                line_items = stripe.checkout.Session.list_line_items(session_id, limit=1)
+                line_items = stripe.checkout.Session.list_line_items(session_id, limit=1, api_key=sk_key)
                 lines_data = s_get(line_items, 'data', [])
                 
-                duration = 32
+                duration = 31 # Módosítva 31 napra
                 plan_name = "Havi Csomag 📅"
                 
                 if lines_data:
@@ -609,7 +625,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     interval = s_get(recurring, 'interval')
                     
                     if interval == 'month':
-                        duration = 32
+                        duration = 31
                         plan_name = "Havi Csomag 📅"
                     elif interval == 'week':
                         duration = 7
@@ -619,12 +635,16 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         plan_name = "Napi Jegy 🎫"
                 
                 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
+                client.table("felhasznalok").update({"subscription_cancelled": False, "stripe_customer_id": cid}).eq("id", uid).execute()
                 await activate_subscription_and_notify_web(int(uid), duration, cid)
                 
                 # Biztonságos email formázás Telegramhoz
-                safe_email_new = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*') if 'usr' in locals() else cid
-                await send_admin_notification(f"🎉 *Új Előfizető!*\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
+                client_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                usr_res = client_admin.table("felhasznalok").select("email").eq("id", uid).single().execute()
+                email_val = usr_res.data.get('email', 'Ismeretlen') if usr_res.data else "Ismeretlen"
+                safe_email_new = email_val.replace('_', '\\_').replace('*', '\\*')
+
+                await send_admin_notification(f"🎉 *Új Előfizető!*\n👤 {safe_email_new}\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
         
        # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
         elif event_type == 'invoice.payment_succeeded':
@@ -640,7 +660,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             # Nincs többé túlszűrés: ha van előfizetés és fizetett, azonnal hosszabbítunk!
             if sub_id:
                 try:
-                    sub = stripe.Subscription.retrieve(sub_id)
+                    sub = stripe.Subscription.retrieve(sub_id, api_key=sk_key)
                     items = s_get(sub, 'items', {})
                     items_data = s_get(items, 'data', [])
                     
@@ -659,7 +679,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                         if interval == 'day': is_daily = True
                         
                         plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy 🎫" if is_daily else "Heti Csomag 🗓️")
-                        dur = 32 if is_monthly else (1 if is_daily else 7)
+                        dur = 31 if is_monthly else (1 if is_daily else 7) # Módosítva 31 napra
                         
                         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
                         usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
