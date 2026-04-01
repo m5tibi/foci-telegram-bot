@@ -665,6 +665,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         
        # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
         elif event_type == 'invoice.payment_succeeded':
+            client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
             cid = s_get(obj, 'customer')
             sub_id = s_get(obj, 'subscription')
             
