@@ -664,11 +664,25 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 await send_admin_notification(f"🎉 *Új Előfizető!*\n👤 {safe_email_new}\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
         
        # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
-        elif event_type == 'invoice.payment_succeeded':
-            cid = s_get(obj, 'customer')
-            sub_id = s_get(obj, 'subscription')
-            
-            print(f"💳 Megújulás feldolgozása... CID: {cid}, SubID: {sub_id}")
+elif event_type == 'invoice.payment_succeeded':
+    cid = s_get(obj, 'customer')
+    
+    # --- NYOMOZÁS A SUB_ID UTÁN (V21.18 FIX) ---
+    sub_id = s_get(obj, 'subscription')
+    
+    if not sub_id:
+        try:
+            # Ha a fő mezőben nincs ott, megkeressük a számla tételei között
+            lines = s_get(obj, 'lines', {})
+            data = s_get(lines, 'data', [])
+            if data:
+                sub_id = s_get(data[0], 'subscription')
+                print(f"🔍 SubID előásva a lines-ból: {sub_id}")
+        except Exception as e:
+            print(f"⚠️ Nem sikerült SubID-t bányászni: {e}")
+    # --- FIX VÉGE ---
+
+    print(f"💳 Megújulás feldolgozása... CID: {cid}, SubID: {sub_id}")
             
             if sub_id:
                 try:
