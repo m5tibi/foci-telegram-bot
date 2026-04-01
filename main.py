@@ -668,16 +668,27 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             cid = s_get(obj, 'customer')
             sub_id = s_get(obj, 'subscription')
             
-            # --- NYOMOZÁS A SUB_ID UTÁN (V21.18 FIX) ---
+            # 1. Mentőöv: Nyomozás a számlatételek (lines) között
             if not sub_id:
                 try:
-                    # Ha a fő mezőben nincs ott, megkeressük a számla tételei között
                     lines_data = s_get(s_get(obj, 'lines', {}), 'data', [])
                     if lines_data:
                         sub_id = s_get(lines_data[0], 'subscription')
-                        print(f"🔍 SubID előásva a lines-ból: {sub_id}")
+                        if sub_id:
+                            print(f"🔍 SubID előásva a lines-ból: {sub_id}")
                 except Exception as e:
-                    print(f"⚠️ Nem sikerült SubID-t bányászni: {e}")
+                    print(f"⚠️ Nem sikerült SubID-t bányászni a lines-ból: {e}")
+
+            # 2. Mentőöv: Ha még mindig None, lekérjük a vevő aktuális aktív előfizetését a Stripe-tól
+            if not sub_id and cid:
+                try:
+                    # Megkérdezzük a Stripe-ot, van-e ennek a vevőnek aktív előfizetése
+                    active_subs = stripe.Subscription.list(customer=cid, status='active', limit=1, api_key=sk_key)
+                    if active_subs.data:
+                        sub_id = active_subs.data[0].id
+                        print(f"🆘 SubID kényszerítve a Customer aktív listájából: {sub_id}")
+                except Exception as e:
+                    print(f"❌ Nem sikerült előfizetést találni a vevőhöz ({cid}): {e}")
 
             print(f"💳 Megújulás feldolgozása... CID: {cid}, SubID: {sub_id}")
             
