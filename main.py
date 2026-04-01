@@ -668,63 +668,69 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
             cid = s_get(obj, 'customer')
             sub_id = s_get(obj, 'subscription')
             
-            if not sub_id:
-                lines = s_get(obj, 'lines', {})
-                lines_data = s_get(lines, 'data', [])
-                if lines_data:
-                    sub_id = s_get(lines_data[0], 'subscription')
+            print(f"💳 Megújulás feldolgozása... CID: {cid}, SubID: {sub_id}")
             
-            # Nincs többé túlszűrés: ha van előfizetés és fizetett, azonnal hosszabbítunk!
             if sub_id:
                 try:
+                    # Előfizetés adatainak lekérése (dinamikus kulccsal: sk_key)
                     sub = stripe.Subscription.retrieve(sub_id, api_key=sk_key)
                     items = s_get(sub, 'items', {})
-                    items_data = s_get(items, 'data', [])
+                    items_data = s_get(items, 'data', [{}])
                     
-                    if items_data:
-                        price_obj = s_get(items_data[0], 'price', {})
-                        pid = s_get(price_obj, 'id')
+                    price_obj = s_get(items_data[0], 'price', {})
+                    pid = s_get(price_obj, 'id')
+                    recurring = s_get(price_obj, 'recurring', {})
+                    interval = s_get(recurring, 'interval')
+                    
+                    # OKOS NAP-SZÁMÍTÁS (Éles ID, Teszt ID vagy Intervallum alapján)
+                    is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY or 
+                                  pid == os.environ.get("STRIPE_TEST_PRICE_ID_MONTHLY") or 
+                                  interval == 'month')
+                    
+                    is_daily = (pid == STRIPE_PRICE_ID_DAILY or 
+                                pid == os.environ.get("STRIPE_TEST_PRICE_ID_DAILY") or 
+                                interval == 'day')
+                    
+                    is_weekly = (pid == STRIPE_PRICE_ID_WEEKLY or 
+                                 pid == os.environ.get("STRIPE_TEST_PRICE_ID_WEEKLY") or 
+                                 interval == 'week')
+                    
+                    dur = 31 if is_monthly else (1 if is_daily else 7)
+                    plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy 🎫" if is_daily else "Heti Csomag 🗓️")
+                    
+                    # Felhasználó keresése az adatbázisban
+                    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+                    usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).execute()
+                    
+                    if usr_res.data:
+                        usr = usr_res.data[0]
+                        start_dt = datetime.now(pytz.utc)
                         
-                        # 1. A TE EREDETI LOGIKÁD:
-                        is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                        is_daily = (pid == STRIPE_PRICE_ID_DAILY)
+                        # Ha még van hátra ideje, ahhoz adjuk hozzá a napokat
+                        if usr.get('subscription_expires_at'):
+                            try:
+                                db_expiry = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
+                                if db_expiry > start_dt:
+                                    start_dt = db_expiry
+                            except: pass
                         
-                        # 2. Biztonsági háló, ha valakinek az ID-ja egy régi csomagé:
-                        recurring = s_get(price_obj, 'recurring') or {}
-                        interval = s_get(recurring, 'interval')
-                        if interval == 'month': is_monthly = True
-                        if interval == 'day': is_daily = True
+                        new_expiry = (start_dt + timedelta(days=dur)).isoformat()
                         
-                        plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy 🎫" if is_daily else "Heti Csomag 🗓️")
-                        dur = 31 if is_monthly else (1 if is_daily else 7) # Módosítva 31 napra
+                        # Adatbázis frissítése
+                        client.table("felhasznalok").update({
+                            "subscription_status": "active", 
+                            "subscription_expires_at": new_expiry,
+                            "subscription_cancelled": False 
+                        }).eq("id", usr['id']).execute()
                         
-                        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                        usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                        # Értesítés küldése
+                        safe_email = usr['email'].replace('_', '\\_').replace('*', '\\*')
+                        await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {safe_email}\n📦 Csomag: *{plan_name}*\n⏳ Új lejárat: {new_expiry[:10]}")
                         
-                        if usr_res.data:
-                            usr = usr_res.data
-                            
-                            # VISSZAÁLLÍTVA A RÉGI, JÓL BEVÁLT HOZZÁADÓS MATEK!
-                            start_dt = datetime.now(pytz.utc)
-                            if usr.get('subscription_expires_at'):
-                                try:
-                                    db_expiry = datetime.fromisoformat(usr.get('subscription_expires_at').replace('Z', '+00:00'))
-                                    start_dt = max(start_dt, db_expiry)
-                                except: pass
-                            
-                            new_expiry = (start_dt + timedelta(days=dur)).isoformat()
-                            
-                            client.table("felhasznalok").update({
-                                "subscription_status": "active", 
-                                "subscription_expires_at": new_expiry,
-                                "subscription_cancelled": False 
-                            }).eq("id", usr['id']).execute()
-                            
-                            # Értesítés (a formázási hiba kivédésével)
-                            safe_email = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*')
-                            await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {safe_email}\n📦 Csomag: *{plan_name}*")
-                            print(f"✅ [SIKER] Eredeti logikával hozzáadva {dur} nap. Új lejárat: {new_expiry}")
-                            
+                        print(f"✅ [SIKER] Megújulás kész: {usr['email']}, +{dur} nap, Új lejárat: {new_expiry}")
+                    else:
+                        print(f"⚠️ [HIBA] Nem található felhasználó ezzel a CID-vel: {cid}")
+                        
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
