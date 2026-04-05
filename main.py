@@ -619,39 +619,31 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                 
                 client.table("felhasznalok").update(update_payload).eq("stripe_customer_id", cid).execute()
 
-        # --- ÚJ VÁSÁRLÁS (CHECKOUT) ---
+       # --- 2. ÚJ VÁSÁRLÁS (CHECKOUT SESSION) ---
         elif event_type == 'checkout.session.completed':
-            metadata = s_get(obj, 'metadata', {})
-            uid = s_get(metadata, 'user_id')
+            uid = s_get(s_get(obj, 'metadata', {}), 'user_id')
             cid = s_get(obj, 'customer')
-            session_id = s_get(obj, 'id')
+            sid = s_get(obj, 'id')
             
-            print(f"Checkout completed. UID: {uid}, CID: {cid}")
-            if uid and cid and session_id:
-                line_items = stripe.checkout.Session.list_line_items(session_id, limit=1, api_key=sk_key)
-                lines_data = s_get(line_items, 'data', [])
+            if uid and cid and sid:
+                # CSAK a Customer ID-t mentjük, a napokat NEM adjuk hozzá itt!
+                client.table("felhasznalok").update({
+                    "subscription_cancelled": False, 
+                    "stripe_customer_id": cid
+                }).eq("id", uid).execute()
                 
-                duration = 31 
-                plan_name = "Havi Csomag 📅"
-                
-                if lines_data:
-                    price_obj = s_get(lines_data[0], 'price', {})
-                    recurring = s_get(price_obj, 'recurring') or {}
-                    interval = s_get(recurring, 'interval')
-                    
-                    if interval == 'month': duration = 31; plan_name = "Havi Csomag 📅"
-                    elif interval == 'week': duration = 7; plan_name = "Heti Csomag 🗓️"
-                    elif interval == 'day': duration = 1; plan_name = "Napi Jegy 🎫"
-                
-                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({"subscription_cancelled": False, "stripe_customer_id": cid}).eq("id", uid).execute()
-                await activate_subscription_and_notify_web(int(uid), duration, cid)
-                
-                usr_res = client.table("felhasznalok").select("email").eq("id", uid).single().execute()
-                email_val = usr_res.data.get('email', 'Ismeretlen') if usr_res.data else "Ismeretlen"
-                safe_email_new = email_val.replace('_', '\\_').replace('*', '\\*')
+                # Az aktiváló függvényt (activate_subscription_and_notify_web) 
+                # INNEN TÖRÖLD KI, hogy ne legyen dupla nap-hozzáadás!
 
-                await send_admin_notification(f"🎉 *Új Előfizető!*\n👤 {safe_email_new}\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
+                # Értesítés küldése (hogy tudd, van új vevő)
+                usr_res = client.table("felhasznalok").select("email").eq("id", uid).single().execute()
+                email = usr_res.data.get('email', 'Ism.').replace('_', '\\_') if usr_res.data else "Ism."
+                
+                # Terv meghatározása csak az üzenethez
+                line_items = stripe.checkout.Session.list_line_items(sid, limit=1, api_key=sk_key)
+                plan = "Heti Csomag 🗓️" # Egyszerűsítve
+                
+                await send_admin_notification(f"🎉 *Új Előfizető!*\n👤 {email}\n📦 {plan}\nID: `{cid}`")
         
         # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
         elif event_type == 'invoice.payment_succeeded':
