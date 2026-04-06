@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V22.8 - Javított tábla lekérés)
+# eredmeny_ellenorzo.py (V22.9 - Fix oszlopnevek és hibatűrés)
 
 import os
 import requests
@@ -37,13 +37,12 @@ except:
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- JAVÍTOTT JÓVÁHAGYÁSI SZŰRŐ ---
+# --- JÓVÁHAGYÁSI SZŰRŐ ---
 def get_approved_match_ids():
-    """Összegyűjti azokat a meccs ID-kat, amik ténylegesen kimentek szelvényen."""
     approved_ids = set()
     if not supabase: return []
     
-    # 1. Bot szelvények (Napi Tuti) - Itt biztosan van tipp_id_k
+    # 1. Bot szelvények
     try:
         napi = supabase.table("napi_tuti").select("tipp_id_k").execute()
         if napi.data:
@@ -52,7 +51,7 @@ def get_approved_match_ids():
                 if ids: approved_ids.update(ids)
     except: pass
             
-    # 2. Ingyenes szelvények - Itt is van tipp_id_k
+    # 2. Ingyenes szelvények
     try:
         free = supabase.table("free_slips").select("tipp_id_k").execute()
         if free.data:
@@ -60,9 +59,6 @@ def get_approved_match_ids():
                 ids = row.get('tipp_id_k', [])
                 if ids: approved_ids.update(ids)
     except: pass
-            
-    # MEGJEGYZÉS: A manual_slips-et kihagyjuk a szűrésből, 
-    # mert abban nincs tipp_id_k oszlop, és ott nincs automatikus API ellenőrzés.
             
     return list(approved_ids)
 
@@ -87,8 +83,11 @@ def determine_sport(match):
     return 'football'
 
 def check_match_result(match):
-    fixture_id = match['flashscore_id'] # Használjuk a flashscore_id-t az API híváshoz
-    tipp_type = str(match['tipp'])
+    # JAVÍTOTT: fixture_id használata flashscore_id helyett
+    fixture_id = match.get('fixture_id')
+    if not fixture_id: return None
+    
+    tipp_type = str(match.get('tipp', ''))
     sport = determine_sport(match)
     
     endpoint = "fixtures" if sport == 'football' else "games"
@@ -97,7 +96,6 @@ def check_match_result(match):
     if not data: return None
     game_data = data[0]
     
-    # Státusz kinyerése
     f_obj = game_data.get('fixture', game_data)
     status = f_obj.get('status', {}).get('short')
 
@@ -129,8 +127,8 @@ async def send_daily_report(matches, date_str):
     if not finished: return
 
     total = len(finished)
-    wins = len([m for m in finished if m['eredmeny'] == 'Nyert'])
-    profit = sum([(float(m.get('odds', 1.0)) - 1) if m['eredmeny'] == 'Nyert' else -1 for m in finished])
+    wins = len([m for m in finished if m.get('eredmeny') == 'Nyert'])
+    profit = sum([(float(m.get('odds', 1.0)) - 1) if m.get('eredmeny') == 'Nyert' else -1 for m in finished])
     roi = (profit / total) * 100 if total > 0 else 0
     
     msg = f"📝 *Napi Tipp Kiértékelés*\n📅 Dátum: {date_str}\n\n"
@@ -140,7 +138,10 @@ async def send_daily_report(matches, date_str):
         sport = determine_sport(m)
         if sport == "basketball": s_icon = "🏀"
         elif sport == "hockey": s_icon = "🏒"
-        msg += f"{icon} *{m['eredmeny']}*:\n{s_icon} {m['hazai']} - {m['vendeg']} ({m['tipp']})\n"
+        # JAVÍTOTT: hazai/vendeg mezőnevek védelme
+        h_name = m.get('hazai', 'Ismeretlen')
+        v_name = m.get('vendeg', 'Ismeretlen')
+        msg += f"{icon} *{m['eredmeny']}*:\n{s_icon} {h_name} - {v_name} ({m['tipp']})\n"
 
     msg += f"\n---\n📝 Összesen: {total} db (✅ {wins})\n💰 Profit: {profit:.2f} egység\n📈 ROI: {roi:.1f}%"
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
@@ -148,28 +149,27 @@ async def send_daily_report(matches, date_str):
     except Exception as e: print(f"Telegram hiba: {e}")
 
 def main():
-    print("=== EREDMÉNY ELLENŐRZŐ (V22.8 - Multi-Sport + FIX SZŰRÉS) ===")
+    print("=== EREDMÉNY ELLENŐRZŐ (V22.9 - FIX SZŰRÉS + VÉDELEM) ===")
     today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
     
-    # 1. LEKÉRJÜK A JÓVÁHAGYOTT ID-KAT (Bot + Free)
     approved_ids = get_approved_match_ids()
     if not approved_ids:
         print("ℹ️ Nincsenek jóváhagyott automata tippek.")
-        # Ha nincsenek automata tippek, akkor is fusson le a manuális ellenőrzés ha kell, 
-        # de itt most megállunk biztonságból.
         return
 
-    # 2. ELLENŐRZÉS
     res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").in_("id", approved_ids).execute()
     matches = res.data or []
     
     updated = []
     for match in matches:
-        res_status = check_match_result(match)
-        if res_status:
-            supabase.table("meccsek").update({"eredmeny": res_status}).eq("id", match['id']).execute()
-            match['eredmeny'] = res_status
-            updated.append(match)
+        try:
+            res_status = check_match_result(match)
+            if res_status:
+                supabase.table("meccsek").update({"eredmeny": res_status}).eq("id", match['id']).execute()
+                match['eredmeny'] = res_status
+                updated.append(match)
+        except Exception as e:
+            print(f"Hiba egy meccs ellenőrzésekor: {e}")
 
     if updated:
         asyncio.run(send_daily_report(updated, today_str))
