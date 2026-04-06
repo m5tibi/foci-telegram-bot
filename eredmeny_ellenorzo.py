@@ -1,4 +1,4 @@
-# eredmeny_ellenorzo.py (V23.1 - Visszajelzéssel és Fix szűrővel)
+# eredmeny_ellenorzo.py (V23.2 - Fix séma: tipp_id_k és pontos_eredmeny nélkül)
 
 import os
 import requests
@@ -36,30 +36,21 @@ except:
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
+# --- JAVÍTOTT JÓVÁHAGYÁSI SZŰRŐ ---
 def get_approved_match_ids():
     approved_ids = set()
     if not supabase: return []
     
-    # 1. Bot szelvények
+    # Csak a napi_tuti táblát nézzük, mert ott van tipp_id_k
     try:
         napi = supabase.table("napi_tuti").select("tipp_id_k").execute()
         if napi.data:
             for row in napi.data:
                 ids = row.get('tipp_id_k', [])
                 if ids:
-                    # Biztosítjuk, hogy integer legyen minden ID
                     approved_ids.update([int(i) for i in ids if str(i).isdigit()])
-    except Exception as e: print(f"Szűrő hiba (napi): {e}")
-            
-    # 2. Ingyenes szelvények
-    try:
-        free = supabase.table("free_slips").select("tipp_id_k").execute()
-        if free.data:
-            for row in free.data:
-                ids = row.get('tipp_id_k', [])
-                if ids:
-                    approved_ids.update([int(i) for i in ids if str(i).isdigit()])
-    except Exception as e: print(f"Szűrő hiba (free): {e}")
+    except Exception as e: 
+        print(f"Szűrő hiba (napi): {e}")
             
     return list(approved_ids)
 
@@ -146,16 +137,15 @@ async def send_daily_report(matches, date_str):
     await send_telegram(msg)
 
 def main():
-    print("=== EREDMÉNY ELLENŐRZŐ (V23.1 - SZŰRÉS + JELENTÉS) ===")
+    print("=== EREDMÉNY ELLENŐRZŐ (V23.2 - FIX SÉMA) ===")
     today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
     
     approved_ids = get_approved_match_ids()
-    print(f"Jóváhagyott ID-k száma: {len(approved_ids)}")
-    
     if not approved_ids:
         print("Nincs jóváhagyott tipp.")
         return
 
+    # Lekérjük a meccseket
     res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").in_("id", approved_ids).execute()
     matches = res.data or []
     print(f"Ellenőrizendő meccsek száma: {len(matches)}")
@@ -165,9 +155,9 @@ def main():
         score = check_match_result(match)
         if score:
             res_status = evaluate(match, score)
+            # JAVÍTOTT: pontos_eredmeny oszlop törölve az update-ből
             supabase.table("meccsek").update({
-                "eredmeny": res_status,
-                "pontos_eredmeny": f"{score['h']}-{score['a']}"
+                "eredmeny": res_status
             }).eq("id", match['id']).execute()
             match['eredmeny'] = res_status
             updated.append(match)
@@ -176,8 +166,6 @@ def main():
         asyncio.run(send_daily_report(updated, today_str))
     else:
         print("Nem történt új kiértékelés.")
-        # Opcionális: Ha látni akarod, hogy lefutott, vedd ki a kommentet:
-        # asyncio.run(send_telegram("✅ Az eredményellenőrző lefutott, de nincs új lezárult meccs."))
 
 if __name__ == "__main__":
     main()
