@@ -1,11 +1,11 @@
-# eredmeny_ellenorzo.py (V23.2 - Fix séma: tipp_id_k és pontos_eredmeny nélkül)
+# eredmeny_ellenorzo.py (V23.3 - Teljes verzió: Multi-Sport, Szűrés és Időzóna Fix)
 
 import os
 import requests
 import asyncio
 import json
 from supabase import create_client, Client
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import telegram
 
@@ -36,12 +36,12 @@ except:
 
 BUDAPEST_TZ = pytz.timezone('Europe/Budapest')
 
-# --- JAVÍTOTT JÓVÁHAGYÁSI SZŰRŐ ---
+# --- JÓVÁHAGYÁSI SZŰRŐ (Hogy csak a kiküldött tippek kerüljenek a statba) ---
 def get_approved_match_ids():
     approved_ids = set()
     if not supabase: return []
     
-    # Csak a napi_tuti táblát nézzük, mert ott van tipp_id_k
+    # Csak a napi_tuti-ból szedjük az ID-kat (ahol van tipp_id_k oszlop)
     try:
         napi = supabase.table("napi_tuti").select("tipp_id_k").execute()
         if napi.data:
@@ -49,11 +49,12 @@ def get_approved_match_ids():
                 ids = row.get('tipp_id_k', [])
                 if ids:
                     approved_ids.update([int(i) for i in ids if str(i).isdigit()])
-    except Exception as e: 
-        print(f"Szűrő hiba (napi): {e}")
+    except Exception as e:
+        print(f"Szűrő hiba: {e}")
             
     return list(approved_ids)
 
+# --- API és Sport Logika ---
 def get_api_data(sport, endpoint, params):
     host = HOSTS.get(sport)
     if not host: return None
@@ -62,7 +63,8 @@ def get_api_data(sport, endpoint, params):
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         return response.json().get('response', [])
-    except: return None
+    except:
+        return None
 
 def determine_sport(match):
     liga = str(match.get('liga_nev', '')).lower()
@@ -75,13 +77,13 @@ def check_match_result(match):
     f_id = match.get('fixture_id')
     if not f_id: return None
     
-    tipp_type = str(match.get('tipp', ''))
     sport = determine_sport(match)
     endpoint = "fixtures" if sport == 'football' else "games"
     data = get_api_data(sport, endpoint, {"id": str(f_id)})
 
     if not data: return None
     game_data = data[0]
+    
     f_obj = game_data.get('fixture', game_data)
     status = f_obj.get('status', {}).get('short')
 
@@ -96,7 +98,8 @@ def check_match_result(match):
             h, a = game_data['scores']['home'], game_data['scores']['away']
         if h is None or a is None: return None
         return {"h": h, "a": a}
-    except: return None
+    except:
+        return None
 
 def evaluate(match, score):
     t_low = str(match.get('tipp', '')).lower()
@@ -109,61 +112,78 @@ def evaluate(match, score):
     elif "over 2.5" in t_low and (h + a) > 2.5: res = "Nyert"
     return res
 
-async def send_telegram(msg):
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    try: await bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode='Markdown')
-    except: pass
-
-async def send_daily_report(matches, date_str):
+async def send_grouped_reports(matches):
     if not matches: return
-    total = len(matches)
-    wins = len([m for m in matches if m.get('eredmeny') == 'Nyert'])
-    profit = 0.0
+    
+    # CSOPORTOSÍTÁS MAGYAR IDŐ SZERINT
+    reports = {}
     for m in matches:
-        o = float(m.get('odds', m.get('odds_ertek', 1.0)))
-        profit += (o - 1) if m['eredmeny'] == 'Nyert' else -1.0
-        
-    roi = (profit / total) * 100 if total > 0 else 0
-    msg = f"📝 *Napi Tipp Kiértékelés*\n📅 Dátum: {date_str}\n\n"
-    for m in matches:
-        icon = "✅ Nyert:" if m['eredmeny'] == 'Nyert' else "❌ Veszített:"
-        s_icon = "⚽️"
-        sport = determine_sport(m)
-        if sport == "basketball": s_icon = "🏀"
-        elif sport == "hockey": s_icon = "🏒"
-        msg += f"{icon}\n{s_icon} {m.get('csapat_H')} - {m.get('csapat_V')} ({m['tipp']})\n"
+        try:
+            # UTC idő konvertálása Budapestre
+            utc_time = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00'))
+            hun_time = utc_time.astimezone(BUDAPEST_TZ)
+            hun_date = hun_time.strftime("%Y-%m-%d")
+        except:
+            hun_date = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
 
-    msg += f"\n---\n📝 Összesen: {total} db (✅ {wins})\n💰 Profit: {profit:.2f} egység\n📈 ROI: {roi:.1f}%"
-    await send_telegram(msg)
+        if hun_date not in reports:
+            reports[hun_date] = []
+        reports[hun_date].append(m)
+
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    
+    for day, day_matches in reports.items():
+        total = len(day_matches)
+        wins = len([x for x in day_matches if x.get('eredmeny') == 'Nyert'])
+        profit = 0.0
+        for x in day_matches:
+            odds = float(x.get('odds', x.get('odds_ertek', 1.0)))
+            profit += (odds - 1) if x.get('eredmeny') == 'Nyert' else -1.0
+            
+        roi = (profit / total) * 100 if total > 0 else 0
+        
+        msg = f"📝 *Napi Tipp Kiértékelés*\n📅 Dátum: {day}\n\n"
+        for x in day_matches:
+            icon = "✅ Nyert:" if x.get('eredmeny') == "Nyert" else "❌ Veszített:"
+            s_icon = "⚽️"
+            sport = determine_sport(x)
+            if sport == "basketball": s_icon = "🏀"
+            elif sport == "hockey": s_icon = "🏒"
+            msg += f"{icon}\n{s_icon} {x.get('csapat_H')} - {x.get('csapat_V')} ({x.get('tipp')})\n"
+        
+        msg += f"\n---\n📝 Összesen: {total} db (✅ {wins})\n💰 Profit: {profit:.2f} egység\n📈 ROI: {roi:.1f}%"
+        
+        try:
+            await bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode='Markdown')
+        except Exception as e:
+            print(f"Telegram hiba: {e}")
 
 def main():
-    print("=== EREDMÉNY ELLENŐRZŐ (V23.2 - FIX SÉMA) ===")
-    today_str = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
+    print("=== EREDMÉNY ELLENŐRZŐ (V23.3 - TELJES VERZIÓ) ===")
     
     approved_ids = get_approved_match_ids()
     if not approved_ids:
-        print("Nincs jóváhagyott tipp.")
+        print("ℹ️ Nincsenek jóváhagyott tippek.")
         return
 
-    # Lekérjük a meccseket
+    # Csak azokat a meccseket kérjük le, amik jóvá vannak hagyva és még nincsenek kiértékelve
     res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").in_("id", approved_ids).execute()
     matches = res.data or []
     print(f"Ellenőrizendő meccsek száma: {len(matches)}")
     
     updated = []
-    for match in matches:
-        score = check_match_result(match)
+    for m in matches:
+        score = check_match_result(m)
         if score:
-            res_status = evaluate(match, score)
-            # JAVÍTOTT: pontos_eredmeny oszlop törölve az update-ből
-            supabase.table("meccsek").update({
-                "eredmeny": res_status
-            }).eq("id", match['id']).execute()
-            match['eredmeny'] = res_status
-            updated.append(match)
+            res_status = evaluate(m, score)
+            # Adatbázis frissítése (pontos_eredmeny nélkül, mert az nincs a sémában)
+            supabase.table("meccsek").update({"eredmeny": res_status}).eq("id", m['id']).execute()
+            m['eredmeny'] = res_status
+            updated.append(m)
+            print(f"✅ {m.get('csapat_H')} kiértékelve: {res_status}")
 
     if updated:
-        asyncio.run(send_daily_report(updated, today_str))
+        asyncio.run(send_grouped_reports(updated))
     else:
         print("Nem történt új kiértékelés.")
 
