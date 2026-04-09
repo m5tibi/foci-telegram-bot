@@ -381,13 +381,21 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
             else: s["free"]["p"] -= 1.0
 
+        # --- ÖSSZESÍTÉS SZÁMÍTÁSA ---
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
         won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
         net_tot = s["bot"]["p"] + s["vip"]["p"] + s["free"]["p"]
         
+        # ROI számítás: (Profit / Összes befektetés) * 100
+        roi_tot = (net_tot / ev_tot * 100) if ev_tot > 0 else 0
+        
         stat_msg = f"🔥 *Statisztika - {header}*\n\n"
         if ev_tot > 0:
-            stat_msg += f"📊 *Összesített*\n  - Kiértékelt: *{ev_tot}*\n  - Nyertes: *{won_tot}*\n  - Profit: *{net_tot:+.2f} egység*\n\n"
+            stat_msg += f"📊 *Összesített*\n"
+            stat_msg += f"  - Kiértékelt: *{ev_tot}*\n"
+            stat_msg += f"  - Nyertes: *{won_tot}*\n"
+            stat_msg += f"  - Profit: *{net_tot:+.2f} egység*\n"
+            stat_msg += f"  - ROI: *{roi_tot:.2f}%*\n\n" # <-- Ez az új sor
         
         stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} db, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
         stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
