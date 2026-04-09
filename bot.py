@@ -29,12 +29,9 @@ AWAITING_VIP_BROADCAST = 1
 
 # --- Segédfüggvények ---
 def get_db_client():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-def get_admin_db_client():
-    if SUPABASE_SERVICE_KEY:
-        return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    return get_db_client()
+    # Az RLS miatt itt a SERVICE_KEY-t kell használnunk, ha létezik
+    key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
+    return create_client(SUPABASE_URL, key)
 
 HUNGARIAN_MONTHS = ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
 
@@ -314,82 +311,99 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     await query.answer()
     try:
         def sync_task_stat():
-            # FONTOS: Itt a SERVICE_KEY-t használjuk, hogy az RLS ne blokkoljon
-            from supabase import create_client
+            # Kényszerített Service Key kliens
             s_url = os.environ.get("SUPABASE_URL")
             s_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
-            supabase_admin = create_client(s_url, s_key)
+            sb = create_client(s_url, s_key)
             
             now = datetime.now(HUNGARY_TZ)
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
             year_month = target_month_start.strftime('%Y-%m')
             next_month_start = target_month_start + relativedelta(months=1)
             
-            # Adatok lekérése
-            tuti = supabase_admin.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%").execute()
-            meccsek = supabase_admin.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva").execute()
-            manual = supabase_admin.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
-            free = supabase_admin.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
+            # 1. Napi Tutik (Bot forrás)
+            tuti = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%").execute()
+            
+            # 2. Összes lezárt meccs (Ebből számoljuk a VIP/Free-t is)
+            meccsek = sb.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva").execute()
+            
+            # 3. Régi manuális táblák (ha még használod őket)
+            manual = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
+            free = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
             
             return tuti, meccsek, manual, free, f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
 
-        response_tuti, response_meccsek, response_manual, response_free, header = await asyncio.to_thread(sync_task_stat)
+        res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # ID-k kinyerése és tisztítása
-        approved_bot_ids = set()
-        if response_tuti.data:
-            for row in response_tuti.data:
-                raw_ids = row.get('tipp_id_k', [])
-                if isinstance(raw_ids, str):
-                    clean = raw_ids.replace('[','').replace(']','').replace('"','').split(',')
-                    approved_bot_ids.update([int(i.strip()) for i in clean if i.strip().isdigit()])
-                elif isinstance(raw_ids, list):
-                    approved_bot_ids.update([int(i) for i in raw_ids])
+        # Bot ID-k kigyűjtése
+        bot_ids = set()
+        if res_tuti.data:
+            for row in res_tuti.data:
+                raw = row.get('tipp_id_k', [])
+                if isinstance(raw, str):
+                    clean = raw.replace('[','').replace(']','').replace('"','').split(',')
+                    bot_ids.update([int(i.strip()) for i in clean if i.strip().isdigit()])
+                elif isinstance(raw, list):
+                    bot_ids.update([int(i) for i in raw])
 
-        stats = {"bot": {"c": 0, "w": 0, "p": 0.0}, "vip": {"c": 0, "w": 0, "p": 0.0}, "free": {"c": 0, "w": 0, "p": 0.0}}
+        # Statisztika gyűjtő
+        s = {"bot": {"c": 0, "w": 0, "p": 0.0}, "vip": {"c": 0, "w": 0, "p": 0.0}, "free": {"c": 0, "w": 0, "p": 0.0}}
         
-        for m in (response_meccsek.data or []):
+        # Meccsek feldolgozása a 'meccsek' táblából
+        for m in (res_meccsek.data or []):
             is_win = m['eredmeny'] == "Nyert"
             odds = float(m.get('odds', 1.0))
-            p = (odds - 1) if is_win else -1.0
+            profit = (odds - 1) if is_win else -1.0
             m_id = int(m['id'])
             
-            if m_id in approved_bot_ids: cat = "bot"
-            elif "ingyenes" in str(m.get('tipp','')).lower(): cat = "free"
-            else: cat = "vip"
+            if m_id in bot_ids:
+                cat = "bot"
+            elif "ingyenes" in str(m.get('tipp','')).lower() or "free" in str(m.get('tipp','')).lower():
+                cat = "free"
+            else:
+                cat = "vip"
             
-            stats[cat]["c"] += 1
-            if is_win: stats[cat]["w"] += 1
-            stats[cat]["p"] += p
+            s[cat]["c"] += 1
+            if is_win: s[cat]["w"] += 1
+            s[cat]["p"] += profit
 
-        ev_tot = stats["bot"]["c"] + stats["vip"]["c"] + stats["free"]["c"]
-        won_tot = stats["bot"]["w"] + stats["vip"]["w"] + stats["free"]["w"]
-        net_tot = stats["bot"]["p"] + stats["vip"]["p"] + stats["free"]["p"]
+        # Manuális táblák hozzáadása (ha vannak bennük adatok)
+        for d in (res_man.data or []):
+            if d.get('status') in ['Nyert', 'Veszített']:
+                s["vip"]["c"] += 1
+                if d['status'] == 'Nyert':
+                    s["vip"]["w"] += 1
+                    s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+                else: s["vip"]["p"] -= 1.0
+
+        for d in (res_free.data or []):
+            if d.get('status') in ['Nyert', 'Veszített']:
+                s["free"]["c"] += 1
+                if d['status'] == 'Nyert':
+                    s["free"]["w"] += 1
+                    s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+                else: s["free"]["p"] -= 1.0
+
+        ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
+        won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
+        net_tot = s["bot"]["p"] + s["vip"]["p"] + s["free"]["p"]
         
         stat_msg = f"🔥 *Statisztika - {header}*\n\n"
         if ev_tot > 0:
             stat_msg += f"📊 *Összesített*\n  - Kiértékelt: *{ev_tot}*\n  - Nyertes: *{won_tot}*\n  - Profit: *{net_tot:+.2f} egység*\n\n"
         
-        stat_msg += f"🤖 *Bot (Napi Tuti)*: {stats['bot']['c']} db, {stats['bot']['w']} nyert, Profit: {stats['bot']['p']:+.2f}\n"
-        stat_msg += f"📝 *VIP*: {stats['vip']['c']} db, {stats['vip']['w']} nyert, Profit: {stats['vip']['p']:+.2f}\n"
-        stat_msg += f"🆓 *Free*: {stats['free']['c']} db, {stats['free']['w']} nyert, Profit: {stats['free']['p']:+.2f}"
+        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} db, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
+        stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
+        stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
-        # --- GOMBOK DEFINIÁLÁSA (Javítva) ---
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        keyboard = [
-            [
-                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
-                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
-            ],
-            [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]
-        ]
-        if month_offset > 0:
-            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
-
+        # Gombok
+        keyboard = [[InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
+                     InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")],
+                    [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]]
+        
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba történt: {e}")
+        await message_to_edit.edit_text(f"Hiba: {e}")
 
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
