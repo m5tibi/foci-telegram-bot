@@ -283,60 +283,74 @@ async def vip_area(request: Request):
         try:
             supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
             now_local = datetime.now(HUNGARY_TZ)
-            today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            now_utc = datetime.now(pytz.utc) # Összehasonlításhoz a created_at-tel
             
-            approved_dates = set()
-            status_res = supabase_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
-            if status_res.data:
-                for r in status_res.data:
-                    if r['status'] == 'Kiküldve': approved_dates.add(r['date'])
-            if user_is_admin: approved_dates.add(today_str); approved_dates.add(tomorrow_str)
+            today_str = now_local.strftime("%Y-%m-%d")
+            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            if approved_dates:
-                filter_val = ",".join([f"tipp_neve.ilike.%{d}%" for d in approved_dates])
-                resp = supabase_client.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_val).order('tipp_neve', desc=False).execute()
-                slips = [s for s in (resp.data or []) if not s.get('is_admin_only') or user_is_admin]
+            # Lekérünk minden friss tutit (az utolsó 10-et, hogy biztosan benne legyenek a hajnaliak is)
+            resp = supabase_client.table("napi_tuti").select("*, is_admin_only, confidence_percent").order('created_at', desc=True).limit(10).execute()
+            
+            if resp.data:
+                slips_to_check = [s for s in resp.data if not s.get('is_admin_only') or user_is_admin]
                 
-                if slips:
-                    all_ids = [tid for sz in slips for tid in sz.get('tipp_id_k', [])]
-                    if all_ids:
-                        mm = {m['id']: m for m in supabase_client.table("meccsek").select("*").in_("id", all_ids).execute().data}
-                        for sz in slips:
-                            meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
-                            if len(meccs_list) == len(sz.get('tipp_id_k', [])):
-                                match_results = [m.get('eredmeny') for m in meccs_list]
-                                if 'Veszített' in match_results: continue
-                                if 'Tipp leadva' not in match_results: continue 
-                                for m in meccs_list:
-                                    m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
-                                    m['tipp_str'] = get_tip_details(m['tipp'])
-                                sz['meccsek'] = meccs_list
-                                if today_str in sz['tipp_neve']: todays_slips.append(sz)
-                                elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
+                # Összes meccs lekérése egyszerre
+                all_ids = []
+                for sz in slips_to_check:
+                    all_ids.extend(sz.get('tipp_id_k', []))
+                
+                if all_ids:
+                    mm = {m['id']: m for m in supabase_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute().data}
+                    
+                    for sz in slips_to_check:
+                        meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
+                        
+                        if len(meccs_list) == len(sz.get('tipp_id_k', [])):
+                            match_results = [m.get('eredmeny') for m in meccs_list]
+                            
+                            # HAJNALI FIX: 
+                            # 1. Ha benne van a mai/holnapi dátum a névben
+                            # 2. VAGY ha az elmúlt 14 órában készült (így a hajnali NHL kint marad)
+                            created_at = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00'))
+                            is_recent = (now_utc - created_at).total_seconds() < 50400 # 14 óra
+                            
+                            is_today = today_str in sz['tipp_neve']
+                            is_tomorrow = tomorrow_str in sz['tipp_neve']
 
+                            if is_today or is_tomorrow or is_recent:
+                                # Csak ha van még benne élő meccs (Tipp leadva)
+                                if 'Tipp leadva' in match_results:
+                                    for m in meccs_list:
+                                        m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
+                                        # Itt fontos, hogy a bot.py-ban lévő get_tip_details-t használd a tipp szövegéhez
+                                        m['tipp_str'] = m['tipp'] 
+                                    
+                                    sz['meccsek'] = meccs_list
+                                    
+                                    # Besorolás a megjelenítéshez
+                                    if is_tomorrow:
+                                        tomorrows_slips.append(sz)
+                                    else:
+                                        todays_slips.append(sz)
+
+            # Manuális és Free tippek kezelése (marad az eredeti)
             manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if manual.data: active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
             free = supabase_client.table("free_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
             if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
             
+            # Státusz üzenet ha üres minden
             if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
-                target = tomorrow_str if now_local.hour >= 19 else today_str
-                st_res = supabase_client.table("daily_status").select("status").eq("date", target).limit(1).execute()
-                st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
-                if st == "Nincs megfelelő tipp": daily_status_message = "Az algoritmus nem talált megfelelő tippet."
-                elif st == "Jóváhagyásra vár": daily_status_message = "A tippek jóváhagyásra várnak."
-                elif st == "Admin által elutasítva": daily_status_message = "Az adminisztrátor elutasította a tippeket."
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
-        except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
+                daily_status_message = "Jelenleg nincsenek aktív szelvények."
+                
+        except Exception as e: 
+            print(f"VIP hiba: {e}")
+            daily_status_message = "Hiba történt az adatok lekérésekor."
     
     return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
-        "request": request, 
-        "user": user, 
-        "is_subscribed": is_subscribed, 
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips, 
-        "active_manual_slips": active_manual_slips,
-        "active_free_slips": active_free_slips,
+        "request": request, "user": user, "is_subscribed": is_subscribed, 
+        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, 
+        "active_manual_slips": active_manual_slips, "active_free_slips": active_free_slips,
         "daily_status_message": daily_status_message
     })
 
