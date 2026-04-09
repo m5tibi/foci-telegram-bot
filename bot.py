@@ -313,32 +313,29 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
     await query.answer()
     try:
-        # --- JAVÍTOTT sync_task_stat ---
         def sync_task_stat():
-            # FONTOS: Győződj meg róla, hogy a get_db_client() a SERVICE_KEY-t használja!
-            supabase = get_db_client() 
-            now = datetime.now(HUNGARY_TZ)
+            # FONTOS: Itt a SERVICE_KEY-t használjuk, hogy az RLS ne blokkoljon
+            from supabase import create_client
+            s_url = os.environ.get("SUPABASE_URL")
+            s_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
+            supabase_admin = create_client(s_url, s_key)
             
+            now = datetime.now(HUNGARY_TZ)
             target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
             year_month = target_month_start.strftime('%Y-%m')
             next_month_start = target_month_start + relativedelta(months=1)
             
-            # 1. Lekérjük a Napi Tutikat (Bot tippek forrása)
-            # Ha az RLS be van kapcsolva, ide mindenképp kell a Service Key!
-            tuti = supabase.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%").execute()
-            
-            # 2. Lekérjük a lezárt meccseket
-            meccsek = supabase.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva").execute()
-            
-            # 3. Manuális és Free táblák (ha használod őket)
-            manual = supabase.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).in_("status", ["Nyert", "Veszített"]).execute()
-            free = supabase.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).in_("status", ["Nyert", "Veszített"]).execute()
+            # Adatok lekérése
+            tuti = supabase_admin.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%").execute()
+            meccsek = supabase_admin.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva").execute()
+            manual = supabase_admin.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
+            free = supabase_admin.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).execute()
             
             return tuti, meccsek, manual, free, f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
 
         response_tuti, response_meccsek, response_manual, response_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # --- ÚJ LOGIKA: ID ALAPÚ SZÉTVÁLOGATÁS ---
+        # ID-k kinyerése és tisztítása
         approved_bot_ids = set()
         if response_tuti.data:
             for row in response_tuti.data:
@@ -355,9 +352,9 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             is_win = m['eredmeny'] == "Nyert"
             odds = float(m.get('odds', 1.0))
             p = (odds - 1) if is_win else -1.0
+            m_id = int(m['id'])
             
-            # Besorolás
-            if int(m['id']) in approved_bot_ids: cat = "bot"
+            if m_id in approved_bot_ids: cat = "bot"
             elif "ingyenes" in str(m.get('tipp','')).lower(): cat = "free"
             else: cat = "vip"
             
@@ -365,7 +362,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             if is_win: stats[cat]["w"] += 1
             stats[cat]["p"] += p
 
-        # Összesítés
         ev_tot = stats["bot"]["c"] + stats["vip"]["c"] + stats["free"]["c"]
         won_tot = stats["bot"]["w"] + stats["vip"]["w"] + stats["free"]["w"]
         net_tot = stats["bot"]["p"] + stats["vip"]["p"] + stats["free"]["p"]
@@ -378,25 +374,22 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg += f"📝 *VIP*: {stats['vip']['c']} db, {stats['vip']['w']} nyert, Profit: {stats['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {stats['free']['c']} db, {stats['free']['w']} nyert, Profit: {stats['free']['p']:+.2f}"
 
-        # Gombok maradnak a régiek...
+        # --- GOMBOK DEFINIÁLÁSA (Javítva) ---
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
+                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
+            ],
+            [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]
+        ]
+        if month_offset > 0:
+            keyboard[1].append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
+
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba: {e}")
-@admin_only
-async def admin_show_users(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; await query.answer()
-    try:
-        def sync_task(): 
-            db = get_db_client()
-            total = db.table("felhasznalok").select('id', count='exact').execute()
-            # Telegramosok számlálása (javítva: csak azokat számoljuk, ahol nem null)
-            all_users = db.table("felhasznalok").select('chat_id').execute()
-            tg_count = len([u for u in all_users.data if u.get('chat_id')])
-            return total.count, tg_count
-            
-        total_count, tg_count = await asyncio.to_thread(sync_task)
-        await query.message.reply_text(f"👥 **Felhasználók Statisztikája:**\n\n🌐 Regisztrált felhasználók: **{total_count}**\n📱 Telegrammal összekötve: **{tg_count}**", parse_mode='Markdown')
-    except Exception as e: await query.message.reply_text(f"Hiba: {e}")
+        await message_to_edit.edit_text(f"Hiba történt: {e}")
 
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
