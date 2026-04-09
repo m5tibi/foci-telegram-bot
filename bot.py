@@ -311,107 +311,120 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     await query.answer()
     try:
         def sync_task_stat():
-            # Admin kliens használata az RLS miatt
+            # Kötelező Service Key az RLS miatt
             from supabase import create_client
             s_url = os.environ.get("SUPABASE_URL")
             s_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
             sb = create_client(s_url, s_key)
             
             now = datetime.now(HUNGARY_TZ)
-            target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
-            year_month = target_month_start.strftime('%Y-%m')
-            next_month_start = target_month_start + relativedelta(months=1)
             
-            # 1. BOT: Napi Tutik és a hozzájuk tartozó meccsek
-            tuti_res = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%").execute()
-            
-            # 2. VIP: manual_slips tábla
-            vip_res = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).in_("status", ["Nyert", "Veszített"]).execute()
-            
-            # 3. FREE: free_slips tábla
-            free_res = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d')).in_("status", ["Nyert", "Veszített"]).execute()
-            
-            return tuti_res, vip_res, free_res, sb, f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
+            # --- LEKÉRDEZÉS LOGIKA ---
+            if period == "all":
+                # TELJES STATISZTIKA (Nincs dátumkorlát)
+                tuti_q = sb.table("napi_tuti").select("*")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds, tipp").neq("eredmeny", "Tipp leadva")
+                man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
+                free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
+                header = "Összesített (All-Time)"
+            else:
+                # HAVI STATISZTIKA
+                target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
+                year_month = target_month_start.strftime('%Y-%m')
+                next_month_start = target_month_start + relativedelta(months=1)
+                
+                tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva")
+                man_q = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
+                free_q = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
+                header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
 
-        res_tuti, res_vip, res_free, sb_admin, header = await asyncio.to_thread(sync_task_stat)
+            return tuti_q.execute(), meccsek_q.execute(), man_q.execute(), free_q.execute(), header
+
+        res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # --- 1. BOT SZÁMÍTÁSA ---
-        bot_eval, bot_won, bot_profit = 0, 0, 0.0
+        # Bot ID-k feldolgozása (String/List fix)
+        bot_ids = set()
         if res_tuti.data:
-            all_match_ids = []
             for row in res_tuti.data:
                 raw = row.get('tipp_id_k', [])
                 if isinstance(raw, str):
                     clean = raw.replace('[','').replace(']','').replace('"','').split(',')
-                    row['parsed_ids'] = [int(i.strip()) for i in clean if i.strip().isdigit()]
-                else:
-                    row['parsed_ids'] = [int(i) for i in raw]
-                all_match_ids.extend(row['parsed_ids'])
+                    bot_ids.update([int(i.strip()) for i in clean if i.strip().isdigit()])
+                elif isinstance(raw, list):
+                    bot_ids.update([int(i) for i in raw])
 
-            if all_match_ids:
-                m_data = sb_admin.table("meccsek").select("id, eredmeny, odds").in_("id", list(set(all_match_ids))).execute()
-                m_map = {m['id']: m for m in m_data.data} if m_data.data else {}
-                
-                for row in res_tuti.data:
-                    res_list = [m_map.get(tid) for tid in row['parsed_ids']]
-                    if any(r is None or r['eredmeny'] == "Tipp leadva" for r in res_list): continue
-                    
-                    bot_eval += 1
-                    if all(r['eredmeny'] == "Nyert" for r in res_list):
-                        bot_won += 1
-                        # Eredő odds kiszámítása
-                        total_odds = 1.0
-                        for r in res_list: total_odds *= float(r['odds'])
-                        bot_profit += (total_odds - 1)
-                    else:
-                        bot_profit -= 1.0
+        # Számlálók
+        s = {"bot": {"c": 0, "w": 0, "p": 0.0}, "vip": {"c": 0, "w": 0, "p": 0.0}, "free": {"c": 0, "w": 0, "p": 0.0}}
+        
+        # Meccsek kategóriákba sorolása
+        for m in (res_meccsek.data or []):
+            is_win = m['eredmeny'] == "Nyert"
+            profit = (float(m.get('odds', 1.0)) - 1) if is_win else -1.0
+            m_id = int(m['id'])
+            
+            if m_id in bot_ids: cat = "bot"
+            elif any(x in str(m.get('tipp','')).lower() for x in ["ingyenes", "free"]): cat = "free"
+            else: cat = "vip"
+            
+            s[cat]["c"] += 1
+            if is_win: s[cat]["w"] += 1
+            s[cat]["p"] += profit
 
-        # --- 2. VIP SZÁMÍTÁSA ---
-        vip_eval, vip_won, vip_profit = 0, 0, 0.0
-        for d in (res_vip.data or []):
-            vip_eval += 1
-            if d['status'] == 'Nyert':
-                vip_won += 1
-                vip_profit += (float(d.get('eredo_odds', 1.0)) - 1)
-            else:
-                vip_profit -= 1.0
+        # Régi manuális táblák hozzáadása
+        for d in (res_man.data or []):
+            s["vip"]["c"] += 1
+            if d.get('status') == 'Nyert':
+                s["vip"]["w"] += 1
+                s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+            else: s["vip"]["p"] -= 1.0
 
-        # --- 3. FREE SZÁMÍTÁSA ---
-        free_eval, free_won, free_profit = 0, 0, 0.0
         for d in (res_free.data or []):
-            free_eval += 1
-            if d['status'] == 'Nyert':
-                free_won += 1
-                free_profit += (float(d.get('eredo_odds', 1.0)) - 1)
-            else:
-                free_profit -= 1.0
+            s["free"]["c"] += 1
+            if d.get('status') == 'Nyert':
+                s["free"]["w"] += 1
+                s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+            else: s["free"]["p"] -= 1.0
 
-        # --- ÖSSZESÍTÉS ---
-        total_eval = bot_eval + vip_eval + free_eval
-        total_won = bot_won + vip_won + free_won
-        total_profit = bot_profit + vip_profit + free_profit
+        # Összegzés
+        ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
+        won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
+        net_tot = s["bot"]["p"] + s["vip"]["p"] + s["free"]["p"]
         
         stat_msg = f"🔥 *Statisztika - {header}*\n\n"
-        if total_eval > 0:
-            stat_msg += f"📊 *Összesített*\n"
-            stat_msg += f"  - Kiértékelt: *{total_eval}*\n"
-            stat_msg += f"  - Nyertes: *{total_won}*\n"
-            stat_msg += f"  - Találati: *{(total_won/total_eval*100):.2f}%*\n"
-            stat_msg += f"  - Profit: *{total_profit:+.2f} egység*\n\n"
+        if ev_tot > 0:
+            stat_msg += f"📊 *Összesített*\n  - Kiértékelt: *{ev_tot}*\n  - Nyertes: *{won_tot}*\n  - Profit: *{net_tot:+.2f} egység*\n\n"
         
-        stat_msg += f"🤖 *Bot (Napi Tuti)*: {bot_eval} db, {bot_won} nyert, Profit: {bot_profit:+.2f}\n"
-        stat_msg += f"📝 *VIP*: {vip_eval} db, {vip_won} nyert, Profit: {vip_profit:+.2f}\n"
-        stat_msg += f"🆓 *Free*: {free_eval} db, {free_won} nyert, Profit: {free_profit:+.2f}"
+        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} db, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
+        stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
+        stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
-        # Gombok
-        keyboard = [[InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
-                     InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")],
-                    [InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0")]]
+        # --- GOMBOK ÚJRAÉPÍTÉSE ---
+        keyboard = []
         
+        # Időbeli navigáció (Csak ha havi nézetben vagyunk)
+        if period != "all":
+            nav_row = [
+                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}")
+            ]
+            if month_offset > 0:
+                nav_row.append(InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{month_offset - 1}"))
+            keyboard.append(nav_row)
+
+        # Funkciógombok
+        action_row = []
+        if period != "all":
+            action_row.append(InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0"))
+        
+        if month_offset > 0 or period == "all":
+            action_row.append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
+        
+        if action_row:
+            keyboard.append(action_row)
+
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba történt: {e}")
+        await message_to_edit.edit_text(f"Hiba: {e}")
 
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
