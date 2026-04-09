@@ -319,16 +319,15 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             
             now = datetime.now(HUNGARY_TZ)
             
-            # --- LEKÉRDEZÉS LOGIKA ---
             if period == "all":
-                # TELJES STATISZTIKA (Nincs dátumkorlát)
+                # --- TELJES STATISZTIKA (Nincs dátumkorlát!) ---
                 tuti_q = sb.table("napi_tuti").select("*")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds, tipp").neq("eredmeny", "Tipp leadva")
                 man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 header = "Összesített (All-Time)"
             else:
-                # HAVI STATISZTIKA
+                # --- HAVI STATISZTIKA ---
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 year_month = target_month_start.strftime('%Y-%m')
                 next_month_start = target_month_start + relativedelta(months=1)
@@ -343,7 +342,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # Bot ID-k feldolgozása (String/List fix)
+        # Bot ID-k feldolgozása
         bot_ids = set()
         if res_tuti.data:
             for row in res_tuti.data:
@@ -354,24 +353,20 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 elif isinstance(raw, list):
                     bot_ids.update([int(i) for i in raw])
 
-        # Számlálók
         s = {"bot": {"c": 0, "w": 0, "p": 0.0}, "vip": {"c": 0, "w": 0, "p": 0.0}, "free": {"c": 0, "w": 0, "p": 0.0}}
         
-        # Meccsek kategóriákba sorolása
+        # Besorolás a 'meccsek' táblából
         for m in (res_meccsek.data or []):
             is_win = m['eredmeny'] == "Nyert"
             profit = (float(m.get('odds', 1.0)) - 1) if is_win else -1.0
-            m_id = int(m['id'])
-            
-            if m_id in bot_ids: cat = "bot"
+            if int(m['id']) in bot_ids: cat = "bot"
             elif any(x in str(m.get('tipp','')).lower() for x in ["ingyenes", "free"]): cat = "free"
             else: cat = "vip"
-            
             s[cat]["c"] += 1
             if is_win: s[cat]["w"] += 1
             s[cat]["p"] += profit
 
-        # Régi manuális táblák hozzáadása
+        # Manuális táblák (VIP/Free)
         for d in (res_man.data or []):
             s["vip"]["c"] += 1
             if d.get('status') == 'Nyert':
@@ -386,7 +381,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
             else: s["free"]["p"] -= 1.0
 
-        # Összegzés
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
         won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
         net_tot = s["bot"]["p"] + s["vip"]["p"] + s["free"]["p"]
@@ -399,23 +393,22 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
-        # --- GOMBOK ÚJRAÉPÍTÉSE ---
+        # --- GOMBOK JAVÍTÁSA ---
         keyboard = []
         
-        # Időbeli navigáció (Csak ha havi nézetben vagyunk)
+        # 1. sor: Navigáció (csak ha nem Teljes nézetben vagyunk)
         if period != "all":
-            nav_row = [
-                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}")
-            ]
+            nav_row = [InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}")]
             if month_offset > 0:
                 nav_row.append(InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{month_offset - 1}"))
             keyboard.append(nav_row)
 
-        # Funkciógombok
+        # 2. sor: Funkciógombok
         action_row = []
         if period != "all":
             action_row.append(InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0"))
         
+        # MINDIG jelenjen meg az "Aktuális Hónap" gomb, ha nem ott vagyunk (offset > 0 VAGY Teljes nézet)
         if month_offset > 0 or period == "all":
             action_row.append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
         
