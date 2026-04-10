@@ -281,78 +281,59 @@ async def vip_area(request: Request):
     
     if is_subscribed:
         try:
-            # Service Key használata az RLS miatt
             sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
             now_local = datetime.now(HUNGARY_TZ)
-            now_utc = datetime.now(pytz.utc)
-            
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            # Lekérjük az utolsó 15 szelvényt (hogy a tegnapiak is benne legyenek)
-            resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(15).execute()
-            
-            if resp.data:
-                slips_to_check = [s for s in resp.data if not s.get('is_admin_only') or user_is_admin]
-                
-                # Meccsek lekérése az összes szelvényhez
-                all_ids = []
-                for sz in slips_to_check:
-                    all_ids.extend(sz.get('tipp_id_k', []))
-                
-                if all_ids:
-                    meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
-                    mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
-                    
-                    for sz in slips_to_check:
-                        meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
-                        
-                        if len(meccs_list) == len(sz.get('tipp_id_k', [])):
-                            match_results = [m.get('eredmeny') for m in meccs_list]
-                            
-                            # IDŐZÍTÉS JAVÍTÁSA:
-                            # 1. Mikor készült?
-                            created_at = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00'))
-                            # 24 órás türelmi idő (86400 másodperc)
-                            is_within_24h = (now_utc - created_at).total_seconds() < 86400
-                            
-                            # 2. Van még benne nem lejátszott meccs?
-                            has_active_match = 'Tipp leadva' in match_results
-                            
-                            # MEGJELENÍTÉSI FELTÉTEL:
-                            # Akkor mutatjuk, ha 24 órán belüli VAGY ha még van benne élő meccs
-                            if is_within_24h or has_active_match:
-                                # De ha már minden meccs VESZÍTETT vagy NYERT, akkor nem zavarjuk vele a népet
-                                if not has_active_match and 'Veszített' in match_results:
-                                    continue
-                                
-                                for m in meccs_list:
-                                    # Időzóna konverzió a kiíráshoz
-                                    m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
-                                    m['tipp_str'] = m['tipp']
-                                
-                                sz['meccsek'] = meccs_list
-                                
-                                # Szétválogatás a weboldal füleihez
-                                if tomorrow_str in sz['tipp_neve']:
-                                    tomorrows_slips.append(sz)
-                                else:
-                                    todays_slips.append(sz)
 
-            # Manuális és Free tippek (Marad az eredeti logika)
+            # --- 1. JÓVÁHAGYÁS ELLENŐRZÉSE ---
+            # Megnézzük, hogy a mai vagy holnapi napra van-e "Kiküldve" státusz
+            approved_dates = []
+            status_check = sb_client.table("daily_status").select("date").eq("status", "Kiküldve").in_("date", [today_str, tomorrow_str]).execute()
+            if status_check.data:
+                approved_dates = [r['date'] for r in status_check.data]
+            
+            # Ha az Admin nézi, ő lássa a "Jóváhagyásra vár" tippeket is
+            if user_is_admin:
+                approved_dates = [today_str, tomorrow_str]
+
+            if approved_dates:
+                # Csak azokat a napi_tuti-kat kérjük le, amiknek a dátuma jóvá van hagyva
+                filter_val = " or ".join([f"tipp_neve.ilike.%{d}%" for d in approved_dates])
+                resp = sb_client.table("napi_tuti").select("*, is_admin_only").or_(filter_val).order('created_at', desc=True).execute()
+                
+                if resp.data:
+                    slips_to_show = [s for s in resp.data if not s.get('is_admin_only') or user_is_admin]
+                    
+                    # Meccsek betöltése (a korábbi logika szerint)
+                    all_ids = []
+                    for sz in slips_to_show: all_ids.extend(sz.get('tipp_id_k', []))
+                    
+                    if all_ids:
+                        mm = {m['id']: m for m in sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute().data}
+                        for sz in slips_to_show:
+                            meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
+                            if len(meccs_list) == len(sz.get('tipp_id_k', [])):
+                                # Csak az aktív (le nem zárt) tippeket mutatjuk a VIP-ben
+                                if 'Tipp leadva' in [m.get('eredmeny') for m in meccs_list]:
+                                    for m in meccs_list:
+                                        m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
+                                        m['tipp_str'] = m['tipp']
+                                    sz['meccsek'] = meccs_list
+                                    if today_str in sz['tipp_neve']: todays_slips.append(sz)
+                                    else: tomorrows_slips.append(sz)
+
+            # Manuális és Free tippek
             manual = sb_client.table("manual_slips").select("*").gte("target_date", today_str).execute()
             if manual.data: active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
             
-            free = sb_client.table("free_slips").select("*").gte("target_date", today_str).execute()
-            if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
-            
-            if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
-                daily_status_message = "Jelenleg nincsenek aktív szelvények."
+            if not any([todays_slips, tomorrows_slips, active_manual_slips]):
+                daily_status_message = "Mára minden tipp lezárult vagy még jóváhagyásra vár."
                 
-        except Exception as e: 
-            print(f"WEB VIP HIBA: {e}")
-            daily_status_message = "Hiba történt az adatok betöltésekor."
-    
+        except Exception as e:
+            print(f"Hiba: {e}")
+            daily_status_message = "Hiba az adatok betöltésekor."
+
     return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
         "request": request, "user": user, "is_subscribed": is_subscribed,
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
