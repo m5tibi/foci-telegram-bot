@@ -311,7 +311,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     await query.answer()
     try:
         def sync_task_stat():
-            # Kötelező Service Key az RLS miatt
+            # Kötelező Service Key az RLS (biztonság) áttöréséhez
             from supabase import create_client
             s_url = os.environ.get("SUPABASE_URL")
             s_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
@@ -320,20 +320,20 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             now = datetime.now(HUNGARY_TZ)
             
             if period == "all":
-                # --- TELJES STATISZTIKA (Nincs dátumkorlát!) ---
+                # TELJES STATISZTIKA
                 tuti_q = sb.table("napi_tuti").select("*")
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds, tipp").neq("eredmeny", "Tipp leadva")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").neq("eredmeny", "Tipp leadva")
                 man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 header = "Összesített (All-Time)"
             else:
-                # --- HAVI STATISZTIKA ---
+                # HAVI STATISZTIKA
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 year_month = target_month_start.strftime('%Y-%m')
                 next_month_start = target_month_start + relativedelta(months=1)
                 
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%")
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds, tipp").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva")
                 man_q = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
                 free_q = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
@@ -342,7 +342,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # Bot ID-k feldolgozása
+        # 1. BOT ID-k kigyűjtése a napi_tuti táblából
         bot_ids = set()
         if res_tuti.data:
             for row in res_tuti.data:
@@ -353,40 +353,41 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 elif isinstance(raw, list):
                     bot_ids.update([int(i) for i in raw])
 
+        # Statisztika gyűjtő
         s = {"bot": {"c": 0, "w": 0, "p": 0.0}, "vip": {"c": 0, "w": 0, "p": 0.0}, "free": {"c": 0, "w": 0, "p": 0.0}}
         
-        # Besorolás a 'meccsek' táblából
+        # 2. BOT SZÁMÍTÁSA: Csak azokat nézzük, amik ténylegesen Bot ID-k
         for m in (res_meccsek.data or []):
-            is_win = m['eredmeny'] == "Nyert"
-            profit = (float(m.get('odds', 1.0)) - 1) if is_win else -1.0
-            if int(m['id']) in bot_ids: cat = "bot"
-            elif any(x in str(m.get('tipp','')).lower() for x in ["ingyenes", "free"]): cat = "free"
-            else: cat = "vip"
-            s[cat]["c"] += 1
-            if is_win: s[cat]["w"] += 1
-            s[cat]["p"] += profit
+            m_id = int(m['id'])
+            if m_id in bot_ids:
+                is_win = m['eredmeny'] == "Nyert"
+                profit = (float(m.get('odds', 1.0)) - 1) if is_win else -1.0
+                s["bot"]["c"] += 1
+                if is_win: s["bot"]["w"] += 1
+                s["bot"]["p"] += profit
 
-        # Manuális táblák (VIP/Free)
+        # 3. VIP SZÁMÍTÁSA: Kizárólag a manual_slips táblából
         for d in (res_man.data or []):
             s["vip"]["c"] += 1
             if d.get('status') == 'Nyert':
                 s["vip"]["w"] += 1
                 s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
-            else: s["vip"]["p"] -= 1.0
+            else:
+                s["vip"]["p"] -= 1.0
 
+        # 4. FREE SZÁMÍTÁSA: Kizárólag a free_slips táblából
         for d in (res_free.data or []):
             s["free"]["c"] += 1
             if d.get('status') == 'Nyert':
                 s["free"]["w"] += 1
                 s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
-            else: s["free"]["p"] -= 1.0
+            else:
+                s["free"]["p"] -= 1.0
 
-        # --- ÖSSZESÍTÉS SZÁMÍTÁSA ---
+        # --- ÖSSZESÍTÉS ÉS ROI ---
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
         won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
         net_tot = s["bot"]["p"] + s["vip"]["p"] + s["free"]["p"]
-        
-        # ROI számítás: (Profit / Összes befektetés) * 100
         roi_tot = (net_tot / ev_tot * 100) if ev_tot > 0 else 0
         
         stat_msg = f"🔥 *Statisztika - {header}*\n\n"
@@ -395,38 +396,31 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             stat_msg += f"  - Kiértékelt: *{ev_tot}*\n"
             stat_msg += f"  - Nyertes: *{won_tot}*\n"
             stat_msg += f"  - Profit: *{net_tot:+.2f} egység*\n"
-            stat_msg += f"  - ROI: *{roi_tot:.2f}%*\n\n" # <-- Ez az új sor
+            stat_msg += f"  - ROI: *{roi_tot:.2f}%*\n\n"
         
         stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} db, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
         stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
-        # --- GOMBOK JAVÍTÁSA ---
+        # --- GOMBOK ---
         keyboard = []
-        
-        # 1. sor: Navigáció (csak ha nem Teljes nézetben vagyunk)
         if period != "all":
             nav_row = [InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}")]
             if month_offset > 0:
                 nav_row.append(InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{month_offset - 1}"))
             keyboard.append(nav_row)
 
-        # 2. sor: Funkciógombok
         action_row = []
         if period != "all":
             action_row.append(InlineKeyboardButton("🏛️ Teljes Statisztika", callback_data="admin_show_stat_all_0"))
-        
-        # MINDIG jelenjen meg az "Aktuális Hónap" gomb, ha nem ott vagyunk (offset > 0 VAGY Teljes nézet)
         if month_offset > 0 or period == "all":
             action_row.append(InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0"))
         
-        if action_row:
-            keyboard.append(action_row)
+        if action_row: keyboard.append(action_row)
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     except Exception as e:
         await message_to_edit.edit_text(f"Hiba: {e}")
-
 @admin_only
 async def admin_check_status(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer("Ellenőrzés...", cache_time=5); await query.message.edit_text("❤️ Rendszer ellenőrzése...")
