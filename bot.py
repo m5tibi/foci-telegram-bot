@@ -376,7 +376,16 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         
         if action_row: keyboard.append(action_row)
 
+       # ... gombok kódja ...
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    # ITT HIÁNYZIK VALÓSZÍNŰLEG AZ ALÁBBI KÉT SOR:
+    except Exception as e:
+        await message_to_edit.edit_text(f"Hiba: {e}")
+
+# És csak ezután jöhet a következő függvény:
+@admin_only
+async def button_handler(update: telegram.Update, context: CallbackContext):
+    # ... a többi kód ...
 
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
@@ -450,17 +459,15 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
     
-    # STATISZTIKA KEZELŐ JAVÍTÁSA
+    # admin_show_stat_yesterday_0 -> parts[3] = yesterday, parts[4] = 0
     if command.startswith("admin_show_stat_"):
-        parts = command.split("_")
-        # Példa: admin_show_stat_yesterday_0
-        # parts[3] lesz a "yesterday", parts[4] pedig a "0"
         try:
+            parts = command.split("_")
             period = parts[3]
             offset = int(parts[4])
             await stat(update, context, period=period, month_offset=offset)
-        except (IndexError, ValueError):
-            # Ha valamiért rossz a formátum, alapértelmezetten az aktuális hónapot mutatjuk
+        except Exception as e:
+            print(f"Stat gomb hiba: {e}")
             await stat(update, context, period="current_month", month_offset=0)
             
     elif command == "admin_show_users": await admin_show_users(update, context)
