@@ -54,12 +54,22 @@ ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 api = FastAPI()
-# CORS és Session Middleware
+
+# --- CORS beállítások ---
 origins = ["https://mondomatutit.hu", "https://www.mondomatutit.hu", "https://m5tibi.github.io"]
-api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+api.add_middleware(
+    CORSMiddleware, 
+    allow_origins=origins, 
+    allow_credentials=True, 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+
+# --- Session Middleware (Javítva: lezárt zárójellel és stabil beállításokkal) ---
 api.add_middleware(
     SessionMiddleware, 
     secret_key=SESSION_SECRET_KEY
+)
 
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -69,7 +79,7 @@ try:
 except Exception as e:
     print(f"Supabase init hiba: {e}")
     supabase = None
-
+    
 # --- Segédfüggvények ---
 def s_get(obj, key, default=None):
     if isinstance(obj, dict): return obj.get(key, default)
