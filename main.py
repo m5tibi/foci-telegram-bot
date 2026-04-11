@@ -324,7 +324,7 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     
-    # Alapértelmezett értékek (hogy ne legyen hiba, ha nem lép be az if-be)
+    # Alapértelmezett értékek
     todays_slips = []
     tomorrows_slips = []
     active_manual_slips = []
@@ -333,39 +333,49 @@ async def vip_area(request: Request):
     
     if is_subscribed or user_is_admin:
         try:
-            # Service Key használata az admin-only szelvények látásához
             sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
             now_local = datetime.now(HUNGARY_TZ)
             now_utc = datetime.now(pytz.utc)
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # Utolsó 15 szelvény (hogy a tegnapi hajnaliak is benne legyenek)
+            # Adatok lekérése
             resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
-                slips_to_check = [s for s in resp.data if not s.get('is_admin_only') or user_is_admin]
-                all_ids = [tid for sz in slips_to_check for tid in sz.get('tipp_id_k', [])]
-                
+                # 1. SZŰRÉS: Csak azokat tartsuk meg, amiket a user láthat
+                allowed_slips = []
+                for s in resp.data:
+                    if s.get('is_admin_only') is True:
+                        if user_is_admin:
+                            allowed_slips.append(s)
+                    else:
+                        allowed_slips.append(s)
+
+                # 2. MECCSEK ADATAINAK BETÖLTÉSE
+                all_ids = [tid for sz in allowed_slips for tid in sz.get('tipp_id_k', [])]
                 if all_ids:
                     meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
                     
-                    for sz in slips_to_check:
+                    for sz in allowed_slips:
                         meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
+                        
+                        # Csak akkor dolgozzuk fel, ha minden meccs megvan
                         if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                             res_list = [m.get('eredmeny') for m in meccs_list]
                             created_at = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00'))
                             
-                            # JAVÍTÁS: 24 órás ablak VAGY van benne lezáratlan meccs
+                            # Időbeli szűrés (24 óra vagy aktív)
                             is_recent = (now_utc - created_at).total_seconds() < 86400
                             has_active = 'Tipp leadva' in res_list
                             
                             if is_recent or has_active:
-                                # Ha már minden lezárult és vesztett, azt ne mutassuk
+                                # Elrejtjük a már lezárult veszteseket
                                 if not has_active and 'Veszített' in res_list: 
                                     continue
                                 
+                                # Formázás a sablonhoz
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
@@ -392,7 +402,7 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             daily_status_message = "Hiba az adatok betöltésekor."
 
-    # --- VÉGLEGES JAVÍTÁS (KEYWORD ARGUMENTS) ---
+    # Megfelelő kulcsszavas argumentumok a TemplateResponse-hoz
     return templates.TemplateResponse(
         request=request, 
         name="vip_tippek.html", 
