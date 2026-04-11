@@ -84,6 +84,33 @@ def verify_password(plain_password, hashed_password):
     try:
         return pwd_context.verify(plain_password, hashed_password)
     except Exception:
+        return False# --- CORS beállítások ---
+origins = ["https://mondomatutit.hu", "https://www.mondomatutit.hu", "https://m5tibi.github.io"]
+api.add_middleware(
+    CORSMiddleware, 
+    allow_origins=origins, 
+    allow_credentials=True, 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+
+# --- Session Middleware (JAVÍTVA) ---
+api.add_middleware(
+    SessionMiddleware, 
+    secret_key=SESSION_SECRET_KEY
+)
+
+templates = Jinja2Templates(directory="templates")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# --- JELSZÓKEZELŐ FÜGGVÉNYEK (PÓTOLVA) ---
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password, hashed_password):
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
         return False
 # -----------------------------------------------
 
