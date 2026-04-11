@@ -261,7 +261,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         request.session["user_id"] = user_res.data['id']
         
         # JAVÍTÁS: Teljes URL használata a főoldalhoz
-        return RedirectResponse(url="https://mondomatutit.hu/vip", status_code=303)
+        return RedirectResponse(url=f"{RENDER_APP_URL}/vip", status_code=303)
 
     except Exception as e:
         # Ez a blokk hiányzott! Itt kezeljük, ha pl. az adatbázis nem elérhető
