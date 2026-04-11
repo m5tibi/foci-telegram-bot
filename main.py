@@ -257,17 +257,22 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         
-       # Session beállítása
+        # Session beállítása
         request.session["user_id"] = user_res.data['id']
         
         # JAVÍTÁS: Teljes URL használata a főoldalhoz
         return RedirectResponse(url="https://mondomatutit.hu/vip", status_code=303)
-        
+
+    except Exception as e:
+        # Ez a blokk hiányzott! Itt kezeljük, ha pl. az adatbázis nem elérhető
+        print(f"Login hiba: {e}")
+        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+
 @api.get("/logout")
 async def logout(request: Request):
-    request.session.pop("user_id", None)
+    request.session.clear()
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
-
+    
 @api.get("/forgot-password", response_class=HTMLResponse)
 async def forgot_password_page(request: Request):
     return templates.TemplateResponse(request=request, name="forgot_password.html", context={"request": request})
