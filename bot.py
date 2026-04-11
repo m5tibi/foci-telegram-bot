@@ -314,11 +314,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     await query.answer()
     try:
         def sync_task_stat():
-            # Service Key használata a teljes rálátáshoz
+            # Admin kliens használata a pontos adatokhoz
             sb = get_admin_db_client()
             now = datetime.now(HUNGARY_TZ)
             
-            # --- ÚJ: ELŐZŐ NAP LOGIKA ---
             if period == "yesterday":
                 target_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{target_date}%")
@@ -326,19 +325,16 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 man_q = sb.table("manual_slips").select("*").eq("target_date", target_date)
                 free_q = sb.table("free_slips").select("*").eq("target_date", target_date)
                 header = f"Előző nap ({target_date})"
-            
             elif period == "all":
                 tuti_q = sb.table("napi_tuti").select("*")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").neq("eredmeny", "Tipp leadva")
                 man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 header = "Összesített (All-Time)"
-            
-            else: # Havi statisztika (Aktuális vagy eltolt)
+            else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 year_month = target_month_start.strftime('%Y-%m')
                 next_month_start = target_month_start + relativedelta(months=1)
-                
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva")
                 man_q = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
@@ -349,7 +345,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
         
-        # Bot ID szűrés (Hogy ne legyen darabszám hiba)
         bot_ids = set()
         if res_tuti.data:
             for row in res_tuti.data:
@@ -390,39 +385,13 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert"
 
-       rdButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
-                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
-            ])
-
-        # Funkciógombok # --- GOMBOK ÖSSZEÁLLÍTÁSA ---
         keyboard = []
-        
-        # Havi navigáció (csak ha havi nézetben vagyunk)
-        if period != "all" and period != "yesterday":
-            keyboard.append([
-                InlineKeyboa
-        row2 = [InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0")]
-        if period != "all":
-            row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
-        keyboard.append(row2)
-
-        # Aktuális hónap gomb (csak ha nem ott vagyunk éppen)
-        if month_offset > 0 or period == "all" or period == "yesterday":
-            keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
-
-        await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    except Exception as e:
-        await message_to_edit.edit_text(f"Hiba: {e}")# --- GOMBOK ---
-        keyboard = []
-        
-        # 1. sor: Navigáció (csak ha havi nézetben vagyunk)
         if period != "all" and period != "yesterday":
             keyboard.append([
                 InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
                 InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
             ])
 
-        # 2. sor: Funkciók
         row2 = []
         if period != "yesterday":
             row2.append(InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0"))
@@ -430,97 +399,30 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
         keyboard.append(row2)
 
-        # 3. sor: Vissza az aktuálishoz (ha elnavigáltunk)
         if month_offset > 0 or period == "all" or period == "yesterday":
             keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-@admin_only
-async def admin_show_users(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; await query.answer()
-    try:
-        def sync_task(): 
-            db = get_db_client()
-            total = db.table("felhasznalok").select('id', count='exact').execute()
-            # Telegramosok számlálása (javítva: csak azokat számoljuk, ahol nem null)
-            all_users = db.table("felhasznalok").select('chat_id').execute()
-            tg_count = len([u for u in all_users.data if u.get('chat_id')])
-            return total.count, tg_count
-            
-        total_count, tg_count = await asyncio.to_thread(sync_task)
-        await query.message.reply_text(f"👥 **Felhasználók Statisztikája:**\n\n🌐 Regisztrált felhasználók: **{total_count}**\n📱 Telegrammal összekötve: **{tg_count}**", parse_mode='Markdown')
-    except Exception as e: await query.message.reply_text(f"Hiba: {e}")
-
-@admin_only
-async def admin_check_status(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; await query.answer("Ellenőrzés...", cache_time=5); await query.message.edit_text("❤️ Rendszer ellenőrzése...")
-    def sync_task_check():
-        status_text = "❤️ *Rendszer Státusz Jelentés* ❤️\n\n"
-        try: get_db_client().table("meccsek").select('id', count='exact').limit(1).execute(); status_text += "✅ *Supabase Adatbázis*: Online\n"
-        except Exception as e: status_text += f"❌ *Supabase*: Hiba!\n`{e}`\n"
-        try:
-            if os.environ.get("RAPIDAPI_KEY"): status_text += "✅ *Football API*: Kulcs beállítva"
-            else: status_text += "⚠️ *Football API*: Kulcs hiányzik!"
-        except Exception as e: status_text += f"❌ *API*: Hiba!\n`{e}`"
-        return status_text
-    status_text = await asyncio.to_thread(sync_task_check); await query.message.edit_text(status_text, parse_mode='Markdown')
-
-async def cancel_conversation(update: telegram.Update, context: CallbackContext) -> int:
-    for key in ['awaiting_broadcast', 'awaiting_vip_broadcast']:
-        if key in context.user_data: del context.user_data[key]
-    await update.message.reply_text('Művelet megszakítva.'); return ConversationHandler.END
-
-# --- BROADCAST ---
-@admin_only
-async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; context.user_data['awaiting_broadcast'] = True; await query.message.edit_text("Add meg a KÖZÖS körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_BROADCAST
-
-async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
-    if not context.user_data.get('awaiting_broadcast'): return
-    del context.user_data['awaiting_broadcast']; msg = update.message.text
-    if msg.lower() == "/cancel": await update.message.reply_text("Megszakítva."); return ConversationHandler.END
-    await update.message.reply_text("Küldés MINDENKINEK...")
-    try:
-        user_ids = [u['chat_id'] for u in await asyncio.to_thread(lambda: get_db_client().table("felhasznalok").select("chat_id").execute().data) if u.get('chat_id')]
-        await send_smart_broadcast(context, user_ids, msg, "📣 Körüzenet (Mindenki)")
-    except Exception as e: await update.message.reply_text(f"Hiba: {e}")
-    return ConversationHandler.END
-
-@admin_only
-async def admin_vip_broadcast_start(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; context.user_data['awaiting_vip_broadcast'] = True; await query.message.edit_text("Add meg a VIP körüzenetet. (/cancel a megszakításhoz)"); return AWAITING_VIP_BROADCAST
-
-async def admin_vip_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
-    if not context.user_data.get('awaiting_vip_broadcast'): return
-    del context.user_data['awaiting_vip_broadcast']; msg = update.message.text
-    if msg.lower() == "/cancel": await update.message.reply_text("Megszakítva."); return ConversationHandler.END
-    await update.message.reply_text("Küldés VIP TAGOKNAK...")
-    try:
-        now_iso = datetime.now(pytz.utc).isoformat()
-        user_ids = [u['chat_id'] for u in await asyncio.to_thread(lambda: get_db_client().table("felhasznalok").select("chat_id").eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute().data) if u.get('chat_id')]
-        await send_smart_broadcast(context, user_ids, msg, "💎 VIP Körüzenet")
-    except Exception as e: await update.message.reply_text(f"Hiba: {e}")
-    return ConversationHandler.END
+    except Exception as e:
+        await message_to_edit.edit_text(f"Hiba a statisztikában: {e}")
 
 @admin_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; command = query.data
+    query = update.callback_query
+    command = query.data
+    
     if command.startswith("admin_show_stat_"):
         parts = command.split("_")
         try:
-            # Ha a rész 5 elemű (admin_show_stat_current_month_0), akkor parts[3:-1]
-            # Ha a rész 4 elemű (admin_show_stat_yesterday_0), akkor parts[3]
             if len(parts) == 5:
                 period = "_".join(parts[3:-1])
             else:
                 period = parts[3]
-            
             offset = int(parts[-1])
             await stat(update, context, period=period, month_offset=offset)
-        except Exception as e:
-            print(f"Stat gomb hiba: {e}")
+        except Exception:
             await stat(update, context, period="current_month", month_offset=0)
+            
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
     elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
