@@ -65,10 +65,12 @@ api.add_middleware(
     allow_headers=["*"]
 )
 
-# --- Session Middleware (Javítva: lezárt zárójellel és stabil beállításokkal) ---
 api.add_middleware(
     SessionMiddleware, 
-    secret_key=SESSION_SECRET_KEY
+    secret_key=SESSION_SECRET_KEY,
+    same_site="none",  # Engedélyezi a süti átadását a domének között
+    https_only=True    # "none" esetén kötelező a True
+    
 )
 
 # ... (importok maradnak)
@@ -255,22 +257,12 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         
-        # Session beállítása
+       # Session beállítása
         request.session["user_id"] = user_res.data['id']
         
-        # JAVÍTÁS: Átirányítás a főoldalra (/vip helyett), hogy a munkamenet rögzüljön
-        # A legtöbb böngésző így stabilabban kezeli a sütit
-        response = RedirectResponse(url="https://mondomatutit.hu/", status_code=303)
+        # JAVÍTÁS: Teljes URL használata a főoldalhoz
+        return RedirectResponse(url="https://mondomatutit.hu/vip", status_code=303)
         
-        # Tartalék süti (opcionális, de segít a stabilitásban)
-        response.set_cookie(key="user_logged_in", value="true", max_age=86400)
-        
-        return response
-
-    except Exception as e:
-        print(f"Login hiba: {e}")
-        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
-
 @api.get("/logout")
 async def logout(request: Request):
     request.session.pop("user_id", None)
