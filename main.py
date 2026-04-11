@@ -287,14 +287,12 @@ async def vip_area(request: Request):
     is_subscribed = is_web_user_subscribed(user)
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     
-    # Alapértelmezett üres listák
     todays_slips = []
     tomorrows_slips = []
     active_manual_slips = []
     active_free_slips = []
     daily_status_message = ""
     
-    # Csak előfizetőknek vagy adminnak
     if is_subscribed or user_is_admin:
         try:
             sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
@@ -302,25 +300,40 @@ async def vip_area(request: Request):
             now_utc = datetime.now(pytz.utc)
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            # --- 1. JÓVÁHAGYÁS ELLENŐRZÉSE (Visszaállítva a régiből) ---
+            approved_dates = set()
+            status_res = sb_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
+            if status_res.data:
+                for r in status_res.data:
+                    if r['status'] == 'Kiküldve': 
+                        approved_dates.add(r['date'])
             
-            # 1. Összes nyers adat lekérése
+            # Az admin mindig lát mindent
+            if user_is_admin: 
+                approved_dates.add(today_str)
+                approved_dates.add(tomorrow_str)
+            
+            # --- 2. ADATOK LEKÉRÉSE ---
             resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
-                # 2. SZŰRÉS: Létrehozunk egy listát, amiben CSAK a látható tippek vannak
                 allowed_slips = []
                 for s in resp.data:
-                    # Ha admin-only, csak az adminnak adjuk hozzá
-                    if s.get('is_admin_only') is True:
-                        if user_is_admin:
-                            allowed_slips.append(s)
-                    else:
-                        # Ha nem admin-only, mindenki láthatja
+                    # Kinyerjük a dátumot a tipp nevéből (pl. "2026-04-11...")
+                    tip_date = s.get('tipp_neve', '')[:10]
+                    
+                    # SZIGORÚ SZŰRÉS: 
+                    # Csak akkor kerülhet be, ha:
+                    # 1. Admin vagy
+                    # 2. A szelvény NEM admin-only ÉS a dátuma már jóvá van hagyva (Kiküldve)
+                    if user_is_admin:
+                        allowed_slips.append(s)
+                    elif s.get('is_admin_only') is not True and tip_date in approved_dates:
                         allowed_slips.append(s)
 
-                # 3. FELDOLGOZÁS: Mostantól CSAK az allowed_slips listát használjuk!
+                # 3. FELDOLGOZÁS (Csak az engedélyezett szelvényekkel)
                 all_ids = [tid for sz in allowed_slips for tid in sz.get('tipp_id_k', [])]
-                
                 if all_ids:
                     meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
@@ -338,19 +351,15 @@ async def vip_area(request: Request):
                             has_active = 'Tipp leadva' in res_list
                             
                             if is_recent or has_active:
-                                if not has_active and 'Veszített' in res_list: 
-                                    continue
+                                if not has_active and 'Veszített' in res_list: continue
                                 
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 
                                 sz['meccsek'] = meccs_list
-                                # Csoportosítás dátum szerint
-                                if tomorrow_str in sz.get('tipp_neve', ''):
-                                    tomorrows_slips.append(sz)
-                                else:
-                                    todays_slips.append(sz)
+                                if tomorrow_str in sz.get('tipp_neve', ''): tomorrows_slips.append(sz)
+                                else: todays_slips.append(sz)
 
             # Manuális és Free tippek
             manual = sb_client.table("manual_slips").select("*").gte("target_date", today_str).execute()
@@ -367,15 +376,11 @@ async def vip_area(request: Request):
             daily_status_message = "Hiba az adatok betöltésekor."
 
     return templates.TemplateResponse(
-        request=request, 
-        name="vip_tippek.html", 
+        request=request, name="vip_tippek.html", 
         context={
-            "user": user, 
-            "is_subscribed": is_subscribed,
-            "todays_slips": todays_slips, 
-            "tomorrows_slips": tomorrows_slips, 
-            "active_manual_slips": active_manual_slips, 
-            "active_free_slips": active_free_slips, 
+            "user": user, "is_subscribed": is_subscribed,
+            "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips, 
+            "active_manual_slips": active_manual_slips, "active_free_slips": active_free_slips, 
             "daily_status_message": daily_status_message
         }
     )
