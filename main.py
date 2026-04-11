@@ -1,4 +1,4 @@
-# main.py (V21.15 - FIX: Szigorú Stripe objektum kezelés s_get függvénnyel)
+# main.py (V21.35 - ÖSSZESÍTETT JAVÍTÁS: ROI, Hajnali fix, Dinamikus Stripe)
 
 import os
 import asyncio
@@ -31,11 +31,13 @@ from eredmeny_ellenorzo import main as run_result_checker
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_TOKEN = TOKEN 
-
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+# STRIPE KULCSOK (ÉLES ÉS TESZT)
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+STRIPE_TEST_SECRET_KEY = os.environ.get("STRIPE_TEST_SECRET_KEY")
+STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
 
 # ÁRAZÁSI ID-k
 STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
@@ -49,23 +51,14 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
-LIVE_CHANNEL_ID = os.environ.get("LIVE_CHANNEL_ID", "-100xxxxxxxxxxxxx") 
+HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-# --- FastAPI Alkalmazás ---
 api = FastAPI()
-application = None
-origins = [
-    "https://mondomatutit.hu", "https://www.mondomatutit.hu",
-    "http://mondomatutit.hu", "http://www.mondomatutit.hu",
-    "https://m5tibi.github.io",
-]
-api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], allow_origin_regex='https?://.*')
-api.add_middleware(
-    SessionMiddleware,
-    secret_key=SESSION_SECRET_KEY,
-    same_site="none",
-    https_only=True
-)
+# CORS és Session Middleware
+origins = ["https://mondomatutit.hu", "https://www.mondomatutit.hu", "https://m5tibi.github.io"]
+api.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+api.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY, same_site="none", https_only=True)
+
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -75,18 +68,10 @@ except Exception as e:
     print(f"Supabase init hiba: {e}")
     supabase = None
 
-HUNGARY_TZ = pytz.timezone('Europe/Budapest')
-
-# --- BIZTONSÁGOS STRIPE ADATKINYERŐ (ÚJ - V21.15) ---
-def s_get(obj, key, default=None):
-    """Kivédi a dict vs objektum (KeyError / AttributeError) hibákat."""
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
 # --- Segédfüggvények ---
-def get_password_hash(password): return pwd_context.hash(password)
-def verify_password(plain_password, hashed_password): return pwd_context.verify(plain_password, hashed_password)
+def s_get(obj, key, default=None):
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
 
 def get_current_user(request: Request):
     user_id = request.session.get("user_id")
@@ -94,16 +79,17 @@ def get_current_user(request: Request):
         try:
             res = supabase.table("felhasznalok").select("*").eq("id", user_id).single().execute()
             return res.data
-        except Exception: return None
+        except: return None
     return None
 
 def is_web_user_subscribed(user: dict) -> bool:
-    if not user: return False
-    if user.get("subscription_status") == "active":
-        expires_at_str = user.get("subscription_expires_at")
-        if expires_at_str:
+    if not user or user.get("subscription_status") != "active": return False
+    expires_at_str = user.get("subscription_expires_at")
+    if expires_at_str:
+        try:
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-            if expires_at > datetime.now(pytz.utc): return True
+            return expires_at > datetime.now(pytz.utc)
+        except: return False
     return False
 
 async def send_admin_notification(message: str):
@@ -270,72 +256,75 @@ async def handle_new_password(request: Request, token: str = Form(...), password
 async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-    is_subscribed = is_web_user_subscribed(user)
     
-    todays_slips, tomorrows_slips, active_manual_slips, active_free_slips, daily_status_message = [], [], [], [], ""
+    is_subscribed = is_web_user_subscribed(user)
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     
-    if is_subscribed:
+    todays_slips, tomorrows_slips, active_manual_slips, active_free_slips, daily_status_message = [], [], [], [], ""
+    
+    if is_subscribed or user_is_admin:
         try:
-            supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+            # Service Key használata az admin-only szelvények látásához
+            sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
             now_local = datetime.now(HUNGARY_TZ)
-            today_str, tomorrow_str = now_local.strftime("%Y-%m-%d"), (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            now_utc = datetime.now(pytz.utc)
+            today_str = now_local.strftime("%Y-%m-%d")
+            tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            approved_dates = set()
-            status_res = supabase_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
-            if status_res.data:
-                for r in status_res.data:
-                    if r['status'] == 'Kiküldve': approved_dates.add(r['date'])
-            if user_is_admin: approved_dates.add(today_str); approved_dates.add(tomorrow_str)
+            # Utolsó 15 szelvény (hogy a tegnapi hajnaliak is benne legyenek)
+            resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(15).execute()
             
-            if approved_dates:
-                filter_val = ",".join([f"tipp_neve.ilike.%{d}%" for d in approved_dates])
-                resp = supabase_client.table("napi_tuti").select("*, is_admin_only, confidence_percent").or_(filter_val).order('tipp_neve', desc=False).execute()
-                slips = [s for s in (resp.data or []) if not s.get('is_admin_only') or user_is_admin]
+            if resp.data:
+                slips_to_check = [s for s in resp.data if not s.get('is_admin_only') or user_is_admin]
+                all_ids = [tid for sz in slips_to_check for tid in sz.get('tipp_id_k', [])]
                 
-                if slips:
-                    all_ids = [tid for sz in slips for tid in sz.get('tipp_id_k', [])]
-                    if all_ids:
-                        mm = {m['id']: m for m in supabase_client.table("meccsek").select("*").in_("id", all_ids).execute().data}
-                        for sz in slips:
-                            meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
-                            if len(meccs_list) == len(sz.get('tipp_id_k', [])):
-                                match_results = [m.get('eredmeny') for m in meccs_list]
-                                if 'Veszített' in match_results: continue
-                                if 'Tipp leadva' not in match_results: continue 
+                if all_ids:
+                    meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
+                    mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
+                    
+                    for sz in slips_to_check:
+                        meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
+                        if len(meccs_list) == len(sz.get('tipp_id_k', [])):
+                            res_list = [m.get('eredmeny') for m in meccs_list]
+                            created_at = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00'))
+                            
+                            # JAVÍTÁS: 24 órás ablak VAGY van benne lezáratlan meccs
+                            is_recent = (now_utc - created_at).total_seconds() < 86400
+                            has_active = 'Tipp leadva' in res_list
+                            
+                            if is_recent or has_active:
+                                # Ha már minden lezárult és vesztett, azt ne mutassuk (hogy ne legyen káosz)
+                                if not has_active and 'Veszített' in res_list: continue
+                                
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
+                                
                                 sz['meccsek'] = meccs_list
-                                if today_str in sz['tipp_neve']: todays_slips.append(sz)
-                                elif tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
+                                if tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
+                                else: todays_slips.append(sz)
 
-            manual = supabase_client.table("manual_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
+            # Manuális és Free tippek lekérése
+            manual = sb_client.table("manual_slips").select("*").gte("target_date", today_str).execute()
             if manual.data: active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
-            free = supabase_client.table("free_slips").select("*").gte("target_date", today_str).order("target_date", desc=False).execute()
-            if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
             
+            free = sb_client.table("free_slips").select("*").gte("target_date", today_str).execute()
+            if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
+
             if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
-                target = tomorrow_str if now_local.hour >= 19 else today_str
-                st_res = supabase_client.table("daily_status").select("status").eq("date", target).limit(1).execute()
-                st = st_res.data[0].get('status') if st_res.data else "Nincs adat"
-                if st == "Nincs megfelelő tipp": daily_status_message = "Az algoritmus nem talált megfelelő tippet."
-                elif st == "Jóváhagyásra vár": daily_status_message = "A tippek jóváhagyásra várnak."
-                elif st == "Admin által elutasítva": daily_status_message = "Az adminisztrátor elutasította a tippeket."
-                else: daily_status_message = "Jelenleg nincsenek aktív szelvények."
-        except Exception as e: print(f"VIP hiba: {e}"); daily_status_message = "Hiba történt."
-    
-    return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
-        "request": request, 
-        "user": user, 
-        "is_subscribed": is_subscribed, 
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips, 
-        "active_manual_slips": active_manual_slips,
-        "active_free_slips": active_free_slips,
+                daily_status_message = "Jelenleg nincsenek aktív szelvények."
+
+        except Exception as e:
+            print(f"VIP Error: {e}")
+            daily_status_message = "Hiba az adatok betöltésekor."
+
+    return templates.TemplateResponse("vip_tippek.html", {
+        "request": request, "user": user, "is_subscribed": is_subscribed,
+        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
+        "active_manual_slips": active_manual_slips, "active_free_slips": active_free_slips,
         "daily_status_message": daily_status_message
     })
-
+    
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
@@ -556,146 +545,58 @@ async def process_telegram_update(request: Request):
 
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    data = await request.body()
+    payload = await request.body()
     try:
-        event = stripe.Webhook.construct_event(payload=data, sig_header=stripe_signature, secret=STRIPE_WEBHOOK_SECRET)
+        # Dinamikus kulcsválasztó: felismeri a teszt módot a payload-ból
+        is_test = b'"livemode": false' in payload
+        wh_secret = STRIPE_TEST_WEBHOOK_SECRET if is_test else STRIPE_WEBHOOK_SECRET
+        sk_key = STRIPE_TEST_SECRET_KEY if is_test else STRIPE_SECRET_KEY
         
-        event_type = s_get(event, 'type')
-        event_data = s_get(event, 'data', {})
-        obj = s_get(event_data, 'object', {})
+        event = stripe.Webhook.construct_event(payload, stripe_signature, wh_secret)
+        obj = s_get(s_get(event, 'data', {}), 'object', {})
+        etype = s_get(event, 'type')
         
-        # --- ELŐFIZETÉS ÁLLAPOTVÁLTOZÁSA VAGY TÖRLÉSE ---
-        if event_type in ['customer.subscription.updated', 'customer.subscription.deleted']:
-            cid = s_get(obj, 'customer')
-            sub_id = s_get(obj, 'id')
-            
-            has_cancel_switch = s_get(obj, 'cancel_at_period_end', False)
-            obj_status = s_get(obj, 'status')
-            has_canceled_status = (obj_status == 'canceled')
-            has_cancel_date = s_get(obj, 'cancel_at') is not None
-            
-            is_cancelled = has_cancel_switch or has_canceled_status or has_cancel_date
-            
-            print(f"📢 Webhook Info: CID: {cid} | SubID: {sub_id} | Státusz: {obj_status} | DátumVan?: {has_cancel_date} => EREDMÉNY: {is_cancelled}")
-            
-            if cid:
-                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                update_payload = {"subscription_cancelled": is_cancelled}
-                
-                if has_canceled_status or event_type == 'customer.subscription.deleted':
-                    update_payload["subscription_status"] = "inactive"
-                    print(f"   ⚠️ Végleges törlés érzékelve! Státusz inaktívra állítva: {cid}")
-                
-                client.table("felhasznalok").update(update_payload).eq("stripe_customer_id", cid).execute()
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-        # --- ÚJ VÁSÁRLÁS (CHECKOUT) ---
-        if event_type == 'checkout.session.completed':
-            metadata = s_get(obj, 'metadata', {})
-            uid = s_get(metadata, 'user_id')
+        if etype == 'checkout.session.completed':
+            uid = s_get(s_get(obj, 'metadata', {}), 'user_id')
             cid = s_get(obj, 'customer')
-            session_id = s_get(obj, 'id')
-            
-            print(f"Checkout completed. UID: {uid}, CID: {cid}")
-            if uid and cid and session_id:
-                line_items = stripe.checkout.Session.list_line_items(session_id, limit=1)
-                lines_data = s_get(line_items, 'data', [])
-                
-                duration = 32
-                plan_name = "Havi Csomag 📅"
-                
-                if lines_data:
-                    price_obj = s_get(lines_data[0], 'price', {})
-                    recurring = s_get(price_obj, 'recurring') or {}
-                    interval = s_get(recurring, 'interval')
-                    
-                    if interval == 'month':
-                        duration = 32
-                        plan_name = "Havi Csomag 📅"
-                    elif interval == 'week':
-                        duration = 7
-                        plan_name = "Heti Csomag 🗓️"
-                    elif interval == 'day':
-                        duration = 1
-                        plan_name = "Napi Jegy 🎫"
-                
-                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                client.table("felhasznalok").update({"subscription_cancelled": False}).eq("id", uid).execute()
-                await activate_subscription_and_notify_web(int(uid), duration, cid)
-                
-                # Biztonságos email formázás Telegramhoz
-                safe_email_new = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*') if 'usr' in locals() else cid
-                await send_admin_notification(f"🎉 *Új Előfizető!*\n📦 Csomag: *{plan_name}*\nID: `{cid}`")
-        
-       # --- SIKERES MEGÚJULÁS (INVOICE PAID) ---
-        elif event_type == 'invoice.payment_succeeded':
+            if uid and cid:
+                client.table("felhasznalok").update({"stripe_customer_id": cid}).eq("id", uid).execute()
+
+        elif etype == 'invoice.payment_succeeded':
             cid = s_get(obj, 'customer')
             sub_id = s_get(obj, 'subscription')
-            
-            if not sub_id:
-                lines = s_get(obj, 'lines', {})
-                lines_data = s_get(lines, 'data', [])
-                if lines_data:
-                    sub_id = s_get(lines_data[0], 'subscription')
-            
-            # Nincs többé túlszűrés: ha van előfizetés és fizetett, azonnal hosszabbítunk!
             if sub_id:
-                try:
-                    sub = stripe.Subscription.retrieve(sub_id)
-                    items = s_get(sub, 'items', {})
-                    items_data = s_get(items, 'data', [])
+                # A megfelelő API kulccsal kérdezzük le az előfizetést
+                sub = stripe.Subscription.retrieve(sub_id, api_key=sk_key)
+                price_id = s_get(s_get(s_get(sub, 'items', {}), 'data', [{}])[0].get('price', {}), 'id')
+                
+                # Napok meghatározása az ár alapján
+                dur = 1
+                if price_id == STRIPE_PRICE_ID_MONTHLY: dur = 31
+                elif price_id == STRIPE_PRICE_ID_WEEKLY: dur = 7
+                
+                res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
+                if res.data:
+                    usr = res.data
+                    start_dt = datetime.now(pytz.utc)
+                    if usr.get('subscription_expires_at'):
+                        try:
+                            old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
+                            if old_exp > start_dt: start_dt = old_exp
+                        except: pass
                     
-                    if items_data:
-                        price_obj = s_get(items_data[0], 'price', {})
-                        pid = s_get(price_obj, 'id')
-                        
-                        # 1. A TE EREDETI LOGIKÁD:
-                        is_monthly = (pid == STRIPE_PRICE_ID_MONTHLY)
-                        is_daily = (pid == STRIPE_PRICE_ID_DAILY)
-                        
-                        # 2. Biztonsági háló, ha valakinek az ID-ja egy régi csomagé:
-                        recurring = s_get(price_obj, 'recurring') or {}
-                        interval = s_get(recurring, 'interval')
-                        if interval == 'month': is_monthly = True
-                        if interval == 'day': is_daily = True
-                        
-                        plan_name = "Havi Csomag 📅" if is_monthly else ("Napi Jegy 🎫" if is_daily else "Heti Csomag 🗓️")
-                        dur = 32 if is_monthly else (1 if is_daily else 7)
-                        
-                        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                        usr_res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cid).single().execute()
-                        
-                        if usr_res.data:
-                            usr = usr_res.data
-                            
-                            # VISSZAÁLLÍTVA A RÉGI, JÓL BEVÁLT HOZZÁADÓS MATEK!
-                            start_dt = datetime.now(pytz.utc)
-                            if usr.get('subscription_expires_at'):
-                                try:
-                                    db_expiry = datetime.fromisoformat(usr.get('subscription_expires_at').replace('Z', '+00:00'))
-                                    start_dt = max(start_dt, db_expiry)
-                                except: pass
-                            
-                            new_expiry = (start_dt + timedelta(days=dur)).isoformat()
-                            
-                            client.table("felhasznalok").update({
-                                "subscription_status": "active", 
-                                "subscription_expires_at": new_expiry,
-                                "subscription_cancelled": False 
-                            }).eq("id", usr['id']).execute()
-                            
-                            # Értesítés (a formázási hiba kivédésével)
-                            safe_email = usr.get('email', 'Ismeretlen').replace('_', '\\_').replace('*', '\\*')
-                            await send_admin_notification(f"✅ *Sikeres Megújulás!*\n👤 {safe_email}\n📦 Csomag: *{plan_name}*")
-                            print(f"✅ [SIKER] Eredeti logikával hozzáadva {dur} nap. Új lejárat: {new_expiry}")
-                            
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    print(f"!!! Megújítás hiba (Exception): {e}")
+                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
+                    client.table("felhasznalok").update({
+                        "subscription_status": "active", 
+                        "subscription_expires_at": new_exp,
+                        "subscription_cancelled": False 
+                    }).eq("id", usr['id']).execute()
+                    
+                    await send_admin_notification(f"✅ *Fizetés:* {usr['email']} (+{dur} nap)")
 
         return {"status": "success"}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"!!! CRITICAL WEBHOOK ERROR: {e}")
-        return {"error": str(e)}, 400
+        print(f"Webhook error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=400)
