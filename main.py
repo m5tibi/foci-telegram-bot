@@ -318,12 +318,20 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             daily_status_message = "Hiba az adatok betöltésekor."
 
-    return templates.TemplateResponse("vip_tippek.html", {
-        "request": request, "user": user, "is_subscribed": is_subscribed,
-        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
-        "active_manual_slips": active_manual_slips, "active_free_slips": active_free_slips,
-        "daily_status_message": daily_status_message
-    })
+   # A vip_area függvény utolsó sora legyen ez:
+    return templates.TemplateResponse(
+        "vip_tippek.html", 
+        {
+            "request": request, 
+            "user": user, 
+            "is_subscribed": is_subscribed,
+            "todays_slips": todays_slips, 
+            "tomorrows_slips": tomorrows_slips, 
+            "active_manual_slips": active_manual_slips, 
+            "active_free_slips": active_free_slips, 
+            "daily_status_message": daily_status_message
+        }
+    )
     
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
