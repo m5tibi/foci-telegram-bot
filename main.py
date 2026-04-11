@@ -339,20 +339,22 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # Adatok lekérése
+            # 1. Adatok lekérése a Supabase-ből
             resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
-                # 1. SZŰRÉS: Csak azokat tartsuk meg, amiket a user láthat
+                # 2. SZIGORÚ SZŰRÉS: Csak azokat tartsuk meg, amiket a user tényleg láthat
                 allowed_slips = []
                 for s in resp.data:
+                    # Ha a szelvény admin-only, akkor CSAK az admin láthatja
                     if s.get('is_admin_only') is True:
                         if user_is_admin:
                             allowed_slips.append(s)
                     else:
+                        # Ha nem admin-only, akkor minden előfizető/admin láthatja
                         allowed_slips.append(s)
 
-                # 2. MECCSEK ADATAINAK BETÖLTÉSE
+                # 3. MECCSEK ADATAINAK BETÖLTÉSE (Csak az engedélyezett szelvényekhez)
                 all_ids = [tid for sz in allowed_slips for tid in sz.get('tipp_id_k', [])]
                 if all_ids:
                     meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
@@ -361,17 +363,20 @@ async def vip_area(request: Request):
                     for sz in allowed_slips:
                         meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
                         
-                        # Csak akkor dolgozzuk fel, ha minden meccs megvan
+                        # Csak akkor dolgozzuk fel, ha minden meccs adatát sikerült lekérni
                         if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                             res_list = [m.get('eredmeny') for m in meccs_list]
-                            created_at = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00'))
+                            created_at_str = sz.get('created_at')
+                            if not created_at_str: continue
                             
-                            # Időbeli szűrés (24 óra vagy aktív)
+                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                            
+                            # Időbeli szűrés (24 órán belüli VAGY még folyamatban lévő)
                             is_recent = (now_utc - created_at).total_seconds() < 86400
                             has_active = 'Tipp leadva' in res_list
                             
                             if is_recent or has_active:
-                                # Elrejtjük a már lezárult veszteseket
+                                # Elrejtjük a már lezárult veszteseket, hogy ne legyen káosz
                                 if not has_active and 'Veszített' in res_list: 
                                     continue
                                 
@@ -381,12 +386,12 @@ async def vip_area(request: Request):
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 
                                 sz['meccsek'] = meccs_list
-                                if tomorrow_str in sz['tipp_neve']: 
+                                if tomorrow_str in sz.get('tipp_neve', ''): 
                                     tomorrows_slips.append(sz)
                                 else: 
                                     todays_slips.append(sz)
 
-            # Manuális és Free tippek lekérése
+            # 4. Manuális és Free tippek lekérése (Ezeknél nincs admin-only logika a kérésed szerint)
             manual = sb_client.table("manual_slips").select("*").gte("target_date", today_str).execute()
             if manual.data: 
                 active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
@@ -399,10 +404,10 @@ async def vip_area(request: Request):
                 daily_status_message = "Jelenleg nincsenek aktív szelvények."
 
         except Exception as e:
-            print(f"VIP Error: {e}")
+            print(f"❌ VIP Error: {e}")
             daily_status_message = "Hiba az adatok betöltésekor."
 
-    # Megfelelő kulcsszavas argumentumok a TemplateResponse-hoz
+    # 5. Adatok átadása a sablonnak
     return templates.TemplateResponse(
         request=request, 
         name="vip_tippek.html", 
