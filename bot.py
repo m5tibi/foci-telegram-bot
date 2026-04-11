@@ -344,10 +344,17 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             sb = get_admin_db_client()
             now = datetime.now(HUNGARY_TZ)
             
-            if period == "yesterday":
-                target_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+           if period == "yesterday":
+                target_date_obj = now.date() - timedelta(days=1)
+                t_start = datetime.combine(target_date_obj, datetime.min.time()).isoformat()
+                t_end = datetime.combine(target_date_obj, datetime.max.time()).isoformat()
+                
+                target_date = target_date_obj.strftime('%Y-%m-%d')
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{target_date}%")
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").filter("kezdes", "ilike", f"{target_date}%").neq("eredmeny", "Tipp leadva")
+                
+                # JAVÍTÁS: Szöveges szűrés helyett dátumtartomány (gte/lte)
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", t_start).lte("kezdes", t_end).neq("eredmeny", "Tipp leadva")
+                
                 man_q = sb.table("manual_slips").select("*").eq("target_date", target_date)
                 free_q = sb.table("free_slips").select("*").eq("target_date", target_date)
                 header = f"Előző nap ({target_date})"
