@@ -71,14 +71,21 @@ api.add_middleware(
     secret_key=SESSION_SECRET_KEY
 )
 
+# ... (importok maradnak)
+
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-# --- Jelszókezelő segédfüggvények (HIÁNYZIK!) ---
+
+# --- EZ A KÉT FÜGGVÉNY HIÁNYZIK A LOG ALAPJÁN ---
 def get_password_hash(password):
     return pwd_context.hash(password)
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
+# -----------------------------------------------
 
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
