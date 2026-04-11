@@ -314,7 +314,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     await query.answer()
     try:
         def sync_task_stat():
-            # Admin kliens használata a pontos adatokhoz
             sb = get_admin_db_client()
             now = datetime.now(HUNGARY_TZ)
             
@@ -391,33 +390,27 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
                 InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
             ])
-
-        row2 = []
-        if period != "yesterday":
-            row2.append(InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0"))
-        if period != "all":
-            row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
+        row2 = [InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0")]
+        if period != "all": row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
         keyboard.append(row2)
-
         if month_offset > 0 or period == "all" or period == "yesterday":
             keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba a statisztikában: {e}")
+        await message_to_edit.edit_text(f"Hiba: {e}")
 
 @admin_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
-    
     if command.startswith("admin_show_stat_"):
         parts = command.split("_")
         try:
-            if len(parts) == 5:
-                period = "_".join(parts[3:-1])
-            else:
-                period = parts[3]
+            # Ha a periódus több szóból áll (pl current_month), összefűzzük
+            if len(parts) == 5: period = "_".join(parts[3:-1])
+            else: period = parts[3] # Ha csak egy szó (pl yesterday vagy all)
+            
             offset = int(parts[-1])
             await stat(update, context, period=period, month_offset=offset)
         except Exception:
