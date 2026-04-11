@@ -73,6 +73,12 @@ api.add_middleware(
 
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# --- Jelszókezelő segédfüggvények (HIÁNYZIK!) ---
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
 
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
