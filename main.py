@@ -255,12 +255,18 @@ async def handle_new_password(request: Request, token: str = Form(...), password
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    if not user: 
+        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
     is_subscribed = is_web_user_subscribed(user)
     user_is_admin = user.get('chat_id') == ADMIN_CHAT_ID
     
-    todays_slips, tomorrows_slips, active_manual_slips, active_free_slips, daily_status_message = [], [], [], [], ""
+    # Alapértelmezett értékek (hogy ne legyen hiba, ha nem lép be az if-be)
+    todays_slips = []
+    tomorrows_slips = []
+    active_manual_slips = []
+    active_free_slips = []
+    daily_status_message = ""
     
     if is_subscribed or user_is_admin:
         try:
@@ -293,23 +299,28 @@ async def vip_area(request: Request):
                             has_active = 'Tipp leadva' in res_list
                             
                             if is_recent or has_active:
-                                # Ha már minden lezárult és vesztett, azt ne mutassuk (hogy ne legyen káosz)
-                                if not has_active and 'Veszített' in res_list: continue
+                                # Ha már minden lezárult és vesztett, azt ne mutassuk
+                                if not has_active and 'Veszített' in res_list: 
+                                    continue
                                 
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
                                 
                                 sz['meccsek'] = meccs_list
-                                if tomorrow_str in sz['tipp_neve']: tomorrows_slips.append(sz)
-                                else: todays_slips.append(sz)
+                                if tomorrow_str in sz['tipp_neve']: 
+                                    tomorrows_slips.append(sz)
+                                else: 
+                                    todays_slips.append(sz)
 
             # Manuális és Free tippek lekérése
             manual = sb_client.table("manual_slips").select("*").gte("target_date", today_str).execute()
-            if manual.data: active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
+            if manual.data: 
+                active_manual_slips = [m for m in manual.data if m['status'] == 'Folyamatban']
             
             free = sb_client.table("free_slips").select("*").gte("target_date", today_str).execute()
-            if free.data: active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
+            if free.data: 
+                active_free_slips = [m for m in free.data if m['status'] == 'Folyamatban']
 
             if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
                 daily_status_message = "Jelenleg nincsenek aktív szelvények."
@@ -318,20 +329,19 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             daily_status_message = "Hiba az adatok betöltésekor."
 
-   # A vip_area függvény utolsó sora legyen ez:
-    return templates.TemplateResponse(
-        "vip_tippek.html", 
-        {
-            "request": request, 
-            "user": user, 
-            "is_subscribed": is_subscribed,
-            "todays_slips": todays_slips, 
-            "tomorrows_slips": tomorrows_slips, 
-            "active_manual_slips": active_manual_slips, 
-            "active_free_slips": active_free_slips, 
-            "daily_status_message": daily_status_message
-        }
-    )
+    # Külön context szótár a TypeError: unhashable type: 'dict' hiba elkerülésére
+    context = {
+        "request": request, 
+        "user": user, 
+        "is_subscribed": is_subscribed,
+        "todays_slips": todays_slips, 
+        "tomorrows_slips": tomorrows_slips, 
+        "active_manual_slips": active_manual_slips, 
+        "active_free_slips": active_free_slips, 
+        "daily_status_message": daily_status_message
+    }
+
+    return templates.TemplateResponse("vip_tippek.html", context)
     
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
