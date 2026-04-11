@@ -55,7 +55,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
 api = FastAPI()
 
-# --- CORS beállítások ---
+# --- 1. MIDDLEWARE BEÁLLÍTÁSOK (TISZTÁZVA ÉS EGYESÍTVE) ---
 origins = ["https://mondomatutit.hu", "https://www.mondomatutit.hu", "https://m5tibi.github.io"]
 api.add_middleware(
     CORSMiddleware, 
@@ -65,17 +65,17 @@ api.add_middleware(
     allow_headers=["*"]
 )
 
-# --- Session Middleware ---
 api.add_middleware(
     SessionMiddleware, 
     secret_key=SESSION_SECRET_KEY,
-    same_site="lax",  # "none" helyett próbáld meg a "lax"-ot a stabilitásért
-    https_only=False
+    same_site="lax",    # A belépési hurok elkerülése érdekében
+    https_only=False     # Teszteléshez és stabil süti-kezeléshez
 )
 
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# --- 2. JELSZÓKEZELŐ FÜGGVÉNYEK ---
 def get_password_hash(password):
     return pwd_context.hash(password)
 
@@ -84,44 +84,14 @@ def verify_password(plain_password, hashed_password):
         return pwd_context.verify(plain_password, hashed_password)
     except Exception:
         return False
-        
-# --- CORS beállítások ---
-origins = ["https://mondomatutit.hu", "https://www.mondomatutit.hu", "https://m5tibi.github.io"]
-api.add_middleware(
-    CORSMiddleware, 
-    allow_origins=origins, 
-    allow_credentials=True, 
-    allow_methods=["*"], 
-    allow_headers=["*"]
-)
 
-# --- Session Middleware (JAVÍTVA) ---
-api.add_middleware(
-    SessionMiddleware, 
-    secret_key=SESSION_SECRET_KEY
-)
-
-templates = Jinja2Templates(directory="templates")
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# --- JELSZÓKEZELŐ FÜGGVÉNYEK (PÓTOLVA) ---
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def verify_password(plain_password, hashed_password):
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
-        return False
-# -----------------------------------------------
-
+# --- 3. ADATBÁZIS ÉS SEGÉDFÜGGVÉNYEK ---
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     print(f"Supabase init hiba: {e}")
     supabase = None
-    
-# --- Segédfüggvények ---
+
 def s_get(obj, key, default=None):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
@@ -152,7 +122,7 @@ async def send_admin_notification(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except Exception as e: print(f"Hiba az admin értesítésnél: {e}")
 
-# --- EMAIL ---
+# --- 4. EMAIL KÜLDÉS ---
 def send_reset_email(to_email: str, token: str):
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
@@ -186,25 +156,20 @@ def send_reset_email(to_email: str, token: str):
     except Exception as e:
         print(f"❌ HIBA az email küldésnél: {e}")
 
-# --- TELEGRAM ---
+# --- 5. TELEGRAM BROADCAST ÉS CHAT ID-K ---
 def get_chat_ids_for_notification(tip_type: str):
     admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
     chat_ids = []
     try:
         query = admin_supabase.table("felhasznalok").select("chat_id")
-        
         if tip_type == "vip":
             now_iso = datetime.now(pytz.utc).isoformat()
             query = query.eq("subscription_status", "active").gt("subscription_expires_at", now_iso)
-            
         res = query.execute()
-        
         if res.data:
             for u in res.data:
                 cid = u.get('chat_id')
-                if cid:
-                    chat_ids.append(cid)
-                    
+                if cid: chat_ids.append(cid)
     except Exception as e: print(f"Hiba a Chat ID-k lekérésénél: {e}")
     return chat_ids
 
@@ -221,8 +186,7 @@ async def send_telegram_broadcast_task(chat_ids: list, message: str):
         except Exception as e: print(f"Nem sikerült küldeni neki ({chat_id}): {e}")
     print(f"✅ Telegram körüzenet kész! Sikeres: {success_count}/{len(chat_ids)}")
 
-# ----------------------------------------
-
+# --- 6. FastAPI ESEMÉNYEK ÉS ALAP ÚTVONALAK ---
 @api.on_event("startup")
 async def startup():
     global application
@@ -247,7 +211,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
         else: raise Exception("Insert failed")
     except Exception as e:
         return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
-
+        
 @api.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
