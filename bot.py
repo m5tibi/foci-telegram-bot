@@ -390,17 +390,17 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert"
 
-        # --- GOMBOK ÖSSZEÁLLÍTÁSA ---
+       rdButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
+                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
+            ])
+
+        # Funkciógombok # --- GOMBOK ÖSSZEÁLLÍTÁSA ---
         keyboard = []
         
         # Havi navigáció (csak ha havi nézetben vagyunk)
         if period != "all" and period != "yesterday":
             keyboard.append([
-                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
-                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
-            ])
-
-        # Funkciógombok
+                InlineKeyboa
         row2 = [InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0")]
         if period != "all":
             row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
@@ -412,7 +412,29 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba: {e}")
+        await message_to_edit.edit_text(f"Hiba: {e}")# --- GOMBOK ---
+        keyboard = []
+        
+        # 1. sor: Navigáció (csak ha havi nézetben vagyunk)
+        if period != "all" and period != "yesterday":
+            keyboard.append([
+                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
+                InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
+            ])
+
+        # 2. sor: Funkciók
+        row2 = []
+        if period != "yesterday":
+            row2.append(InlineKeyboardButton("📅 Előző nap", callback_data="admin_show_stat_yesterday_0"))
+        if period != "all":
+            row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
+        keyboard.append(row2)
+
+        # 3. sor: Vissza az aktuálishoz (ha elnavigáltunk)
+        if month_offset > 0 or period == "all" or period == "yesterday":
+            keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
+
+        await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
@@ -486,13 +508,18 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; command = query.data
     if command.startswith("admin_show_stat_"):
         parts = command.split("_")
-        # admin_show_stat_yesterday_0 -> parts[3] = yesterday, parts[4] = 0
         try:
-            # Ha a periódus két szóból áll (pl current_month), összefűzzük
-            period = "_".join(parts[3:-1])
+            # Ha a rész 5 elemű (admin_show_stat_current_month_0), akkor parts[3:-1]
+            # Ha a rész 4 elemű (admin_show_stat_yesterday_0), akkor parts[3]
+            if len(parts) == 5:
+                period = "_".join(parts[3:-1])
+            else:
+                period = parts[3]
+            
             offset = int(parts[-1])
             await stat(update, context, period=period, month_offset=offset)
-        except:
+        except Exception as e:
+            print(f"Stat gomb hiba: {e}")
             await stat(update, context, period="current_month", month_offset=0)
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
