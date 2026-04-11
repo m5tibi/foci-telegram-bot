@@ -535,6 +535,20 @@ async def admin_force_check(request: Request):
     asyncio.create_task(asyncio.to_thread(run_result_checker))
     return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
 
+@api.get("/admin/force-check", response_class=RedirectResponse)
+async def admin_force_check(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    asyncio.create_task(asyncio.to_thread(run_result_checker))
+    return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
+
+@api.get("/admin/force-generate", response_class=RedirectResponse)
+async def admin_force_generate(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    asyncio.create_task(asyncio.to_thread(run_tipp_generator))
+    return RedirectResponse(url="/admin/upload?message=Generálás elindítva!", status_code=303)
+    
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     if application:
