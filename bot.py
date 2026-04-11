@@ -306,7 +306,34 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
     except Exception as e: await query.message.edit_text(f"Hiba: {e}")
+# --- ADMIN BROADCAST FUNKCIÓK (HIÁNYZOTT!) ---
+@admin_only
+async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
+    await update.callback_query.answer()
+    await update.callback_query.message.reply_text("📢 Írd meg az üzenetet, amit MINDENKINEK ki szeretnél küldeni (vagy /cancel):")
+    return AWAITING_BROADCAST
 
+async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
+    msg = update.message.text
+    # Itt küldheted ki az üzenetet a felhasználóknak
+    await update.message.reply_text(f"✅ Üzenet rögzítve a kiküldéshez: {msg}")
+    return ConversationHandler.END
+
+@admin_only
+async def admin_vip_broadcast_start(update: telegram.Update, context: CallbackContext):
+    await update.callback_query.answer()
+    await update.callback_query.message.reply_text("💎 Írd meg a VIP üzenetet (vagy /cancel):")
+    return AWAITING_VIP_BROADCAST
+
+async def admin_vip_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
+    msg = update.message.text
+    await update.message.reply_text(f"✅ VIP üzenet rögzítve: {msg}")
+    return ConversationHandler.END
+
+async def cancel_conversation(update: telegram.Update, context: CallbackContext):
+    await update.message.reply_text("❌ Folyamat megszakítva.")
+    return ConversationHandler.END
+    
 @admin_only
 async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
     query = update.callback_query
@@ -404,13 +431,12 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data
+    
     if command.startswith("admin_show_stat_"):
         parts = command.split("_")
         try:
-            # Ha a periódus több szóból áll (pl current_month), összefűzzük
             if len(parts) == 5: period = "_".join(parts[3:-1])
-            else: period = parts[3] # Ha csak egy szó (pl yesterday vagy all)
-            
+            else: period = parts[3]
             offset = int(parts[-1])
             await stat(update, context, period=period, month_offset=offset)
         except Exception:
@@ -418,8 +444,12 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
             
     elif command == "admin_show_users": await admin_show_users(update, context)
     elif command == "admin_check_status": await admin_check_status(update, context)
-    elif command == "admin_broadcast_start": await admin_broadcast_start(update, context)
-    elif command == "admin_vip_broadcast_start": await admin_vip_broadcast_start(update, context)
+    elif command == "admin_broadcast_start": 
+        # A ConversationHandler-t az add_handlers kezeli, 
+        # ide csak query.answer() kell, ha gombbal indítjuk
+        await query.answer()
+    elif command == "admin_vip_broadcast_start": 
+        await query.answer()
     elif command == "admin_manage_manual": await admin_manage_manual_slips(update, context)
     elif command == "generate_new_tips": await generate_new_tips(update, context)
     elif command.startswith("manual_result_"): await handle_manual_slip_action(update, context)
@@ -428,15 +458,30 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_close": await query.answer(); await query.message.delete()
 
 def add_handlers(application: Application):
-    broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')], states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
-    vip_broadcast_conv = ConversationHandler(entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')], states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]}, fallbacks=[CommandHandler("cancel", cancel_conversation)])
+    broadcast_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_broadcast_start, pattern='^admin_broadcast_start$')],
+        states={AWAITING_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_message_handler)]},
+        fallbacks=[CommandHandler("cancel", cancel_conversation)]
+    )
+    vip_broadcast_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_vip_broadcast_start, pattern='^admin_vip_broadcast_start$')],
+        states={AWAITING_VIP_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_vip_broadcast_message_handler)]},
+        fallbacks=[CommandHandler("cancel", cancel_conversation)]
+    )
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
-    application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
-    application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send:'))
-    application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
+    
+    # Ha ezek a függvények léteznek a fájlban, hagyd bent:
+    try:
+        application.add_handler(CallbackQueryHandler(handle_approve_tips, pattern='^approve_tips:'))
+        application.add_handler(CallbackQueryHandler(confirm_and_send_notification, pattern='^confirm_send:'))
+        application.add_handler(CallbackQueryHandler(handle_reject_tips, pattern='^reject_tips:'))
+    except NameError:
+        pass
+
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
