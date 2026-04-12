@@ -620,77 +620,74 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (INTELLIGENS TESZT/ÉLES VÁLASZTÓVAL) ---
+# --- STRIPE WEBHOOK (STABILIZÁLT VERZIÓ) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     
-    # 1. MEGHATÁROZZUK, HOGY TESZT VAGY ÉLES ÜZENET JÖTT-E
     import json
     try:
         raw_data = json.loads(payload)
-        # A Stripe elküldi, hogy livemode: true vagy false
         is_live = raw_data.get('livemode', True)
     except Exception:
         is_live = True
 
-    # 2. KIVÁLASZTJUK A MEGFELELŐ TITKOS KULCSOT (Signing Secret)
     if not is_live:
-        # TESZT MÓD: A Renderen lévő STRIPE_TEST_WEBHOOK_SECRET-et használjuk
         endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
-        print("🧪 Webhook: TESZT üzemmódú üzenet érkezett.")
+        print("🧪 Webhook: TESZT üzemmód.")
     else:
-        # ÉLES MÓD: A sima STRIPE_WEBHOOK_SECRET-et használjuk
         endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
-        print("💰 Webhook: ÉLES üzemmódú üzenet érkezett.")
+        print("💰 Webhook: ÉLES üzemmód.")
 
-    # 3. ALÁÍRÁS ELLENŐRZÉSE (Ezt bukta el eddig a 400-as hibával)
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except stripe.error.SignatureVerificationError as e:
-        print(f"❌ Webhook Aláírás Hiba: {e}")
+    except stripe.error.SignatureVerificationError:
         return JSONResponse({"error": "Invalid signature"}, status_code=400)
     except Exception as e:
-        print(f"⚠️ Webhook hiba az ellenőrzésnél: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    # 4. ADATBÁZIS MŰVELETEK
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
 
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            customer_id = session.get('customer')
-            customer_email = session.get('customer_details', {}).get('email')
             
-            # Metadata-ból azonosítunk (ez a legbiztosabb)
-            user_id = session.get('metadata', {}).get('user_id')
-            plan = session.get('metadata', {}).get('plan', 'monthly')
+            # BIZTONSÁGOS METADATA LEKÉRÉS
+            metadata = session.get('metadata')
+            if not metadata:
+                metadata = {}
+            
+            user_id = metadata.get('user_id')
+            plan = metadata.get('plan', 'monthly')
+            customer_id = session.get('customer')
+            customer_email = session.get('customer_details', {}).get('email') if session.get('customer_details') else "Ismeretlen"
             
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             
             if user_id:
                 new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
-                client.table("felhasznalok").update({
+                
+                # Frissítés a Supabase-ben
+                res = client.table("felhasznalok").update({
                     "subscription_status": "active",
                     "subscription_expires_at": new_exp,
                     "stripe_customer_id": customer_id,
                     "subscription_cancelled": False
                 }).eq("id", user_id).execute()
                 
-                print(f"✅ Aktiválva: {customer_email} (+{dur} nap)")
+                print(f"✅ SIKER: {customer_email} (ID: {user_id}) aktiválva.")
                 await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📦 Csomag: {plan}")
+            else:
+                print("⚠️ HIBA: A session nem tartalmaz user_id-t a metadata-ban!")
 
         elif event['type'] == 'invoice.paid':
-            # Automatikus megújulás kezelése
             invoice = event['data']['object']
             customer_id = invoice.get('customer')
             if invoice.get('subscription'):
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
-                if res.data:
+                if res and res.data:
                     usr = res.data
-                    # Egyszerű dur meghatározás az összeg alapján
                     dur = 31 if invoice.get('amount_paid', 0) > 5000 else 7
                     
                     start_dt = datetime.now(pytz.utc)
@@ -710,8 +707,9 @@ async def stripe_webhook(request: Request):
         return JSONResponse({"status": "success"})
         
     except Exception as e:
-        print(f"❌ Webhook feldolgozási hiba (500): {e}")
-        return JSONResponse({"error": "Internal database error"}, status_code=500)
+        print(f"❌ Webhook hiba részletei: {str(e)}")
+        # Itt ne dobjunk 500-at a Stripe-nak, ha az adatbázis hibázik, mert újra fogja küldeni
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
 
