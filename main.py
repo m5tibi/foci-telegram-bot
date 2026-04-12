@@ -538,7 +538,7 @@ async def create_portal_session(request: Request):
         print(f"❌ Stripe Portal hiba: {e}")
         return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=stripe_error", status_code=303)
 
-@api.post("/create-checkout-session")
+@api.post("/create-checkout-session-web")
 async def create_checkout_session(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user:
