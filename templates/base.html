@@ -442,7 +442,7 @@
     <a href="https://mondomatutit.hu/free_tips.html">Ingyenes Tippek</a>
     
     {% if user %}
-        <a href="/vip">VIP Tippek</a> 
+        <a href="/vip?t={{ range(1, 99999) | random }}">VIP Tippek</a>
         <a href="/profile">Profil</a>
         {% if user.chat_id == 1326707238 %}
             <a href="/admin/upload">Admin Feltöltés</a>
