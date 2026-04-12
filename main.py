@@ -546,10 +546,12 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     
     # --- 1. INTELLIGENS KULCS ÉS ÁR VÁLASZTÓ ---
     is_test_user = (user.get('email') == "m5tibi77@gmail.com")
+    
+    # Meghatározzuk, melyik kulcsot használjuk ehhez a kéréshez
+    current_stripe_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_test_user else os.environ.get("STRIPE_SECRET_KEY")
 
     if is_test_user:
-        # TESZT MÓD: A Render-en beállított STRIPE_TEST_SECRET_KEY változót használjuk
-        stripe.api_key = os.environ.get("STRIPE_TEST_SECRET_KEY")
+        # TESZT MÓD: Fix teszt ID-k a Stripe Dashboard-ról
         price_map = {
             "monthly": "price_1TGjOwGTueuLQQun3dzmD3w9", # Teszt Havi ID
             "weekly": "price_1TGjPQGTueuLQQunF9VfN4Fv",  # Teszt Heti ID
@@ -557,8 +559,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         }
         print(f"🛠️ Stripe: TESZT mód aktiválva ({user.get('email')})")
     else:
-        # ÉLES MÓD: Mindenki másnak az éles kulcs és az éles környezeti változók
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+        # ÉLES MÓD: Környezeti változókból vett éles ID-k
         price_map = {
             "monthly": os.environ.get("STRIPE_PRICE_ID_MONTHLY"),
             "weekly": os.environ.get("STRIPE_PRICE_ID_WEEKLY"),
@@ -566,8 +567,8 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         }
         print("💳 Stripe: ÉLES mód aktiválva.")
 
-    # Kritikus ellenőrzés: ha nincs kulcs, ne is menjünk tovább
-    if not stripe.api_key:
+    # Kritikus ellenőrzés: ha nincs kulcs a környezeti változókban
+    if not current_stripe_key:
         print("❌ HIBA: Stripe API kulcs nem található a környezeti változókban!")
         return HTMLResponse(content="Hiba: Hiányzó Stripe konfiguráció a szerveren.", status_code=500)
 
@@ -578,7 +579,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     amounts = {"monthly": 9999, "weekly": 3490, "daily": 1190}
     amount = amounts.get(plan, 0)
 
-    # Biztonsági ellenőrzés: ha nincs meg a Price ID az adott csomaghoz
+    # Biztonsági ellenőrzés: ha nincs meg a Price ID az adott csomaghoz az adott módban
     if not price_id:
         mode_str = "TESZT" if is_test_user else "ÉLES"
         print(f"❌ HIBA: Nincs Stripe Price ID a '{plan}' csomaghoz ({mode_str} módban)")
@@ -586,8 +587,9 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
 
     try:
         # --- 3. CHECKOUT SESSION LÉTREHOZÁSA ---
-        # A stripe.api_key itt már a fent kiválasztott (teszt vagy éles) kulcs!
+        # Explicit átadjuk az api_key-t, hogy véletlenül se használja az éleset teszt user-nél
         checkout_session = stripe.checkout.Session.create(
+            api_key=current_stripe_key,
             customer_email=user['email'],
             payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
@@ -609,7 +611,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     
     finally:
         # --- 4. RESET ---
-        # Visszaállítjuk a globális kulcsot az élesre, hogy a többi folyamat (pl. webhook) ne akadjon el
+        # Alapértelmezett globális kulcs visszaállítása az élesre
         stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 # --- STRIPE WEBHOOK (ÚJ VÁSÁRLÁS ÉS MEGÚJULÁS) ---
