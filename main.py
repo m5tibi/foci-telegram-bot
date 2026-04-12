@@ -524,36 +524,65 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # Csomag alapú ár és Price ID meghatározása
-    if plan == "monthly":
-        price_id = STRIPE_PRICE_ID_MONTHLY
-        amount = 9999
-    elif plan == "weekly":
-        price_id = STRIPE_PRICE_ID_WEEKLY
-        amount = 3490
-    elif plan == "daily":
-        price_id = STRIPE_PRICE_ID_DAILY 
-        amount = 1190
+    # 1. TESZT VAGY ÉLES ÜZEMMÓD MEGHATÁROZÁSA
+    is_test_user = (user['email'] == "m5tibi77@gmail.com")
+    
+    if is_test_user:
+        # TESZT KULCS HASZNÁLATA
+        stripe.api_key = STRIPE_TEST_SECRET_KEY
+        # Ide írd be a konkrét teszt Price ID-kat a Stripe-ról (Test Mode alatt találod)
+        price_map = {
+            "monthly": "price_1Qx...", # <--- A teszt havi ID-d
+            "weekly": "price_1Qx...",  # <--- A teszt heti ID-d
+            "daily": "price_1Qx..."    # <--- A teszt napi ID-d
+        }
     else:
-        # Biztonsági tartalék, ha valami ismeretlen érkezne
-        return RedirectResponse(url="/vip?error=invalid_plan", status_code=303)
+        # ÉLES KULCS HASZNÁLATA
+        stripe.api_key = STRIPE_SECRET_KEY
+        # Éles Price ID-k (amik már megvannak a környezeti változókban)
+        price_map = {
+            "monthly": STRIPE_PRICE_ID_MONTHLY,
+            "weekly": STRIPE_PRICE_ID_WEEKLY,
+            "daily": os.environ.get("STRIPE_PRICE_ID_DAILY")
+        }
+
+    # 2. ÁR ÉS ID KIVÁLASZTÁSA
+    price_id = price_map.get(plan)
+    
+    # Pixelnek szánt összegek meghatározása
+    amounts = {"monthly": 9999, "weekly": 3490, "daily": 1190}
+    amount = amounts.get(plan, 0)
+
+    # Biztonsági ellenőrzés: ha nincs meg a Price ID
+    if not price_id:
+        print(f"❌ HIBA: Nincs Stripe Price ID a '{plan}' csomaghoz (Teszt: {is_test_user})")
+        return HTMLResponse(content="Hiba: Hiányzó csomag azonosító a szerveren.", status_code=500)
 
     try:
-        # Checkout Session létrehozása
+        # 3. CHECKOUT SESSION LÉTREHOZÁSA
         checkout_session = stripe.checkout.Session.create(
             customer_email=user['email'],
             payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
-            # A sikeres oldalra átadjuk az összeget és a session_id-t a Facebook Pixelnek
+            # Facebook Pixelnek átadjuk a Session ID-t és az összeget
             success_url=f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}&amount={amount}",
             cancel_url=f"{RENDER_APP_URL}/vip?payment=cancelled",
-            metadata={'user_id': user['id'], 'plan': plan}
+            metadata={
+                'user_id': user['id'], 
+                'plan': plan,
+                'is_test': str(is_test_user)
+            }
         )
         return RedirectResponse(url=checkout_session.url, status_code=303)
+    
     except Exception as e:
         print(f"❌ Stripe Checkout hiba: {e}")
-        return HTMLResponse(content="Hiba történt a fizetés indításakor.", status_code=500)
+        return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
+    
+    finally:
+        # 4. FONTOS: Visszaállítjuk az éles kulcsot alapértelmezettnek
+        stripe.api_key = STRIPE_SECRET_KEY
 
 # --- STRIPE WEBHOOK (ÚJ VÁSÁRLÁS ÉS MEGÚJULÁS) ---
 @api.post("/stripe-webhook")
