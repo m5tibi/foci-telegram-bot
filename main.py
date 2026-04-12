@@ -531,9 +531,9 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         # Kifejezetten a teszt kulcsot fogjuk használni a hívásnál
         api_key_to_use = STRIPE_TEST_SECRET_KEY
         price_map = {
-            "monthly": "price_1Qx...TESZT_HAVI_ID",
-            "weekly": "price_1Qx...TESZT_HETI_ID",
-            "daily": "price_1Qx...TESZT_NAPI_ID"
+            "monthly": TESZT_HAVI_ID,
+            "weekly": TESZT_HETI_ID,
+            "daily": TESZT_NAPI_ID
         }
     else:
         # ÉLES KULCS HASZNÁLATA
