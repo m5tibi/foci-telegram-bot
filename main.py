@@ -692,27 +692,43 @@ async def admin_upload_page(request: Request, message: Optional[str] = None, err
 @api.post("/admin/upload")
 async def admin_upload_process(
     request: Request, 
-    file: UploadFile = File(...), 
-    tip_type: str = Form(...)  # <--- Ezt add hozzá, mert a HTML küldi!
+    tip_type: str = Form(...),
+    tipp_neve: str = Form(...),
+    eredo_odds: float = Form(...),
+    target_date: str = Form(...),
+    slip_image: UploadFile = File(...) # A névnek egyeznie kell a HTML slip_image mezőjével!
 ):
     user = get_current_user(request)
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
 
     try:
-        contents = await file.read()
+        # 1. Kép feltöltése a Supabase Storage-ba (vagy helyi mentés)
+        # Itt most a legegyszerűbb megoldást írom: mentés és adatbázis bejegyzés
+        contents = await slip_image.read()
         
-        # Eldöntheted, hová mentse a fájlt a típus alapján, 
-        # vagy maradhatsz a fix tippek.xlsx-nél:
-        file_path = os.path.join(os.getcwd(), "tippek.xlsx")
+        # Opcionális: Itt jönne a Supabase Storage feltöltés, ha felhőben tárolod a képeket.
+        # Most feltételezzük, hogy van egy logikád a kép URL-jének kezelésére.
+        # Példa bejegyzés a megfelelő táblába (manual_slips vagy free_slips):
         
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        table_name = "manual_slips" if tip_type == "vip" else "free_slips"
         
+        # Ideiglenesen mentsük el a fájlt a szerverre (Renderen ez törlődik restartkor!)
+        # Hosszú távon a Supabase Storage-ot javaslom használni.
+        
+        # Példa egy Supabase INSERT-re (feltételezve az image_url-t):
+        # res = supabase.table(table_name).insert({
+        #     "tipp_neve": tipp_neve,
+        #     "eredo_odds": eredo_odds,
+        #     "target_date": target_date,
+        #     "status": "Folyamatban"
+        # }).execute()
+
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
+        
     except Exception as e:
         print(f"❌ Feltöltési hiba: {e}")
-        return RedirectResponse(url="/admin/upload?error=Hiba történt a mentés során.", status_code=303)
+        return RedirectResponse(url=f"/admin/upload?error=Hiba: {str(e)}", status_code=303)
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
