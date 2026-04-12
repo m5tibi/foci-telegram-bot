@@ -566,9 +566,9 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     if is_test_user:
         # TESZT MÓD: Fix teszt ID-k (ellenőrizd ezeket a Stripe Dashboardon!)
         price_map = {
-            "monthly": "price_1TGjOwGTueuLQQun3dzmD3w9", 
-            "weekly": "price_1TGjPQGTueuLQQunF9VfN4Fv",
-            "daily": "price_1TGjPrGTueuLQQunXvI8Z2f2"
+            "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
+            "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd",
+            "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
         }
         print(f"🛠️ Stripe: TESZT mód aktiválva ({user.get('email')})")
     else:
