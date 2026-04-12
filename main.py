@@ -532,12 +532,12 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     is_test_user = (user['email'] == "m5tibi77@gmail.com")
     
     if is_test_user:
-        # Kifejezetten a teszt kulcsot fogjuk használni a hívásnál
         api_key_to_use = STRIPE_TEST_SECRET_KEY
+        # IDE ÍRD BE A PONTOS price_... KÓDOKAT A STRIPE TEST MODE-BÓL!
         price_map = {
-            "monthly": STRIPE_TEST_PRICE_ID_MONTHLY,
-            "weekly": STRIPE_TEST_PRICE_ID_WEEEKLY,
-            "daily": STRIPE_TEST_PRICE_ID_DAILY
+            "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
+            "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd",
+            "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
         }
     else:
         # ÉLES KULCS HASZNÁLATA
@@ -672,6 +672,8 @@ async def admin_force_check(request: Request):
 
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
 
+# --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
+
 @api.get("/admin/upload", response_class=HTMLResponse)
 async def admin_upload_page(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
@@ -679,30 +681,30 @@ async def admin_upload_page(request: Request, message: Optional[str] = None, err
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
     
-    return templates.TemplateResponse(\"admin_upload.html\", {
-        \"request\": request,
-        \"user\": user,
-        \"message\": message,
-        \"error\": error
+    return templates.TemplateResponse("admin_upload.html", {
+        "request": request,
+        "user": user,
+        "message": message,
+        "error": error
     })
 
 @api.post("/admin/upload")
 async def admin_upload_process(request: Request, file: UploadFile = File(...)):
     user = get_current_user(request)
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
-        return RedirectResponse(url=\"/vip\", status_code=303)
+        return RedirectResponse(url="/vip", status_code=303)
 
     try:
         contents = await file.read()
         # A fájl mentése tippek.xlsx néven a főkönyvtárba
-        file_path = os.path.join(os.getcwd(), \"tippek.xlsx\")
-        with open(file_path, \"wb\") as f:
+        file_path = os.path.join(os.getcwd(), "tippek.xlsx")
+        with open(file_path, "wb") as f:
             f.write(contents)
         
-        return RedirectResponse(url=\"/admin/upload?message=Sikeres feltöltés: tippek.xlsx\", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés: tippek.xlsx", status_code=303)
     except Exception as e:
-        print(f\"❌ Feltöltési hiba: {e}\")
-        return RedirectResponse(url=\"/admin/upload?error=Hiba történt a mentés során.\", status_code=303)
+        print(f"❌ Feltöltési hiba: {e}")
+        return RedirectResponse(url="/admin/upload?error=Hiba történt a mentés során.", status_code=303)
 
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
