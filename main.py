@@ -532,7 +532,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         price_id = STRIPE_PRICE_ID_WEEKLY
         amount = 3490
     elif plan == "daily":
-        price_id = "STRIPE_PRICE_ID_DAILY" 
+        price_id = STRIPE_PRICE_ID_DAILY 
         amount = 1190
     else:
         # Biztonsági tartalék, ha valami ismeretlen érkezne
