@@ -690,19 +690,26 @@ async def admin_upload_page(request: Request, message: Optional[str] = None, err
     )
 
 @api.post("/admin/upload")
-async def admin_upload_process(request: Request, file: UploadFile = File(...)):
+async def admin_upload_process(
+    request: Request, 
+    file: UploadFile = File(...), 
+    tip_type: str = Form(...)  # <--- Ezt add hozzá, mert a HTML küldi!
+):
     user = get_current_user(request)
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
 
     try:
         contents = await file.read()
-        # A fájl mentése tippek.xlsx néven a főkönyvtárba
+        
+        # Eldöntheted, hová mentse a fájlt a típus alapján, 
+        # vagy maradhatsz a fix tippek.xlsx-nél:
         file_path = os.path.join(os.getcwd(), "tippek.xlsx")
+        
         with open(file_path, "wb") as f:
             f.write(contents)
         
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés: tippek.xlsx", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
     except Exception as e:
         print(f"❌ Feltöltési hiba: {e}")
         return RedirectResponse(url="/admin/upload?error=Hiba történt a mentés során.", status_code=303)
