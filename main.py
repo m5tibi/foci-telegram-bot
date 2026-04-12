@@ -672,19 +672,17 @@ async def admin_force_check(request: Request):
 
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
 
-# --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
-
 @api.get("/admin/upload", response_class=HTMLResponse)
 async def admin_upload_page(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
     
-    # Itt a javítás: biztosítsuk, hogy a TemplateResponse pontosan így nézzen ki
+    # A legbiztosabb formátum a legújabb FastAPI verziókhoz:
     return templates.TemplateResponse(
+        request=request,  # Első paraméterként adjuk át a request-et
         name="admin_upload.html", 
         context={
-            "request": request,
             "user": user,
             "message": message,
             "error": error
