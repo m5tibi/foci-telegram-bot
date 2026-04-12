@@ -620,7 +620,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (FIXED: Stripe Object Compatibility) ---
+# --- STRIPE WEBHOOK (FINAL STABLE VERSION) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -637,7 +637,6 @@ async def stripe_webhook(request: Request):
     print(f"🧪 Webhook érkezett: {'TESZT' if not is_live else 'ÉLES'}")
 
     try:
-        # Itt jön létre a Stripe objektum
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except Exception as e:
         print(f"❌ Webhook aláírás hiba: {e}")
@@ -646,21 +645,25 @@ async def stripe_webhook(request: Request):
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         
-        # JAVÍTÁS: Nem .get()-et használunk, hanem közvetlen elérést
-        event_type = event['type'] 
+        # Stripe objektumoknál a [] elérés a biztos
+        event_type = event['type']
         obj = event['data']['object']
 
         if event_type == 'checkout.session.completed':
-            # Biztonságos metadata elérés Stripe objektumból
-            meta = obj.get('metadata', {})
+            # JAVÍTÁS: .get() helyett közvetlen elérés vagy getattr használata
+            metadata = getattr(obj, 'metadata', {})
             
-            user_id = meta.get('user_id')
-            plan = meta.get('plan', 'monthly')
-            cust_id = obj.get('customer')
+            user_id = metadata.get('user_id')
+            plan = metadata.get('plan', 'monthly')
+            cust_id = getattr(obj, 'customer', None)
             
-            # Email kinyerése
-            details = obj.get('customer_details', {})
-            c_email = details.get('email') if details else (obj.get('customer_email') or "Ismeretlen")
+            # Email kinyerése biztonságosan
+            details = getattr(obj, 'customer_details', None)
+            c_email = "Ismeretlen"
+            if details and hasattr(details, 'email'):
+                c_email = details.email
+            elif hasattr(obj, 'customer_email') and obj.customer_email:
+                c_email = obj.customer_email
             
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             
@@ -680,18 +683,19 @@ async def stripe_webhook(request: Request):
                 print("⚠️ HIBA: Nincs user_id a metadata-ban!")
 
         elif event_type == 'invoice.paid':
-            cust_id = obj.get('customer')
-            if cust_id and obj.get('subscription'):
+            cust_id = getattr(obj, 'customer', None)
+            if cust_id and getattr(obj, 'subscription', None):
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
                 if res and res.data:
                     usr = res.data
-                    paid = obj.get('amount_paid', 0)
+                    paid = getattr(obj, 'amount_paid', 0)
                     dur = 31 if paid > 5000 else 7
                     
                     start_dt = datetime.now(pytz.utc)
-                    if usr.get('subscription_expires_at'):
+                    exp_at = usr.get('subscription_expires_at')
+                    if exp_at:
                         try:
-                            old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
+                            old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
                             if old_exp > start_dt: start_dt = old_exp
                         except: pass
                     
@@ -706,7 +710,7 @@ async def stripe_webhook(request: Request):
         
     except Exception as e:
         import traceback
-        print(f"❌ Webhook hiba: {str(e)}")
+        print(f"❌ Webhook kritikus hiba: {str(e)}")
         print(traceback.format_exc())
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
