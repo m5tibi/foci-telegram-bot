@@ -518,6 +518,37 @@ async def create_portal_session(request: Request):
         print(f"❌ Stripe Portal hiba: {e}")
         return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=stripe_error", status_code=303)
 
+@api.post("/create-checkout-session")
+async def create_checkout_session(request: Request, plan: str = Form(...)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+
+    # Csomag alapú ár meghatározása
+    if plan == "monthly":
+        price_id = STRIPE_PRICE_ID_MONTHLY
+        amount = 9999
+    else:
+        price_id = STRIPE_PRICE_ID_WEEKLY
+        amount = 3490
+
+    try:
+        # Checkout Session létrehozása
+        checkout_session = stripe.checkout.Session.create(
+            customer_email=user['email'],
+            payment_method_types=['card'],
+            line_items=[{'price': price_id, 'quantity': 1}],
+            mode='subscription',
+            # A sikeres oldalra átadjuk az összeget és a session_id-t a Facebook Pixelnek
+            success_url=f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}&amount={amount}",
+            cancel_url=f"{RENDER_APP_URL}/vip?payment=cancelled",
+            metadata={'user_id': user['id'], 'plan': plan}
+        )
+        return RedirectResponse(url=checkout_session.url, status_code=303)
+    except Exception as e:
+        print(f"❌ Stripe Checkout hiba: {e}")
+        return HTMLResponse(content="Hiba történt a fizetés indításakor.", status_code=500)
+
 # --- STRIPE WEBHOOK (ÚJ VÁSÁRLÁS ÉS MEGÚJULÁS) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
