@@ -696,35 +696,42 @@ async def admin_upload_process(
     tipp_neve: str = Form(...),
     eredo_odds: float = Form(...),
     target_date: str = Form(...),
-    slip_image: UploadFile = File(...) # A névnek egyeznie kell a HTML slip_image mezőjével!
+    slip_image: UploadFile = File(...)
 ):
     user = get_current_user(request)
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
 
     try:
-        # 1. Kép feltöltése a Supabase Storage-ba (vagy helyi mentés)
-        # Itt most a legegyszerűbb megoldást írom: mentés és adatbázis bejegyzés
+        # 1. Kép kiolvasása
         contents = await slip_image.read()
+        file_ext = slip_image.filename.split('.')[-1]
+        file_name = f"{int(time.time())}_{secrets.token_hex(4)}.{file_ext}"
         
-        # Opcionális: Itt jönne a Supabase Storage feltöltés, ha felhőben tárolod a képeket.
-        # Most feltételezzük, hogy van egy logikád a kép URL-jének kezelésére.
-        # Példa bejegyzés a megfelelő táblába (manual_slips vagy free_slips):
+        # 2. Feltöltés a Supabase Storage-ba (A 'slips' nevű bucketbe)
+        # Győződj meg róla, hogy létrehoztál egy 'slips' nevű PUBLIC bucket-et a Supabase-en!
+        storage_path = f"{tip_type}/{file_name}"
+        supabase.storage.from_("slips").upload(storage_path, contents)
         
+        # 3. Nyilvános URL lekérése
+        image_url = supabase.storage.from_("slips").get_public_url(storage_path)
+
+        # 4. Adatok mentése a megfelelő táblába
+        # Feltételezzük, hogy a tábláid neve: 'manual_slips' és 'free_slips'
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
         
-        # Ideiglenesen mentsük el a fájlt a szerverre (Renderen ez törlődik restartkor!)
-        # Hosszú távon a Supabase Storage-ot javaslom használni.
+        data = {
+            "tipp_neve": tipp_neve,
+            "eredo_odds": eredo_odds,
+            "target_date": target_date,
+            "image_url": image_url,
+            "status": "Folyamatban",
+            "created_at": datetime.now(pytz.timezone('Europe/Budapest')).isoformat()
+        }
         
-        # Példa egy Supabase INSERT-re (feltételezve az image_url-t):
-        # res = supabase.table(table_name).insert({
-        #     "tipp_neve": tipp_neve,
-        #     "eredo_odds": eredo_odds,
-        #     "target_date": target_date,
-        #     "status": "Folyamatban"
-        # }).execute()
+        supabase.table(table_name).insert(data).execute()
 
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Sikeresen feltöltve és mentve!", status_code=303)
         
     except Exception as e:
         print(f"❌ Feltöltési hiba: {e}")
