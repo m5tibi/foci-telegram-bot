@@ -523,18 +523,17 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
-
-    # 1. TESZT VAGY ÉLES ÜZEMMÓD MEGHATÁROZÁSA
+    
+    # 1. MEGHATÁROZZUK A KULCSOT ÉS AZ ID-KAT
     is_test_user = (user['email'] == "m5tibi77@gmail.com")
     
     if is_test_user:
-        # TESZT KULCS HASZNÁLATA
-        stripe.api_key = STRIPE_TEST_SECRET_KEY
-        # Ide írd be a konkrét teszt Price ID-kat a Stripe-ról (Test Mode alatt találod)
+        # Kifejezetten a teszt kulcsot fogjuk használni a hívásnál
+        api_key_to_use = STRIPE_TEST_SECRET_KEY
         price_map = {
-            "monthly": "price_1Qx...", # <--- A teszt havi ID-d
-            "weekly": "price_1Qx...",  # <--- A teszt heti ID-d
-            "daily": "price_1Qx..."    # <--- A teszt napi ID-d
+            "monthly": "price_1Qx...TESZT_HAVI_ID",
+            "weekly": "price_1Qx...TESZT_HETI_ID",
+            "daily": "price_1Qx...TESZT_NAPI_ID"
         }
     else:
         # ÉLES KULCS HASZNÁLATA
