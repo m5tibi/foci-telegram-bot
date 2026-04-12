@@ -692,6 +692,7 @@ async def admin_upload_page(request: Request, message: Optional[str] = None, err
 @api.post("/admin/upload")
 async def admin_upload_process(
     request: Request, 
+    background_tasks: BackgroundTasks, # Fontos a háttérfeladatokhoz
     tip_type: str = Form(...),
     tipp_neve: str = Form(...),
     eredo_odds: float = Form(...),
@@ -703,23 +704,18 @@ async def admin_upload_process(
         return RedirectResponse(url="/vip", status_code=303)
 
     try:
-        # 1. Kép kiolvasása
+        # 1. Kép kezelése és feltöltése
         contents = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1]
         file_name = f"{int(time.time())}_{secrets.token_hex(4)}.{file_ext}"
-        
-        # 2. Feltöltés a Supabase Storage-ba (A 'slips' nevű bucketbe)
-        # Győződj meg róla, hogy létrehoztál egy 'slips' nevű PUBLIC bucket-et a Supabase-en!
         storage_path = f"{tip_type}/{file_name}"
-        supabase.storage.from_("slips").upload(storage_path, contents)
         
-        # 3. Nyilvános URL lekérése
+        # Feltöltés a 'slips' bucketbe
+        supabase.storage.from_("slips").upload(storage_path, contents)
         image_url = supabase.storage.from_("slips").get_public_url(storage_path)
 
-        # 4. Adatok mentése a megfelelő táblába
-        # Feltételezzük, hogy a tábláid neve: 'manual_slips' és 'free_slips'
+        # 2. Mentés az adatbázisba
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
-        
         data = {
             "tipp_neve": tipp_neve,
             "eredo_odds": eredo_odds,
@@ -728,10 +724,37 @@ async def admin_upload_process(
             "status": "Folyamatban",
             "created_at": datetime.now(pytz.timezone('Europe/Budapest')).isoformat()
         }
-        
         supabase.table(table_name).insert(data).execute()
 
-        return RedirectResponse(url="/admin/upload?message=Sikeresen feltöltve és mentve!", status_code=303)
+        # 3. Értesítési lista összeállítása
+        # Lekérjük az összes felhasználót, akinek van Telegram chat_id-ja
+        users_res = supabase.table("felhasznalok").select("chat_id, subscription_status").not_.is_("chat_id", "null").execute()
+        
+        target_ids = []
+        if users_res.data:
+            for u in users_res.data:
+                # Ingyenes tipp -> mindenkinek megy
+                if tip_type == "free":
+                    target_ids.append(u['chat_id'])
+                # VIP tipp -> csak az aktív előfizetőknek megy
+                elif tip_type == "vip" and u.get('subscription_status') == 'active':
+                    target_ids.append(u['chat_id'])
+
+        # 4. Értesítő üzenet szövege
+        emoji = "🔥 VIP" if tip_type == "vip" else "✅ INGYENES"
+        notif_msg = (
+            f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
+            f"📝 Név: *{tipp_neve}*\n"
+            f"📈 Odds: *{eredo_odds}*\n"
+            f"📅 Dátum: *{target_date}*\n\n"
+            f"🚀 Nézd meg az oldalon: [mondomatutit.hu/vip](https://mondomatutit.hu/vip)"
+        )
+
+        # 5. Kiküldés a háttérben (hogy az admin oldal azonnal visszatöltsön)
+        if target_ids:
+            background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
+
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítések elindítva!", status_code=303)
         
     except Exception as e:
         print(f"❌ Feltöltési hiba: {e}")
