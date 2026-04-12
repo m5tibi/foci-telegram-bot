@@ -677,16 +677,19 @@ async def admin_force_check(request: Request):
 @api.get("/admin/upload", response_class=HTMLResponse)
 async def admin_upload_page(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
-    # Csak az admin léphet be
     if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
     
-    return templates.TemplateResponse("admin_upload.html", {
-        "request": request,
-        "user": user,
-        "message": message,
-        "error": error
-    })
+    # Itt a javítás: biztosítsuk, hogy a TemplateResponse pontosan így nézzen ki
+    return templates.TemplateResponse(
+        name="admin_upload.html", 
+        context={
+            "request": request,
+            "user": user,
+            "message": message,
+            "error": error
+        }
+    )
 
 @api.post("/admin/upload")
 async def admin_upload_process(request: Request, file: UploadFile = File(...)):
