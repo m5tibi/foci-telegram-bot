@@ -620,7 +620,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (FINAL FIX: Forced Dict Conversion) ---
+# --- STRIPE WEBHOOK (FINAL COMPATIBILITY FIX) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -645,24 +645,24 @@ async def stripe_webhook(request: Request):
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         
-        event_type = event['type']
-        obj = event['data']['object']
+        event_type = event.type
+        obj = event.data.object
 
         if event_type == 'checkout.session.completed':
-            # KRITIKUS JAVÍTÁS: Kényszerítjük a metadata-t szótárrá (dict)
-            raw_metadata = getattr(obj, 'metadata', {})
-            metadata = dict(raw_metadata) if raw_metadata else {}
+            # JAVÍTÁS: Közvetlen elérés ponttal, dict() kényszerítés nélkül
+            metadata = getattr(obj, 'metadata', {})
             
-            user_id = metadata.get('user_id')
-            plan = metadata.get('plan', 'monthly')
+            # Ha a metadata StripeObject, a .get() helyett így kérjük le az értékeket:
+            user_id = getattr(metadata, 'user_id', None)
+            plan = getattr(metadata, 'plan', 'monthly')
             cust_id = getattr(obj, 'customer', None)
             
-            # Email kinyerése
-            c_email = "Ismeretlen"
+            # Email kinyerése biztonságosan
             details = getattr(obj, 'customer_details', None)
-            if details:
-                c_email = getattr(details, 'email', "Ismeretlen")
-            elif hasattr(obj, 'customer_email') and obj.customer_email:
+            c_email = "Ismeretlen"
+            if details and getattr(details, 'email', None):
+                c_email = details.email
+            elif getattr(obj, 'customer_email', None):
                 c_email = obj.customer_email
             
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
