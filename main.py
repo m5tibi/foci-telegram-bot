@@ -619,53 +619,55 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         if "No such price" in str(e):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
-        
+
 # --- STRIPE WEBHOOK (INTELLIGENS TESZT/ÉLES VÁLASZTÓVAL) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     
-    # 1. NYERS ADAT BEOLVASÁSA A MÓD MEGHATÁROZÁSÁHOZ
+    # 1. MEGHATÁROZZUK, HOGY TESZT VAGY ÉLES ÜZENET JÖTT-E
     import json
     try:
         raw_data = json.loads(payload)
+        # A Stripe elküldi, hogy livemode: true vagy false
         is_live = raw_data.get('livemode', True)
     except Exception:
         is_live = True
 
-    # 2. MEGFELELŐ KULCS KIVÁLASZTÁSA (Render változók alapján)
+    # 2. KIVÁLASZTJUK A MEGFELELŐ TITKOS KULCSOT (Signing Secret)
     if not is_live:
+        # TESZT MÓD: A Renderen lévő STRIPE_TEST_WEBHOOK_SECRET-et használjuk
         endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
         print("🧪 Webhook: TESZT üzemmódú üzenet érkezett.")
     else:
+        # ÉLES MÓD: A sima STRIPE_WEBHOOK_SECRET-et használjuk
         endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
         print("💰 Webhook: ÉLES üzemmódú üzenet érkezett.")
 
-    # 3. ALÁÍRÁS ELLENŐRZÉSE
+    # 3. ALÁÍRÁS ELLENŐRZÉSE (Ezt bukta el eddig a 400-as hibával)
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except stripe.error.SignatureVerificationError as e:
         print(f"❌ Webhook Aláírás Hiba: {e}")
         return JSONResponse({"error": "Invalid signature"}, status_code=400)
     except Exception as e:
-        print(f"⚠️ Webhook hiba: {e}")
+        print(f"⚠️ Webhook hiba az ellenőrzésnél: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
-
+    # 4. ADATBÁZIS MŰVELETEK
     try:
-        # --- ÚJ VÁSÁRLÁS (CHECKOUT) ---
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             customer_id = session.get('customer')
             customer_email = session.get('customer_details', {}).get('email')
             
-            # Metadata-ból vesszük a user_id-t (amit a create-checkout-session-nél beleírtunk)
+            # Metadata-ból azonosítunk (ez a legbiztosabb)
             user_id = session.get('metadata', {}).get('user_id')
             plan = session.get('metadata', {}).get('plan', 'monthly')
             
-            # Időtartam meghatározása
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             
             if user_id:
@@ -677,25 +679,19 @@ async def stripe_webhook(request: Request):
                     "subscription_cancelled": False
                 }).eq("id", user_id).execute()
                 
-                print(f"✅ Sikeres aktiválás: {customer_email} (+{dur} nap)")
-                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📦 Csomag: {plan}\n📅 +{dur} nap")
+                print(f"✅ Aktiválva: {customer_email} (+{dur} nap)")
+                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📦 Csomag: {plan}")
 
-        # --- AUTOMATIKUS MEGÚJULÁS (INVOICE) ---
         elif event['type'] == 'invoice.paid':
+            # Automatikus megújulás kezelése
             invoice = event['data']['object']
             customer_id = invoice.get('customer')
-            
-            # Csak ha előfizetésről van szó
             if invoice.get('subscription'):
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
                 if res.data:
                     usr = res.data
-                    # Megkeressük az árat az invoice-ban a napok számításához
-                    line_item = invoice.get('lines', {}).get('data', [{}])[0]
-                    amount = invoice.get('amount_paid', 0)
-                    
-                    # Egyszerűbb logika az összeg alapján (vagy price_id alapján ha kellenek az éles konstansok)
-                    dur = 31 if amount > 5000 else (7 if amount > 2000 else 1)
+                    # Egyszerű dur meghatározás az összeg alapján
+                    dur = 31 if invoice.get('amount_paid', 0) > 5000 else 7
                     
                     start_dt = datetime.now(pytz.utc)
                     if usr.get('subscription_expires_at'):
@@ -709,31 +705,14 @@ async def stripe_webhook(request: Request):
                         "subscription_status": "active",
                         "subscription_expires_at": new_exp
                     }).eq("id", usr['id']).execute()
-                    
-                    print(f"🔄 Sikeres megújulás: {usr.get('email')} (+{dur} nap)")
-                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr.get('email')}\n📅 +{dur} nap")
+                    print(f"🔄 Megújítva: {usr.get('email')}")
 
-        return {"status": "success"}
+        return JSONResponse({"status": "success"})
         
     except Exception as e:
-        print(f"❌ Webhook feldolgozási hiba: {e}")
-        return JSONResponse({"error": "Internal error"}, status_code=500)
-
-# --- EGYÉB ADMIN ÉS TELEGRAM ÚTVONALAK ---
-@api.get("/admin/force-generate", response_class=RedirectResponse)
-async def admin_force_generate(request: Request):
-    user = get_current_user(request)
-    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
-    asyncio.create_task(asyncio.to_thread(run_tipp_generator))
-    return RedirectResponse(url="/admin/upload?message=Generálás elindítva!", status_code=303)
-
-@api.get("/admin/force-check", response_class=RedirectResponse)
-async def admin_force_check(request: Request):
-    user = get_current_user(request)
-    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
-    asyncio.create_task(asyncio.to_thread(run_result_checker))
-    return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
-
+        print(f"❌ Webhook feldolgozási hiba (500): {e}")
+        return JSONResponse({"error": "Internal database error"}, status_code=500)
+        
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
 
 @api.get("/admin/upload", response_class=HTMLResponse)
