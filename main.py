@@ -620,7 +620,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (STABILIZÁLT VERZIÓ) ---
+# --- STRIPE WEBHOOK (ULTRA-STABIL VERZIÓ) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -633,82 +633,84 @@ async def stripe_webhook(request: Request):
     except Exception:
         is_live = True
 
-    if not is_live:
-        endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
-        print("🧪 Webhook: TESZT üzemmód.")
-    else:
-        endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
-        print("💰 Webhook: ÉLES üzemmód.")
+    endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET") if not is_live else os.environ.get("STRIPE_WEBHOOK_SECRET")
+    print(f"🧪 Webhook: {'TESZT' if not is_live else 'ÉLES'} üzemmód.")
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except stripe.error.SignatureVerificationError:
-        return JSONResponse({"error": "Invalid signature"}, status_code=400)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+        event_type = event.get('type')
+        data_object = event.get('data', {}).get('object', {})
 
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
-            
-            # BIZTONSÁGOS METADATA LEKÉRÉS
-            metadata = session.get('metadata')
-            if not metadata:
-                metadata = {}
+        # --- 1. ÚJ VÁSÁRLÁS ---
+        if event_type == 'checkout.session.completed':
+            session = data_object
+            metadata = session.get('metadata') or {}
             
             user_id = metadata.get('user_id')
             plan = metadata.get('plan', 'monthly')
             customer_id = session.get('customer')
-            customer_email = session.get('customer_details', {}).get('email') if session.get('customer_details') else "Ismeretlen"
+            
+            # Email cím kinyerése több helyről, ha az egyik üres lenne
+            customer_email = session.get('customer_details', {}).get('email') or session.get('customer_email') or "Ismeretlen"
             
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             
             if user_id:
                 new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
-                
-                # Frissítés a Supabase-ben
-                res = client.table("felhasznalok").update({
+                client.table("felhasznalok").update({
                     "subscription_status": "active",
                     "subscription_expires_at": new_exp,
                     "stripe_customer_id": customer_id,
                     "subscription_cancelled": False
                 }).eq("id", user_id).execute()
                 
-                print(f"✅ SIKER: {customer_email} (ID: {user_id}) aktiválva.")
+                print(f"✅ SIKER: {customer_email} (User: {user_id}) aktiválva.")
                 await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📦 Csomag: {plan}")
             else:
-                print("⚠️ HIBA: A session nem tartalmaz user_id-t a metadata-ban!")
+                print("⚠️ HIBA: Nincs user_id a metadata-ban.")
 
-        elif event['type'] == 'invoice.paid':
-            invoice = event['data']['object']
+        # --- 2. AUTOMATIKUS MEGÚJULÁS ---
+        elif event_type == 'invoice.paid':
+            invoice = data_object
             customer_id = invoice.get('customer')
-            if invoice.get('subscription'):
+            
+            if customer_id and invoice.get('subscription'):
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
+                
                 if res and res.data:
                     usr = res.data
-                    dur = 31 if invoice.get('amount_paid', 0) > 5000 else 7
+                    # Összeg alapú nap számítás (biztonságosabb)
+                    amount_paid = invoice.get('amount_paid', 0)
+                    dur = 31 if amount_paid > 5000 else (7 if amount_paid > 2000 else 1)
                     
                     start_dt = datetime.now(pytz.utc)
                     if usr.get('subscription_expires_at'):
                         try:
                             old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
-                            if old_exp > start_dt: start_dt = old_exp
-                        except: pass
+                            if old_exp > start_dt:
+                                start_dt = old_exp
+                        except Exception:
+                            pass
                     
                     new_exp = (start_dt + timedelta(days=dur)).isoformat()
                     client.table("felhasznalok").update({
                         "subscription_status": "active",
                         "subscription_expires_at": new_exp
                     }).eq("id", usr['id']).execute()
-                    print(f"🔄 Megújítva: {usr.get('email')}")
+                    
+                    print(f"🔄 MEGÚJÍTVA: {usr.get('email')}")
+                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr.get('email')}")
 
-        return JSONResponse({"status": "success"})
+        return JSONResponse({"status": "success"}, status_code=200)
         
     except Exception as e:
         print(f"❌ Webhook hiba részletei: {str(e)}")
-        # Itt ne dobjunk 500-at a Stripe-nak, ha az adatbázis hibázik, mert újra fogja küldeni
+        # 200-at adunk vissza, hogy a Stripe ne küldözgesse újra a hibás kérést
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
