@@ -35,6 +35,7 @@ RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
 # STRIPE KULCSOK (ÉLES ÉS TESZT)
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
+stripe.api_key = STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 STRIPE_TEST_SECRET_KEY = os.environ.get("STRIPE_TEST_SECRET_KEY")
 STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
@@ -489,41 +490,101 @@ async def generate_live_invite(request: Request):
         else: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=bot_not_ready", status_code=303)
     except Exception: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=invite_failed", status_code=303)
 
+# --- STRIPE ÜGYFÉLPORTÁL ---
 @api.get("/create-portal-session")
 async def create_portal_session(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # Fontos: A legfrissebb adatot kérjük le a DB-ből
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
     res = client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
     
     customer_id = res.data.get('stripe_customer_id') if res.data else None
 
     if not customer_id:
-        print(f"⚠️ Hiba: Nincs Stripe ID a felhasználóhoz: {user.get('email')}")
-        return RedirectResponse(url="https://mondomatutit.hu/vip?error=no_subscription", status_code=303)
+        return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=no_subscription", status_code=303)
 
     try:
+        # Itt fontos, hogy a stripe.api_key be legyen állítva!
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
-            return_url="https://mondomatutit.hu/vip",
+            return_url=f"{RENDER_APP_URL}/vip",
         )
         return RedirectResponse(url=portal_session.url, status_code=303)
     except Exception as e:
         print(f"❌ Stripe Portal hiba: {e}")
-        return RedirectResponse(url="https://mondomatutit.hu/vip?error=stripe_error", status_code=303)
-        
-        @api.post("/create-portal-session", response_class=RedirectResponse)
-async def create_portal_session(request: Request):
-    user = get_current_user(request)
-    if not user or not user.get("stripe_customer_id"): return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
+        return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=stripe_error", status_code=303)
+
+# --- STRIPE WEBHOOK (ÚJ VÁSÁRLÁS ÉS MEGÚJULÁS) ---
+@api.post("/stripe-webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
     try:
-        return_url = f"{RENDER_APP_URL}/profile"
-        portal_session = stripe.billing_portal.Session.create(customer=user["stripe_customer_id"], return_url=return_url)
-        return RedirectResponse(portal_session.url, status_code=303)
-    except Exception: return RedirectResponse(url=f"/profile?error=portal_failed", status_code=303)
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        print(f"⚠️ Webhook aláírás hiba: {e}")
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+
+    try:
+        # --- ÚJ VÁSÁRLÁS ---
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            customer_id = session.get('customer')
+            customer_email = session.get('customer_details', {}).get('email')
+            
+            line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
+            price_id = line_items.data[0].price.id if line_items.data else ""
+            dur = 31 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
+            
+            res = client.table("felhasznalok").select("*").eq("email", customer_email).maybe_single().execute()
+            if res.data:
+                new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+                client.table("felhasznalok").update({
+                    "subscription_status": "active",
+                    "subscription_expires_at": new_exp,
+                    "stripe_customer_id": customer_id,
+                    "subscription_cancelled": False
+                }).eq("id", res.data['id']).execute()
+                
+                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📅 +{dur} nap")
+
+        # --- AUTOMATA MEGÚJULÁS ---
+        elif event['type'] == 'invoice.paid':
+            invoice = event['data']['object']
+            customer_id = invoice.get('customer')
+            
+            if invoice.get('subscription'):
+                res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
+                if res.data:
+                    usr = res.data
+                    line_item = invoice.get('lines', {}).get('data', [{}])[0]
+                    price_id = line_item.get('price', {}).get('id', '')
+                    dur = 31 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
+                    
+                    start_dt = datetime.now(pytz.utc)
+                    if usr.get('subscription_expires_at'):
+                        try:
+                            old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
+                            if old_exp > start_dt: start_dt = old_exp
+                        except: pass
+                    
+                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
+                    client.table("felhasznalok").update({
+                        "subscription_status": "active",
+                        "subscription_expires_at": new_exp
+                    }).eq("id", usr['id']).execute()
+                    
+                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr['email']}\n📅 +{dur} nap")
+
+        return {"status": "success"}
+    except Exception as e:
+        print(f"❌ Webhook hiba: {e}")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 @api.post("/create-checkout-session-web")
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
@@ -646,7 +707,7 @@ async def process_telegram_update(request: Request):
         await application.process_update(update)
     return {"status": "ok"}
 
-@api.post("/webhook")
+@api.post("@api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
