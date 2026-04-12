@@ -524,13 +524,19 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # Csomag alapú ár meghatározása
+    # Csomag alapú ár és Price ID meghatározása
     if plan == "monthly":
         price_id = STRIPE_PRICE_ID_MONTHLY
         amount = 9999
-    else:
+    elif plan == "weekly":
         price_id = STRIPE_PRICE_ID_WEEKLY
         amount = 3490
+    elif plan == "daily":
+        price_id = "STRIPE_PRICE_ID_DAILY" 
+        amount = 1190
+    else:
+        # Biztonsági tartalék, ha valami ismeretlen érkezne
+        return RedirectResponse(url="/vip?error=invalid_plan", status_code=303)
 
     try:
         # Checkout Session létrehozása
