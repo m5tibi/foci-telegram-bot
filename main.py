@@ -45,6 +45,10 @@ STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY")
 STRIPE_PRICE_ID_DAILY = os.environ.get("STRIPE_PRICE_ID_DAILY")
 
+STRIPE_TEST_PRICE_ID_MONTHLY = os.environ.get("STRIPE_TEST_PRICE_ID_MONTHLY")
+STRIPE_TEST_PRICE_ID_WEEKLY = os.environ.get("STRIPE_TEST_PRICE_ID_WEEKLY")
+STRIPE_TEST_PRICE_ID_DAILY = os.environ.get("STRIPE_TEST_PRICE_ID_DAILY")
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -531,9 +535,9 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         # Kifejezetten a teszt kulcsot fogjuk használni a hívásnál
         api_key_to_use = STRIPE_TEST_SECRET_KEY
         price_map = {
-            "monthly": TESZT_HAVI_ID,
-            "weekly": TESZT_HETI_ID,
-            "daily": TESZT_NAPI_ID
+            "monthly": STRIPE_TEST_PRICE_ID_MONTHLY,
+            "weekly": STRIPE_TEST_PRICE_ID_WEEEKLY,
+            "daily": STRIPE_TEST_PRICE_ID_DAILY
         }
     else:
         # ÉLES KULCS HASZNÁLATA
