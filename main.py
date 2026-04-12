@@ -544,17 +544,31 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
-    # 1. MEGHATÁROZZUK A KULCSOT ÉS AZ ID-KAT
-    is_test_user = (user['email'] == "m5tibi77@gmail.com")
-    
+    # --- INTELLIGENS KULCS ÉS ÁR VÁLASZTÓ (Render változókhoz igazítva) ---
+    is_test_user = (user.get('email') == "m5tibi77@gmail.com")
+
     if is_test_user:
-        api_key_to_use = STRIPE_TEST_SECRET_KEY
-        # IDE ÍRD BE A PONTOS price_... KÓDOKAT A STRIPE TEST MODE-BÓL!
+        # TESZT MÓD: A te Renderes változónevedet használjuk
+        stripe.api_key = os.environ.get("STRIPE_TEST_SECRET_KEY")
         price_map = {
-            "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
-            "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd",
-            "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
+            "monthly": "price_1TGjOwGTueuLQQun3dzmD3w9", # Teszt Havi
+            "weekly": "price_1TGjPQGTueuLQQunF9VfN4Fv",  # Ide másold be a teszt Heti ID-t
+            "daily": "price_1TGjPrGTueuLQQunXvI8Z2f2"    # Ide másold be a teszt Napi ID-t
         }
+        print(f"🛠️ Stripe: TESZT mód aktiválva ({user.get('email')})")
+    else:
+        # ÉLES MÓD: Mindenki másnak
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+        price_map = {
+            "monthly": os.environ.get("STRIPE_PRICE_ID_MONTHLY"),
+            "weekly": os.environ.get("STRIPE_PRICE_ID_WEEKLY"),
+            "daily": os.environ.get("STRIPE_PRICE_ID_DAILY")
+        }
+        print("💳 Stripe: ÉLES mód aktiválva.")
+
+    # Ellenőrizzük, hogy sikerült-e kulcsot kapni
+    if not stripe.api_key:
+        print("❌ HIBA: Stripe API kulcs nem található a környezeti változókban!")
     else:
         # ÉLES KULCS HASZNÁLATA
         stripe.api_key = STRIPE_SECRET_KEY
