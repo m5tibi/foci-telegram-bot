@@ -670,6 +670,40 @@ async def admin_force_check(request: Request):
     asyncio.create_task(asyncio.to_thread(run_result_checker))
     return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
 
+# --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
+
+@api.get("/admin/upload", response_class=HTMLResponse)
+async def admin_upload_page(request: Request, message: Optional[str] = None, error: Optional[str] = None):
+    user = get_current_user(request)
+    # Csak az admin léphet be
+    if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
+        return RedirectResponse(url="/vip", status_code=303)
+    
+    return templates.TemplateResponse(\"admin_upload.html\", {
+        \"request\": request,
+        \"user\": user,
+        \"message\": message,
+        \"error\": error
+    })
+
+@api.post("/admin/upload")
+async def admin_upload_process(request: Request, file: UploadFile = File(...)):
+    user = get_current_user(request)
+    if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
+        return RedirectResponse(url=\"/vip\", status_code=303)
+
+    try:
+        contents = await file.read()
+        # A fájl mentése tippek.xlsx néven a főkönyvtárba
+        file_path = os.path.join(os.getcwd(), \"tippek.xlsx\")
+        with open(file_path, \"wb\") as f:
+            f.write(contents)
+        
+        return RedirectResponse(url=\"/admin/upload?message=Sikeres feltöltés: tippek.xlsx\", status_code=303)
+    except Exception as e:
+        print(f\"❌ Feltöltési hiba: {e}\")
+        return RedirectResponse(url=\"/admin/upload?error=Hiba történt a mentés során.\", status_code=303)
+
 @api.post(f"/{TOKEN}")
 async def process_telegram_update(request: Request):
     if application:
