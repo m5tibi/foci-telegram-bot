@@ -491,6 +491,7 @@ async def generate_live_invite(request: Request):
     except Exception: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=invite_failed", status_code=303)
 
 # --- STRIPE ÜGYFÉLPORTÁL ---
+# --- STRIPE ÜGYFÉLPORTÁL ---
 @api.get("/create-portal-session")
 async def create_portal_session(request: Request):
     user = get_current_user(request)
@@ -506,7 +507,6 @@ async def create_portal_session(request: Request):
         return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=no_subscription", status_code=303)
 
     try:
-        # Itt fontos, hogy a stripe.api_key be legyen állítva!
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
             return_url=f"{RENDER_APP_URL}/vip",
@@ -531,7 +531,7 @@ async def stripe_webhook(request: Request):
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
 
     try:
-        # --- ÚJ VÁSÁRLÁS ---
+        # --- ÚJ VÁSÁRLÁS (Checkout completed) ---
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             customer_id = session.get('customer')
@@ -553,7 +553,7 @@ async def stripe_webhook(request: Request):
                 
                 await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📅 +{dur} nap")
 
-        # --- AUTOMATA MEGÚJULÁS ---
+        # --- AUTOMATA MEGÚJULÁS (Invoice paid) ---
         elif event['type'] == 'invoice.paid':
             invoice = event['data']['object']
             customer_id = invoice.get('customer')
@@ -586,6 +586,28 @@ async def stripe_webhook(request: Request):
         print(f"❌ Webhook hiba: {e}")
         return JSONResponse({"error": "Internal error"}, status_code=500)
 
+# --- EGYÉB ADMIN ÚTVONALAK ---
+@api.get("/admin/force-generate", response_class=RedirectResponse)
+async def admin_force_generate(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    asyncio.create_task(asyncio.to_thread(run_tipp_generator))
+    return RedirectResponse(url="/admin/upload?message=Generálás elindítva!", status_code=303)
+
+@api.get("/admin/force-check", response_class=RedirectResponse)
+async def admin_force_check(request: Request):
+    user = get_current_user(request)
+    if not user or user.get('chat_id') != ADMIN_CHAT_ID: return RedirectResponse(url="/vip", status_code=303)
+    asyncio.create_task(asyncio.to_thread(run_result_checker))
+    return RedirectResponse(url="/admin/upload?message=Ellenőrzés elindítva!", status_code=303)
+
+@api.post(f"/{TOKEN}")
+async def process_telegram_update(request: Request):
+    if application:
+        data = await request.json()
+        update = telegram.Update.de_json(data, application.bot)
+        await application.process_update(update)
+    return {"status": "ok"}
 @api.post("/create-checkout-session-web")
 async def create_checkout_session_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
