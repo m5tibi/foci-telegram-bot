@@ -620,7 +620,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (FINAL STABLE VERSION) ---
+# --- STRIPE WEBHOOK (FINAL FIX: Forced Dict Conversion) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -645,23 +645,23 @@ async def stripe_webhook(request: Request):
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         
-        # Stripe objektumoknál a [] elérés a biztos
         event_type = event['type']
         obj = event['data']['object']
 
         if event_type == 'checkout.session.completed':
-            # JAVÍTÁS: .get() helyett közvetlen elérés vagy getattr használata
-            metadata = getattr(obj, 'metadata', {})
+            # KRITIKUS JAVÍTÁS: Kényszerítjük a metadata-t szótárrá (dict)
+            raw_metadata = getattr(obj, 'metadata', {})
+            metadata = dict(raw_metadata) if raw_metadata else {}
             
             user_id = metadata.get('user_id')
             plan = metadata.get('plan', 'monthly')
             cust_id = getattr(obj, 'customer', None)
             
-            # Email kinyerése biztonságosan
-            details = getattr(obj, 'customer_details', None)
+            # Email kinyerése
             c_email = "Ismeretlen"
-            if details and hasattr(details, 'email'):
-                c_email = details.email
+            details = getattr(obj, 'customer_details', None)
+            if details:
+                c_email = getattr(details, 'email', "Ismeretlen")
             elif hasattr(obj, 'customer_email') and obj.customer_email:
                 c_email = obj.customer_email
             
@@ -692,10 +692,9 @@ async def stripe_webhook(request: Request):
                     dur = 31 if paid > 5000 else 7
                     
                     start_dt = datetime.now(pytz.utc)
-                    exp_at = usr.get('subscription_expires_at')
-                    if exp_at:
+                    if usr.get('subscription_expires_at'):
                         try:
-                            old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
+                            old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
                             if old_exp > start_dt: start_dt = old_exp
                         except: pass
                     
@@ -710,7 +709,7 @@ async def stripe_webhook(request: Request):
         
     except Exception as e:
         import traceback
-        print(f"❌ Webhook kritikus hiba: {str(e)}")
+        print(f"❌ Webhook hiba: {str(e)}")
         print(traceback.format_exc())
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
