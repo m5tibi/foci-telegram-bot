@@ -729,7 +729,8 @@ async def process_telegram_update(request: Request):
         await application.process_update(update)
     return {"status": "ok"}
 
-@api.post("@api.post("/stripe-webhook")
+# --- STRIPE WEBHOOK ---
+@api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -743,7 +744,7 @@ async def stripe_webhook(request: Request):
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
 
     try:
-        # --- ÚJ VÁSÁRLÁS ---
+        # ÚJ VÁSÁRLÁS
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             customer_id = session.get('customer')
@@ -765,7 +766,7 @@ async def stripe_webhook(request: Request):
                 
                 await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📅 +{dur} nap")
 
-        # --- AUTOMATA MEGÚJULÁS (Ez volt a gond!) ---
+        # AUTOMATA MEGÚJULÁS
         elif event['type'] == 'invoice.paid':
             invoice = event['data']['object']
             customer_id = invoice.get('customer')
