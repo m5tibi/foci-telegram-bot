@@ -438,20 +438,19 @@
             <span></span>
         </div>
         <div class="nav-links" id="nav-links">
-            <a href="https://mondomatutit.hu" target="_blank" rel="noopener noreferrer">Főoldal</a>
-            <a href="https://mondomatutit.hu/free_tips.html" target="_blank" rel="noopener noreferrer">Ingyenes Tippek</a>
-            <a href="https://mondomatutit.hu/blog.html" target="_blank" rel="noopener noreferrer">Blog</a>
-            
-            {% if user %}
-                <a href="/vip">VIP Tippek</a>
-                <a href="/profile">Profil</a>
-                {% if user.chat_id == 1326707238 %}
-                    <a href="/admin/upload">Admin Feltöltés</a>
-                {% endif %}
-                <a href="/logout">Kijelentkezés</a>
-            {% else %}
-                <a href="https://mondomatutit.hu/#login-register">Bejelentkezés</a>
-            {% endif %}
+    <a href="https://mondomatutit.hu">Főoldal</a>
+    <a href="https://mondomatutit.hu/free_tips.html">Ingyenes Tippek</a>
+    
+    {% if user %}
+        <a href="/vip">VIP Tippek</a> 
+        <a href="/profile">Profil</a>
+        {% if user.chat_id == 1326707238 %}
+            <a href="/admin/upload">Admin Feltöltés</a>
+        {% endif %}
+        <a href="/logout">Kijelentkezés</a>
+    {% else %}
+        <a href="https://mondomatutit.hu/#login-register">Bejelentkezés</a>
+    {% endif %}
         </div>
     </nav>
     <div class="container">
