@@ -489,7 +489,33 @@ async def generate_live_invite(request: Request):
         else: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=bot_not_ready", status_code=303)
     except Exception: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=invite_failed", status_code=303)
 
-@api.post("/create-portal-session", response_class=RedirectResponse)
+@api.get("/create-portal-session")
+async def create_portal_session(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+
+    # Fontos: A legfrissebb adatot kérjük le a DB-ből
+    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+    res = client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
+    
+    customer_id = res.data.get('stripe_customer_id') if res.data else None
+
+    if not customer_id:
+        print(f"⚠️ Hiba: Nincs Stripe ID a felhasználóhoz: {user.get('email')}")
+        return RedirectResponse(url="https://mondomatutit.hu/vip?error=no_subscription", status_code=303)
+
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url="https://mondomatutit.hu/vip",
+        )
+        return RedirectResponse(url=portal_session.url, status_code=303)
+    except Exception as e:
+        print(f"❌ Stripe Portal hiba: {e}")
+        return RedirectResponse(url="https://mondomatutit.hu/vip?error=stripe_error", status_code=303)
+        
+        @api.post("/create-portal-session", response_class=RedirectResponse)
 async def create_portal_session(request: Request):
     user = get_current_user(request)
     if not user or not user.get("stripe_customer_id"): return RedirectResponse(url="/profile?error=no_customer_id", status_code=303)
@@ -634,79 +660,57 @@ async def stripe_webhook(request: Request):
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
 
     try:
-        # 1. ÚJ VÁSÁRLÁS (Checkout Session)
+        # --- ÚJ VÁSÁRLÁS ---
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             customer_id = session.get('customer')
             customer_email = session.get('customer_details', {}).get('email')
             
-            # Ár lekérése a napok meghatározásához
             line_items = stripe.checkout.Session.list_line_items(session.id, limit=1)
             price_id = line_items.data[0].price.id if line_items.data else ""
-            
-            # Napok száma (Havi = 31, minden más [Heti] = 7)
             dur = 31 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
             
-            # Felhasználó keresése email alapján
             res = client.table("felhasznalok").select("*").eq("email", customer_email).maybe_single().execute()
-            
             if res.data:
-                usr = res.data
-                now = datetime.now(pytz.utc)
-                new_exp = (now + timedelta(days=dur)).isoformat()
-                
+                new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
                 client.table("felhasznalok").update({
                     "subscription_status": "active",
                     "subscription_expires_at": new_exp,
                     "stripe_customer_id": customer_id,
                     "subscription_cancelled": False
-                }).eq("id", usr['id']).execute()
+                }).eq("id", res.data['id']).execute()
                 
-                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📅 +{dur} nap\n⌛ Lejárat: {new_exp[:10]}")
-                print(f"✅ Webhook: Új előfizetés rögzítve: {customer_email}")
+                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📅 +{dur} nap")
 
-        # 2. AUTOMATA MEGÚJULÁS (Invoice Paid)
+        # --- AUTOMATA MEGÚJULÁS (Ez volt a gond!) ---
         elif event['type'] == 'invoice.paid':
             invoice = event['data']['object']
             customer_id = invoice.get('customer')
-            subscription_id = invoice.get('subscription')
             
-            if subscription_id:
-                # Felhasználó keresése a Stripe Customer ID alapján
+            if invoice.get('subscription'):
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
-                
                 if res.data:
                     usr = res.data
-                    # Ár meghatározása a sorokból
                     line_item = invoice.get('lines', {}).get('data', [{}])[0]
                     price_id = line_item.get('price', {}).get('id', '')
-                    
                     dur = 31 if price_id == STRIPE_PRICE_ID_MONTHLY else 7
                     
-                    # Új lejárat számítása (ha még él a régi, ahhoz adjuk hozzá)
                     start_dt = datetime.now(pytz.utc)
                     if usr.get('subscription_expires_at'):
                         try:
                             old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
-                            if old_exp > start_dt:
-                                start_dt = old_exp
+                            if old_exp > start_dt: start_dt = old_exp
                         except: pass
                     
                     new_exp = (start_dt + timedelta(days=dur)).isoformat()
-                    
                     client.table("felhasznalok").update({
                         "subscription_status": "active",
-                        "subscription_expires_at": new_exp,
-                        "subscription_cancelled": False
+                        "subscription_expires_at": new_exp
                     }).eq("id", usr['id']).execute()
                     
-                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr['email']}\n📅 +{dur} nap\n⌛ Új lejárat: {new_exp[:10]}")
-                    print(f"✅ Webhook: Megújulás rögzítve: {usr['email']}")
+                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr['email']}\n📅 +{dur} nap")
 
         return {"status": "success"}
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"❌ Webhook hiba feldolgozás közben: {e}")
+        print(f"❌ Webhook hiba: {e}")
         return JSONResponse({"error": "Internal error"}, status_code=500)
