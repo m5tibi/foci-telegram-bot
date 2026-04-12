@@ -620,7 +620,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (ULTRA-STABIL VERZIÓ) ---
+# --- STRIPE WEBHOOK (VÉGLEGES, HIBAJAVÍTOTT VERZIÓ) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -634,83 +634,93 @@ async def stripe_webhook(request: Request):
         is_live = True
 
     endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET") if not is_live else os.environ.get("STRIPE_WEBHOOK_SECRET")
-    print(f"🧪 Webhook: {'TESZT' if not is_live else 'ÉLES'} üzemmód.")
+    print(f"🧪 Webhook érkezett: {'TESZT' if not is_live else 'ÉLES'}")
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except Exception as e:
+        print(f"❌ Webhook aláírás hiba: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         event_type = event.get('type')
-        data_object = event.get('data', {}).get('object', {})
+        # Biztonságos adatkinyerés az eventből
+        data_payload = event.get('data', {})
+        obj = data_payload.get('object', {})
 
-        # --- 1. ÚJ VÁSÁRLÁS ---
         if event_type == 'checkout.session.completed':
-            session = data_object
-            metadata = session.get('metadata') or {}
+            # Biztonságos metadata kezelés
+            meta = obj.get('metadata')
+            if meta is None: meta = {}
             
-            user_id = metadata.get('user_id')
-            plan = metadata.get('plan', 'monthly')
-            customer_id = session.get('customer')
+            user_id = meta.get('user_id')
+            plan = meta.get('plan', 'monthly')
+            cust_id = obj.get('customer')
             
-            # Email cím kinyerése több helyről, ha az egyik üres lenne
-            customer_email = session.get('customer_details', {}).get('email') or session.get('customer_email') or "Ismeretlen"
+            # Email kinyerése több helyről
+            details = obj.get('customer_details')
+            c_email = "Ismeretlen"
+            if details and details.get('email'):
+                c_email = details.get('email')
+            elif obj.get('customer_email'):
+                c_email = obj.get('customer_email')
             
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             
             if user_id:
                 new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
-                client.table("felhasznalok").update({
-                    "subscription_status": "active",
-                    "subscription_expires_at": new_exp,
-                    "stripe_customer_id": customer_id,
-                    "subscription_cancelled": False
-                }).eq("id", user_id).execute()
                 
-                print(f"✅ SIKER: {customer_email} (User: {user_id}) aktiválva.")
-                await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {customer_email}\n📦 Csomag: {plan}")
-            else:
-                print("⚠️ HIBA: Nincs user_id a metadata-ban.")
-
-        # --- 2. AUTOMATIKUS MEGÚJULÁS ---
-        elif event_type == 'invoice.paid':
-            invoice = data_object
-            customer_id = invoice.get('customer')
-            
-            if customer_id and invoice.get('subscription'):
-                res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
-                
-                if res and res.data:
-                    usr = res.data
-                    # Összeg alapú nap számítás (biztonságosabb)
-                    amount_paid = invoice.get('amount_paid', 0)
-                    dur = 31 if amount_paid > 5000 else (7 if amount_paid > 2000 else 1)
-                    
-                    start_dt = datetime.now(pytz.utc)
-                    if usr.get('subscription_expires_at'):
-                        try:
-                            old_exp = datetime.fromisoformat(usr['subscription_expires_at'].replace('Z', '+00:00'))
-                            if old_exp > start_dt:
-                                start_dt = old_exp
-                        except Exception:
-                            pass
-                    
-                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
-                    client.table("felhasznalok").update({
+                # Supabase frissítés
+                try:
+                    update_res = client.table("felhasznalok").update({
                         "subscription_status": "active",
-                        "subscription_expires_at": new_exp
-                    }).eq("id", usr['id']).execute()
+                        "subscription_expires_at": new_exp,
+                        "stripe_customer_id": cust_id,
+                        "subscription_cancelled": False
+                    }).eq("id", user_id).execute()
                     
-                    print(f"🔄 MEGÚJÍTVA: {usr.get('email')}")
-                    await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr.get('email')}")
+                    print(f"✅ SIKERES AKTIVÁLÁS: {c_email} (User: {user_id})")
+                    await send_admin_notification(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {c_email}\n📦 {plan}")
+                except Exception as db_e:
+                    print(f"❌ Supabase hiba: {db_e}")
+            else:
+                print("⚠️ HIBA: Nincs user_id a metadata-ban!")
+
+        elif event_type == 'invoice.paid':
+            cust_id = obj.get('customer')
+            if cust_id and obj.get('subscription'):
+                try:
+                    res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
+                    if res and res.data:
+                        usr = res.data
+                        paid = obj.get('amount_paid', 0)
+                        dur = 31 if paid > 5000 else 7
+                        
+                        start_dt = datetime.now(pytz.utc)
+                        exp_at = usr.get('subscription_expires_at')
+                        if exp_at:
+                            try:
+                                old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
+                                if old_exp > start_dt: start_dt = old_exp
+                            except: pass
+                        
+                        new_exp = (start_dt + timedelta(days=dur)).isoformat()
+                        client.table("felhasznalok").update({
+                            "subscription_status": "active",
+                            "subscription_expires_at": new_exp
+                        }).eq("id", usr['id']).execute()
+                        print(f"🔄 MEGÚJÍTVA: {usr.get('email')}")
+                except Exception as inv_e:
+                    print(f"❌ Invoice hiba: {inv_e}")
 
         return JSONResponse({"status": "success"}, status_code=200)
         
     except Exception as e:
-        print(f"❌ Webhook hiba részletei: {str(e)}")
-        # 200-at adunk vissza, hogy a Stripe ne küldözgesse újra a hibás kérést
+        # Itt kapjuk el, ha valahol mégis 'NoneType' hiba lenne
+        import traceback
+        print(f"❌ Webhook kritikus hiba: {str(e)}")
+        print(traceback.format_exc()) # Ez kiírja a pontos sorszámot a logba!
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
 # --- ADMIN FELTÖLTÉS ÉS KEZELÉS ---
