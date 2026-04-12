@@ -392,50 +392,53 @@ async def vip_area(request: Request):
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = get_current_user(request)
-    if not user: return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    if not user: 
+        return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
+    
+    final_cancelled_status = user.get("subscription_cancelled", False)
     
     if user.get("stripe_customer_id"):
         try:
-            await asyncio.sleep(2.0)
+            # Lekérjük az előfizetéseket a Stripe-tól
             subs = stripe.Subscription.list(customer=user["stripe_customer_id"], limit=5)
-            
-            print(f"\n🔍 [PROFILE DEBUG V21.15] Felhasználó: {user['email']} | Stripe ID: {user['stripe_customer_id']}")
-            
             subs_data = s_get(subs, 'data', [])
-            print(f"   Talált előfizetések száma: {len(subs_data)}")
             
-            final_cancelled_status = False
-            
+            # Ellenőrizzük a lemondási státuszt (Self-healing logika)
+            temp_cancelled = False
             if subs_data:
-                for i, sub in enumerate(subs_data):
-                    has_cancel_switch = s_get(sub, 'cancel_at_period_end', False)
+                for sub in subs_data:
                     sub_status = s_get(sub, 'status')
-                    has_canceled_status = (sub_status == 'canceled')
-                    has_cancel_date = s_get(sub, 'cancel_at') is not None
-                    
-                    is_canc = has_cancel_switch or has_canceled_status or has_cancel_date
-                    
-                    print(f"   👉 #{i+1} Sub ID: {s_get(sub, 'id')} | Status: {sub_status}")
-                    print(f"      Switch: {has_cancel_switch} | CanceledState: {has_canceled_status} | HasDate: {has_cancel_date} => EREDMÉNY: {is_canc}")
-                    
                     if sub_status in ['active', 'trialing']:
-                        final_cancelled_status = is_canc
+                        has_cancel_switch = s_get(sub, 'cancel_at_period_end', False)
+                        has_cancel_date = s_get(sub, 'cancel_at') is not None
+                        if has_cancel_switch or has_cancel_date:
+                            temp_cancelled = True
             
-            if user.get("subscription_cancelled") != final_cancelled_status:
-                print(f"   🔧 SELF-HEALING JAVÍTÁS: DB={user.get('subscription_cancelled')} -> ÚJ={final_cancelled_status}")
-                admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-                admin_client.table("felhasznalok").update({"subscription_cancelled": final_cancelled_status}).eq("id", user['id']).execute()
-                user["subscription_cancelled"] = final_cancelled_status
-            else:
-                print(f"   ✅ DB státusz egyezik a Stripe-pal ({final_cancelled_status}). Nincs teendő.")
+            # Ha a DB-ben rosszul szerepel a státusz, kijavítjuk
+            if user.get("subscription_cancelled") != temp_cancelled:
+                admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+                admin_client.table("felhasznalok").update({"subscription_cancelled": temp_cancelled}).eq("id", user['id']).execute()
+                user["subscription_cancelled"] = temp_cancelled
+                final_cancelled_status = temp_cancelled
 
+        except stripe.error.InvalidRequestError as e:
+            # EZ A FONTOS RÉSZ: Itt kapjuk el a "No such customer" hibát (pl. teszt maradvány)
+            print(f"⚠️ Érvénytelen Stripe Customer ID a profilnál ({user['email']}): {e}")
+            # Ebben az esetben nem csinálunk semmit, a felhasználó látja a profilját, 
+            # de a Stripe-os adatai üresek maradnak.
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"Self-healing hiba: {e}")
+            print(f"Profil self-healing hiba: {e}")
     
     is_subscribed = is_web_user_subscribed(user)
-    return templates.TemplateResponse(request=request, name="profile.html", context={"request": request, "user": user, "is_subscribed": is_subscribed})
+    return templates.TemplateResponse(
+        request=request, 
+        name="profile.html", 
+        context={
+            "request": request, 
+            "user": user, 
+            "is_subscribed": is_subscribed
+        }
+    )
 
 @api.post("/generate-telegram-link", response_class=HTMLResponse)
 async def generate_telegram_link(request: Request):
