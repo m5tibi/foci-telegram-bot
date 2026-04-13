@@ -520,41 +520,45 @@ async def generate_live_invite(request: Request):
         else: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=bot_not_ready", status_code=303)
     except Exception: return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=invite_failed", status_code=303)
 
-# --- STRIPE ÜGYFÉLPORTÁL (FIX: GET + Intelligens kulcskezelés) ---
+# --- STRIPE ÜGYFÉLPORTÁL ÉS CHECKOUT KEZELÉS (V3 - ÖSSZESÍTETT FIX) ---
+
+@api.get("/create-portal-session")
+@api.post("/create-portal-session")
 @api.get("/create-portal-session-web")
-async def create_portal_session(request: Request):
+async def combined_portal_handler(request: Request):
+    """
+    Összevont ügyfélportál kezelő. 
+    Kezeli a GET és POST hívásokat is, így bármelyik gombstílust használod, működni fog.
+    """
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
 
-    # Lekérjük a felhasználó Stripe Customer ID-ját
-    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
-    res = client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
+    # 1. Legfrissebb Customer ID lekérése az adatbázisból
+    sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+    res = sb_client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
     
     customer_id = res.data.get('stripe_customer_id') if res.data else None
 
-    # Ha nincs Customer ID, nem tudunk portált nyitni
     if not customer_id:
+        print(f"⚠️ Nincs Customer ID (User: {user['id']}), irányítás a csomagokhoz.")
         return RedirectResponse(url="https://mondomatutit.hu/#pricing", status_code=303)
 
-    # --- JAVÍTÁS: Megfelelő Stripe kulcs kiválasztása ---
+    # 2. Intelligens kulcsválasztás (Teszt vs Éles)
     is_test_user = (user.get('email') == "m5tibi77@gmail.com")
     current_stripe_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_test_user else os.environ.get("STRIPE_SECRET_KEY")
 
     try:
-        # Explicit megadjuk az api_key-t, hogy teszt user-nél a teszt portál nyíljon meg
+        # 3. Portál session létrehozása a megfelelő kulccsal
         portal_session = stripe.billing_portal.Session.create(
-            api_key=current_stripe_key, # <--- Ez a kulcs a teszteléshez!
+            api_key=current_stripe_key,
             customer=customer_id,
             return_url=f"{RENDER_APP_URL}/vip",
         )
         return RedirectResponse(url=portal_session.url, status_code=303)
     except Exception as e:
         print(f"❌ Stripe Portal hiba: {e}")
-        return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=stripe_error", status_code=303)
-    finally:
-        # Alapértelmezett kulcs visszaállítása
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+        return RedirectResponse(url=f"{RENDER_APP_URL}/vip?error=portal_failed", status_code=303)
 
 @api.post("/create-checkout-session-web")
 async def create_checkout_session(request: Request, plan: str = Form(...)):
@@ -562,50 +566,37 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
-    # --- 1. INTELLIGENS KULCS ÉS ÁR VÁLASZTÓ ---
+    # 1. Kulcs és Ár választó
     is_test_user = (user.get('email') == "m5tibi77@gmail.com")
-    
-    # Meghatározzuk a kulcsot ehhez a konkrét híváshoz
-    test_key = os.environ.get("STRIPE_TEST_SECRET_KEY")
-    live_key = os.environ.get("STRIPE_SECRET_KEY")
-    current_stripe_key = test_key if is_test_user else live_key
+    current_stripe_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_test_user else os.environ.get("STRIPE_SECRET_KEY")
 
     if is_test_user:
-        # TESZT MÓD: Fix teszt ID-k (ellenőrizd ezeket a Stripe Dashboardon!)
         price_map = {
             "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
             "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd",
             "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
         }
-        print(f"🛠️ Stripe: TESZT mód aktiválva ({user.get('email')})")
+        print(f"🛠️ Stripe Checkout: TESZT mód ({user.get('email')})")
     else:
-        # ÉLES MÓD: Környezeti változókból vett éles ID-k
         price_map = {
             "monthly": os.environ.get("STRIPE_PRICE_ID_MONTHLY"),
             "weekly": os.environ.get("STRIPE_PRICE_ID_WEEKLY"),
             "daily": os.environ.get("STRIPE_PRICE_ID_DAILY")
         }
-        print("💳 Stripe: ÉLES mód aktiválva.")
-
-    # Ellenőrzés
-    if not current_stripe_key:
-        print("❌ HIBA: Stripe API kulcs nem található!")
-        return HTMLResponse(content="Hiányzó Stripe konfiguráció.", status_code=500)
+        print("💳 Stripe Checkout: ÉLES mód.")
 
     price_id = price_map.get(plan)
-    if not price_id:
-        print(f"❌ HIBA: Nincs Price ID a '{plan}' csomaghoz.")
-        return HTMLResponse(content="Hibás csomagválasztás.", status_code=500)
+    if not price_id or not current_stripe_key:
+        return HTMLResponse(content="Hiányzó Stripe konfiguráció vagy hibás csomag.", status_code=500)
 
-    # Pixel összegek
+    # Pixel/Siker oldal összegek
     amounts = {"monthly": 9999, "weekly": 3490, "daily": 1190}
     amount = amounts.get(plan, 0)
 
     try:
-        # --- 2. SESSION LÉTREHOZÁSA (A FIX KULCCSAL) ---
-        # FIGYELEM: Az api_key=current_stripe_key paraméter a legfontosabb!
+        # 2. Fizetési munkamenet létrehozása
         checkout_session = stripe.checkout.Session.create(
-            api_key=current_stripe_key, # Ez kényszeríti a megfelelő módot (Test/Live)
+            api_key=current_stripe_key,
             customer_email=user['email'],
             payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
@@ -619,42 +610,9 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             }
         )
         return RedirectResponse(url=checkout_session.url, status_code=303)
-    
     except Exception as e:
         print(f"❌ Stripe Checkout hiba: {e}")
-        # Megpróbáljuk kiírni a hiba részleteit is a konzolra
-        if "No such price" in str(e):
-            print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
-
-@api.post("/create-portal-session")
-async def create_portal_session(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/#login-register", status_code=303)
-        
-    # Lekérjük a legfrissebb adatokat a Supabase-ből, hogy meglegyen a customer_id
-    sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
-    res = sb_client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
-    
-    cust_id = None
-    if res and res.data:
-        cust_id = res.data.get('stripe_customer_id')
-
-    if not cust_id:
-        print(f"⚠️ Hiba: Nincs stripe_customer_id a felhasználóhoz (ID: {user['id']})")
-        return RedirectResponse(url="/vip?error=no_customer_record", status_code=303)
-
-    try:
-        # Portál munkamenet létrehozása
-        portal_session = stripe.billing_portal.Session.create(
-            customer=cust_id,
-            return_url=f"{RENDER_APP_URL}/vip",
-        )
-        return RedirectResponse(url=portal_session.url, status_code=303)
-    except Exception as e:
-        print(f"❌ Portal Session hiba: {e}")
-        return RedirectResponse(url="/vip?error=portal_failed", status_code=303)
 
 # --- STRIPE WEBHOOK (ULTRA-STABIL & MEGÚJULÁS-FIX V2) ---
 @api.post("/stripe-webhook")
