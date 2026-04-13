@@ -684,12 +684,12 @@ async def stripe_webhook(request: Request):
             else:
                 print("⚠️ HIBA: Nincs user_id a metadata-ban!")
 
-        # --- 2. MEGÚJULÁS (Invoice Paid) ---
-        elif event_type == 'invoice.paid':
+        # --- 2. MEGÚJULÁS (Invoice Paid VAGY Payment Succeeded) ---
+        elif event_type in ['invoice.paid', 'invoice.payment_succeeded']:
             cust_id = getattr(obj, 'customer', None)
             cust_email = getattr(obj, 'customer_email', None)
             
-            print(f"🔄 Megújulási kísérlet - Customer: {cust_id}, Email: {cust_email}")
+            print(f"🔄 Megújulási webhook ({event_type}) - Customer: {cust_id}")
 
             if cust_id:
                 # Először megpróbáljuk ID alapján megtalálni
