@@ -800,12 +800,17 @@ async def admin_upload_process(
 
         # 4. Értesítő üzenet szövege
         emoji = "🔥 VIP" if tip_type == "vip" else "✅ INGYENES"
+        
+        # JAVÍTÁS: A RENDER_APP_URL változót használjuk, vagy a pontos elérést
+        # Ha van saját domained (pl. amit a Renderhez kötöttél), azt írd ide!
+        site_url = RENDER_APP_URL if RENDER_APP_URL else "https://foci-telegram-bot.onrender.com"
+        
         notif_msg = (
-            f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
-            f"📝 Név: *{tipp_neve}*\n"
-            f"📈 Odds: *{eredo_odds}*\n"
-            f"📅 Dátum: *{target_date}*\n\n"
-            f"🚀 Nézd meg az oldalon: [mondomatutit.hu/vip](https://mondomatutit.hu/vip)"
+            f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\\n\\n"
+            f"📝 Név: *{tipp_neve}*\\n"
+            f"📈 Odds: *{eredo_odds}*\\n"
+            f"📅 Dátum: *{target_date}*\\n\\n"
+            f"🚀 Nézd meg az oldalon: [KATTINTS IDE]({site_url}/vip)"
         )
 
         # 5. Kiküldés a háttérben (hogy az admin oldal azonnal visszatöltsön)
