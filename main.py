@@ -627,6 +627,35 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             print("⚠️ Tipp: Ellenőrizd, hogy az árak a megfelelő módban (Test/Live) léteznek-e!")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
+@api.post("/create-portal-session")
+async def create_portal_session(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/#login-register", status_code=303)
+        
+    # Lekérjük a legfrissebb adatokat a Supabase-ből, hogy meglegyen a customer_id
+    sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
+    res = sb_client.table("felhasznalok").select("stripe_customer_id").eq("id", user['id']).maybe_single().execute()
+    
+    cust_id = None
+    if res and res.data:
+        cust_id = res.data.get('stripe_customer_id')
+
+    if not cust_id:
+        print(f"⚠️ Hiba: Nincs stripe_customer_id a felhasználóhoz (ID: {user['id']})")
+        return RedirectResponse(url="/vip?error=no_customer_record", status_code=303)
+
+    try:
+        # Portál munkamenet létrehozása
+        portal_session = stripe.billing_portal.Session.create(
+            customer=cust_id,
+            return_url=f"{RENDER_APP_URL}/vip",
+        )
+        return RedirectResponse(url=portal_session.url, status_code=303)
+    except Exception as e:
+        print(f"❌ Portal Session hiba: {e}")
+        return RedirectResponse(url="/vip?error=portal_failed", status_code=303)
+
 # --- STRIPE WEBHOOK (ULTRA-STABIL & MEGÚJULÁS-FIX V2) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
