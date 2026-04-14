@@ -306,10 +306,8 @@ async def vip_area(request: Request):
             sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
             
             now_local = datetime.now(HUNGARY_TZ)
-            now_utc = datetime.now(pytz.utc)
             
-            # --- DÁTUM SZŰRÉS MÓDOSÍTÁSA ---
-            # yesterday_str-t elhagytuk. Csak a mai és jövőbeli napokat nézzük.
+            # --- DÁTUM SZŰRÉS ---
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -324,8 +322,8 @@ async def vip_area(request: Request):
             if user_is_admin:
                 approved_dates.extend([today_str, tomorrow_str])
 
-            # --- 2. BOT ÁLTAL GENERÁLT TIPPEK LEKÉRÉSE ---
-            resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(20).execute()
+            # --- 2. BOT ÁLTAL GENERÁLT TIPPEK LEKÉRÉSE (Szigorított szűrés) ---
+            resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(30).execute()
             
             if resp.data:
                 allowed_slips = []
@@ -348,15 +346,13 @@ async def vip_area(request: Request):
                         
                         if len(meccs_list) == len(sz.get('tipp_id_k', [])):
                             res_list = [m.get('eredmeny') for m in meccs_list]
-                            created_at_str = sz.get('created_at')
-                            if not created_at_str: continue
                             
-                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                            # Csak az elmúlt 24 óra vagy a még le nem zárult bot tippek
-                            is_recent = (now_utc - created_at).total_seconds() < 86400
-                            has_active = any(r in ['Tipp leadva', 'Folyamatban'] for r in res_list)
+                            # --- FIX: Csak a ténylegesen aktív szelvényeket mutatjuk ---
+                            # Ha minden meccs ki van értékelve (Nyert/Vesztett/Törölve), elrejtjük.
+                            # A 'None', 'Tipp leadva', 'Folyamatban' státuszok tartják bent a szelvényt.
+                            has_active = any(r in ['Tipp leadva', 'Folyamatban', None] for r in res_list)
                             
-                            if is_recent or has_active:
+                            if has_active:
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
@@ -367,10 +363,7 @@ async def vip_area(request: Request):
                                 else:
                                     todays_slips.append(sz)
 
-            # --- 3. MANUÁLIS ÉS FREE TIPPEK (Szigorított szűrés) ---
-            
-            # Manuális szelvények: Csak "Folyamatban" és csak mától (gte(today_str))
-            # Az admin is csak a folyamatban lévőket látja mostantól
+            # --- 3. MANUÁLIS ÉS FREE TIPPEK (Marad a szigorú státusz szűrés) ---
             manual = sb_client.table("manual_slips")\
                 .select("*")\
                 .eq("status", "Folyamatban")\
@@ -379,7 +372,6 @@ async def vip_area(request: Request):
                 .execute()
             active_manual_slips = manual.data or []
             
-            # Ingyenes tippek: Csak "Folyamatban" és csak mától
             free = sb_client.table("free_slips")\
                 .select("*")\
                 .eq("status", "Folyamatban")\
@@ -410,7 +402,7 @@ async def vip_area(request: Request):
             "daily_status_message": daily_status_message
         }
     )
-    # Cache törlés kényszerítése
+    # Cache törlés kényszerítése (hogy az eredmények azonnal frissüljenek az oldalon)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -798,19 +790,17 @@ async def admin_upload_process(
                 elif tip_type == "vip" and u.get('subscription_status') == 'active':
                     target_ids.append(u['chat_id'])
 
-        # 4. Értesítő üzenet szövege
-        emoji = "🔥 VIP" if tip_type == "vip" else "✅ INGYENES"
-        
-        # JAVÍTÁS: A RENDER_APP_URL változót használjuk, vagy a pontos elérést
-        # Ha van saját domained (pl. amit a Renderhez kötöttél), azt írd ide!
+        # 4. Értesítő üzenet szövege (MarkdownV2 formátumban)
+        emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
         site_url = RENDER_APP_URL if RENDER_APP_URL else "https://foci-telegram-bot.onrender.com"
         
+        # Sima sortöréseket használunk (\n), és Markdown linket
         notif_msg = (
-            f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\\n\\n"
-            f"📝 Név: *{tipp_neve}*\\n"
-            f"📈 Odds: *{eredo_odds}*\\n"
-            f"📅 Dátum: *{target_date}*\\n\\n"
-            f"🚀 Nézd meg az oldalon: [KATTINTS IDE]({site_url}/vip)"
+            f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
+            f"📝 Név: *{tipp_neve}*\n"
+            f"📈 Odds: *{eredo_odds}*\n"
+            f"📅 Dátum: *{target_date}*\n\n"
+            f"🚀 [Nézd meg az oldalon!]({site_url}/vip)"
         )
 
         # 5. Kiküldés a háttérben (hogy az admin oldal azonnal visszatöltsön)
