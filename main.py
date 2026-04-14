@@ -606,7 +606,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         print(f"❌ Stripe Checkout hiba: {e}")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (ULTRA-STABIL & MEGÚJULÁS-FIX V2) ---
+# --- STRIPE WEBHOOK (V3 - DUPLIKÁCIÓ ÉS DUPLA-NAP FIX) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -620,20 +620,31 @@ async def stripe_webhook(request: Request):
         is_live = True
 
     endpoint_secret = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET") if not is_live else os.environ.get("STRIPE_WEBHOOK_SECRET")
-    print(f"🧪 Webhook érkezett: {'TESZT' if not is_live else 'ÉLES'}")
-
+    
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except Exception as e:
         print(f"❌ Webhook aláírás hiba: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
+    # --- 1. DUPLIKÁCIÓ ELLENI VÉDELEM ---
+    if event.id in processed_event_ids:
+        print(f"⚠️ Esemény már feldolgozva, átugrás: {event.id}")
+        return JSONResponse({"status": "already_processed"}, status_code=200)
+    
+    # Memória ürítése, ha túl sok ID gyűlne össze
+    if len(processed_event_ids) > 500:
+        processed_event_ids.clear()
+    processed_event_ids.add(event.id)
+
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         event_type = event.type
         obj = event.data.object
 
-        # --- 1. ÚJ ELŐFIZETÉS (Checkout Session) ---
+        print(f"🧪 Webhook ({event_type}) érkezett: {'TESZT' if not is_live else 'ÉLES'}")
+
+        # --- 2. ÚJ ELŐFIZETÉS (Checkout Session) ---
         if event_type == 'checkout.session.completed':
             metadata = getattr(obj, 'metadata', {})
             user_id = getattr(metadata, 'user_id', None)
@@ -663,36 +674,36 @@ async def stripe_webhook(request: Request):
             else:
                 print("⚠️ HIBA: Nincs user_id a metadata-ban!")
 
-        # --- 2. MEGÚJULÁS (Invoice Paid VAGY Payment Succeeded) ---
+        # --- 3. MEGÚJULÁS (Invoice Paid / Payment Succeeded) ---
         elif event_type in ['invoice.paid', 'invoice.payment_succeeded']:
+            # VÉDELEM: Ha ez az első számla (amit a checkout már kezelt), akkor ne adjunk rá plusz napot
+            billing_reason = getattr(obj, 'billing_reason', None)
+            if billing_reason == 'subscription_create':
+                print(f"ℹ️ Első számla detektálva (subscription_create). A Checkout már kezelte, átugrás.")
+                return JSONResponse({"status": "skipped_initial_invoice"}, status_code=200)
+
             cust_id = getattr(obj, 'customer', None)
             cust_email = getattr(obj, 'customer_email', None)
             
-            print(f"🔄 Megújulási webhook ({event_type}) - Customer: {cust_id}")
-
             if cust_id:
-                # Először megpróbáljuk ID alapján megtalálni
                 res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
                 
-                # Ha ID alapján nincs meg, megpróbáljuk email alapján (biztonsági háló)
                 if (not res or not res.data) and cust_email:
-                    print(f"⚠️ ID alapján nem találtam, próbálom email szerint: {cust_email}")
                     res = client.table("felhasznalok").select("*").eq("email", cust_email).maybe_single().execute()
 
                 if res and res.data:
                     usr = res.data
-                    # Stripe centben számol (1190 Ft = 119000), ezért a határok:
                     amount_paid = getattr(obj, 'amount_paid', 0)
-                    if amount_paid > 500000: dur = 31      # Havi (~5990 Ft)
-                    elif amount_paid > 200000: dur = 7    # Heti (~2990 Ft)
-                    else: dur = 1                         # Napi (~1190 Ft)
+                    # Forint centben (fillérben) jön: 1190 Ft = 119000
+                    if amount_paid > 500000: dur = 31      # Havi
+                    elif amount_paid > 200000: dur = 7    # Heti
+                    else: dur = 1                         # Napi
                     
                     start_dt = datetime.now(pytz.utc)
                     exp_at = usr.get('subscription_expires_at')
                     
                     if exp_at:
                         try:
-                            # Ha még nem járt le, a régi dátumhoz adjuk hozzá a napokat
                             old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
                             if old_exp > start_dt:
                                 start_dt = old_exp
@@ -704,13 +715,13 @@ async def stripe_webhook(request: Request):
                     client.table("felhasznalok").update({
                         "subscription_status": "active",
                         "subscription_expires_at": new_exp,
-                        "stripe_customer_id": cust_id  # Frissítjük az ID-t, ha eddig hiányzott volna
+                        "stripe_customer_id": cust_id
                     }).eq("id", usr['id']).execute()
                     
                     print(f"✅ SIKERES MEGÚJULÁS: {usr.get('email')} (Új lejárat: {new_exp})")
                     await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr.get('email')}\n📅 +{dur} nap")
                 else:
-                    print(f"❌ HIBA: Nem találtam felhasználót ehhez a fizetéshez: {cust_id} / {cust_email}")
+                    print(f"❌ HIBA: Nem találtam felhasználót: {cust_id} / {cust_email}")
 
         return JSONResponse({"status": "success"}, status_code=200)
         
@@ -820,3 +831,6 @@ async def process_telegram_update(request: Request):
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
     return {"status": "ok"}
+
+# Duplikáció szűréshez
+processed_event_ids = set()
