@@ -606,7 +606,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         print(f"❌ Stripe Checkout hiba: {e}")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (V3 - DUPLIKÁCIÓ ÉS DUPLA-NAP FIX) ---
+# --- STRIPE WEBHOOK (V4 - IDEMPOTENCIA & DUPLA AKTIVÁLÁS FIX) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -627,12 +627,12 @@ async def stripe_webhook(request: Request):
         print(f"❌ Webhook aláírás hiba: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    # --- 1. DUPLIKÁCIÓ ELLENI VÉDELEM ---
+    # --- 1. DUPLIKÁCIÓ ELLENI VÉDELEM (Event ID szűrés) ---
     if event.id in processed_event_ids:
         print(f"⚠️ Esemény már feldolgozva, átugrás: {event.id}")
         return JSONResponse({"status": "already_processed"}, status_code=200)
     
-    # Memória ürítése, ha túl sok ID gyűlne össze
+    # Memória menedzsment: ha túl sok ID gyűlne össze, ürítünk
     if len(processed_event_ids) > 500:
         processed_event_ids.clear()
     processed_event_ids.add(event.id)
@@ -676,10 +676,11 @@ async def stripe_webhook(request: Request):
 
         # --- 3. MEGÚJULÁS (Invoice Paid / Payment Succeeded) ---
         elif event_type in ['invoice.paid', 'invoice.payment_succeeded']:
-            # VÉDELEM: Ha ez az első számla (amit a checkout már kezelt), akkor ne adjunk rá plusz napot
+            # KRITIKUS VÉDELEM: Ha ez az első számla az előfizetés létrehozásakor, 
+            # akkor a Checkout ág már kezelte. Itt nem adunk plusz napot!
             billing_reason = getattr(obj, 'billing_reason', None)
             if billing_reason == 'subscription_create':
-                print(f"ℹ️ Első számla detektálva (subscription_create). A Checkout már kezelte, átugrás.")
+                print(f"ℹ️ Első számla detektálva (subscription_create). Átugrás, hogy ne legyen dupla nap.")
                 return JSONResponse({"status": "skipped_initial_invoice"}, status_code=200)
 
             cust_id = getattr(obj, 'customer', None)
@@ -694,7 +695,8 @@ async def stripe_webhook(request: Request):
                 if res and res.data:
                     usr = res.data
                     amount_paid = getattr(obj, 'amount_paid', 0)
-                    # Forint centben (fillérben) jön: 1190 Ft = 119000
+                    
+                    # Csomag meghatározása összeg alapján
                     if amount_paid > 500000: dur = 31      # Havi
                     elif amount_paid > 200000: dur = 7    # Heti
                     else: dur = 1                         # Napi
@@ -721,13 +723,13 @@ async def stripe_webhook(request: Request):
                     print(f"✅ SIKERES MEGÚJULÁS: {usr.get('email')} (Új lejárat: {new_exp})")
                     await send_admin_notification(f"🔄 *MEGÚJULÁS!*\n👤 {usr.get('email')}\n📅 +{dur} nap")
                 else:
-                    print(f"❌ HIBA: Nem találtam felhasználót: {cust_id} / {cust_email}")
+                    print(f"❌ HIBA: Felhasználó nem található: {cust_id} / {cust_email}")
 
         return JSONResponse({"status": "success"}, status_code=200)
         
     except Exception as e:
         import traceback
-        print(f"❌ Webhook kritikus hiba: {str(e)}")
+        print(f"❌ Webhook hiba: {str(e)}")
         print(traceback.format_exc())
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
         
