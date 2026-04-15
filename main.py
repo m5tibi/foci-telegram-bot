@@ -606,7 +606,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
         print(f"❌ Stripe Checkout hiba: {e}")
         return HTMLResponse(content=f"Stripe hiba történt: {e}", status_code=500)
 
-# --- STRIPE WEBHOOK (V4 - IDEMPOTENCIA & DUPLA AKTIVÁLÁS FIX) ---
+# --- STRIPE WEBHOOK (V5 - INVOICE-ALAPÚ DUPLIKÁCIÓ SZŰRÉS) ---
 @api.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -627,16 +627,6 @@ async def stripe_webhook(request: Request):
         print(f"❌ Webhook aláírás hiba: {e}")
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    # --- 1. DUPLIKÁCIÓ ELLENI VÉDELEM (Event ID szűrés) ---
-    if event.id in processed_event_ids:
-        print(f"⚠️ Esemény már feldolgozva, átugrás: {event.id}")
-        return JSONResponse({"status": "already_processed"}, status_code=200)
-    
-    # Memória menedzsment: ha túl sok ID gyűlne össze, ürítünk
-    if len(processed_event_ids) > 500:
-        processed_event_ids.clear()
-    processed_event_ids.add(event.id)
-
     try:
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
         event_type = event.type
@@ -644,8 +634,14 @@ async def stripe_webhook(request: Request):
 
         print(f"🧪 Webhook ({event_type}) érkezett: {'TESZT' if not is_live else 'ÉLES'}")
 
-        # --- 2. ÚJ ELŐFIZETÉS (Checkout Session) ---
+        # --- 1. ÚJ ELŐFIZETÉS (Checkout Session) ---
         if event_type == 'checkout.session.completed':
+            # Idempotencia: Elmentjük a számla ID-t, hogy a későbbi webhookok ne duplázzanak
+            inv_id = getattr(obj, 'invoice', None)
+            if inv_id:
+                if len(processed_invoice_ids) > 1000: processed_invoice_ids.clear()
+                processed_invoice_ids.add(inv_id)
+
             metadata = getattr(obj, 'metadata', {})
             user_id = getattr(metadata, 'user_id', None)
             plan = getattr(metadata, 'plan', 'monthly')
@@ -674,14 +670,27 @@ async def stripe_webhook(request: Request):
             else:
                 print("⚠️ HIBA: Nincs user_id a metadata-ban!")
 
-        # --- 3. MEGÚJULÁS (Invoice Paid / Payment Succeeded) ---
+        # --- 2. MEGÚJULÁS (Invoice Paid / Payment Succeeded) ---
         elif event_type in ['invoice.paid', 'invoice.payment_succeeded']:
-            # KRITIKUS VÉDELEM: Ha ez az első számla az előfizetés létrehozásakor, 
-            # akkor a Checkout ág már kezelte. Itt nem adunk plusz napot!
-            billing_reason = getattr(obj, 'billing_reason', None)
-            if billing_reason == 'subscription_create':
-                print(f"ℹ️ Első számla detektálva (subscription_create). Átugrás, hogy ne legyen dupla nap.")
+            # Kinyerjük a számla azonosítót (vagy az objektum ID-ját, ami számlák esetén az 'in_...')
+            invoice_id = getattr(obj, 'id', None) if event_type.startswith('invoice') else getattr(obj, 'invoice', None)
+            
+            # HA EZT A SZÁMLÁT MÁR KEZELTÜK (Checkout vagy előző webhook által) -> ÁTUGRÁS
+            if invoice_id and invoice_id in processed_invoice_ids:
+                print(f"⚠️ Számla ({invoice_id}) már feldolgozva, átugrás.")
+                return JSONResponse({"status": "already_processed"}, status_code=200)
+
+            # KRITIKUS VÉDELEM: Ha ez az első számla (subscription_create), akkor a Checkout már elintézte.
+            if getattr(obj, 'billing_reason', None) == 'subscription_create':
+                if invoice_id:
+                    processed_invoice_ids.add(invoice_id)
+                print(f"ℹ️ Első számla detektálva. Átugrás, hogy ne legyen dupla nap.")
                 return JSONResponse({"status": "skipped_initial_invoice"}, status_code=200)
+
+            # Regisztráljuk a számlát a feldolgozottak közé
+            if invoice_id:
+                if len(processed_invoice_ids) > 1000: processed_invoice_ids.clear()
+                processed_invoice_ids.add(invoice_id)
 
             cust_id = getattr(obj, 'customer', None)
             cust_email = getattr(obj, 'customer_email', None)
@@ -696,7 +705,7 @@ async def stripe_webhook(request: Request):
                     usr = res.data
                     amount_paid = getattr(obj, 'amount_paid', 0)
                     
-                    # Csomag meghatározása összeg alapján
+                    # Csomag meghatározása cent alapú összeg alapján (pl. 1190 Ft = 119000)
                     if amount_paid > 500000: dur = 31      # Havi
                     elif amount_paid > 200000: dur = 7    # Heti
                     else: dur = 1                         # Napi
