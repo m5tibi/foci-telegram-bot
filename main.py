@@ -58,6 +58,9 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 ADMIN_CHAT_ID = 1326707238
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
+# --- JAVÍTÁS: Ez a sor hiányzott! ---
+processed_invoice_ids = set()
+
 api = FastAPI()
 
 # --- 1. MIDDLEWARE BEÁLLÍTÁSOK (TISZTÁZVA ÉS EGYESÍTVE) ---
