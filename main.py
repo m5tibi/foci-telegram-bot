@@ -290,97 +290,68 @@ async def handle_new_password(request: Request, token: str = Form(...), password
 async def vip_area(request: Request):
     user = get_current_user(request)
     if not user: 
-        # Ha nincs bejelentkezve, a főoldal login részéhez küldjük
         return RedirectResponse(url="https://mondomatutit.hu/#login-register", status_code=303)
     
     is_subscribed = is_web_user_subscribed(user)
     user_is_admin = str(user.get('chat_id')) == str(ADMIN_CHAT_ID)
     
-    todays_slips = []
-    tomorrows_slips = []
-    active_manual_slips = []
-    active_free_slips = []
+    todays_slips, tomorrows_slips = [], []
+    active_manual_slips, active_free_slips = [], []
     daily_status_message = ""
     
-    # BELÉPÉSI KÜSZÖB: Csak előfizetők vagy az admin láthatja a tartalmat
     if is_subscribed or user_is_admin:
         try:
-            # Service role kulcs használata a biztos lekéréshez
             sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
-            
             now_local = datetime.now(HUNGARY_TZ)
-            
-            # --- DÁTUM SZŰRÉS ---
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            # Megengedjük a tegnapi szelvények látszódását is, ha még folyamatban vannak
+            yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # --- 1. JÓVÁHAGYÁS ELLENŐRZÉSE (Bot tippekhez) ---
-            approved_dates = []
+            # --- 1. JÓVÁHAGYÁS ---
             status_res = sb_client.table("daily_status").select("date, status").in_("date", [today_str, tomorrow_str]).execute()
-            if status_res.data:
-                for r in status_res.data:
-                    if r['status'] == 'Kiküldve':
-                        approved_dates.append(str(r['date']))
-            
-            if user_is_admin:
-                approved_dates.extend([today_str, tomorrow_str])
+            approved_dates = [str(r['date']) for r in status_res.data if r['status'] == 'Kiküldve'] if status_res.data else []
+            if user_is_admin: approved_dates.extend([today_str, tomorrow_str])
 
-            # --- 2. BOT ÁLTAL GENERÁLT TIPPEK LEKÉRÉSE (Szigorított szűrés) ---
+            # --- 2. BOT TIPPEK (Szigorított, de pontos) ---
             resp = sb_client.table("napi_tuti").select("*, is_admin_only").order('created_at', desc=True).limit(30).execute()
             
             if resp.data:
-                allowed_slips = []
-                for s in resp.data:
-                    t_name = s.get('tipp_neve', '')
-                    date_is_approved = any(d in t_name for d in approved_dates)
-
-                    if user_is_admin:
-                        allowed_slips.append(s)
-                    elif s.get('is_admin_only') is not True and date_is_approved:
-                        allowed_slips.append(s)
-
+                allowed_slips = [s for s in resp.data if user_is_admin or (s.get('is_admin_only') is not True and any(d in s.get('tipp_neve','') for d in approved_dates))]
                 all_ids = [tid for sz in allowed_slips for tid in sz.get('tipp_id_k', [])]
+                
                 if all_ids:
                     meccsek_res = sb_client.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
                     
                     for sz in allowed_slips:
                         meccs_list = [mm.get(tid) for tid in sz.get('tipp_id_k', []) if mm.get(tid)]
-                        
                         if len(meccs_list) == len(sz.get('tipp_id_k', [])):
-                            res_list = [m.get('eredmeny') for m in meccs_list]
-                            
-                            # --- FIX: Csak a ténylegesen aktív szelvényeket mutatjuk ---
-                            # Ha minden meccs ki van értékelve (Nyert/Vesztett/Törölve), elrejtjük.
-                            # A 'None', 'Tipp leadva', 'Folyamatban' státuszok tartják bent a szelvényt.
-                            has_active = any(r in ['Tipp leadva', 'Folyamatban', None] for r in res_list)
+                            # AKTÍV, ha van olyan meccs, ami: 1. Nincs lezárva VAGY 2. Még nem kezdődött el
+                            has_active = any(m.get('eredmeny') in ['Tipp leadva', 'Folyamatban', None, ''] for m in meccs_list)
                             
                             if has_active:
                                 for m in meccs_list:
                                     m['kezdes_str'] = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(HUNGARY_TZ).strftime('%b %d. %H:%M')
                                     m['tipp_str'] = get_tip_details(m['tipp'])
-                                
                                 sz['meccsek'] = meccs_list
-                                if tomorrow_str in (sz.get('tipp_neve') or ''):
-                                    tomorrows_slips.append(sz)
-                                else:
-                                    todays_slips.append(sz)
+                                if tomorrow_str in (sz.get('tipp_neve') or ''): tomorrows_slips.append(sz)
+                                else: todays_slips.append(sz)
 
-            # --- 3. MANUÁLIS ÉS FREE TIPPEK (Marad a szigorú státusz szűrés) ---
+            # --- 3. MANUÁLIS ÉS FREE TIPPEK ---
+            # Itt engedjük a tegnapi (yesterday_str) szelvényeket is, HA a státuszuk még "Folyamatban"
             manual = sb_client.table("manual_slips")\
                 .select("*")\
                 .eq("status", "Folyamatban")\
-                .gte("target_date", today_str)\
-                .order("target_date", desc=True)\
-                .execute()
+                .gte("target_date", yesterday_str)\
+                .order("target_date", desc=True).execute()
             active_manual_slips = manual.data or []
             
             free = sb_client.table("free_slips")\
                 .select("*")\
                 .eq("status", "Folyamatban")\
-                .gte("target_date", today_str)\
-                .order("target_date", desc=True)\
-                .execute()
+                .gte("target_date", yesterday_str)\
+                .order("target_date", desc=True).execute()
             active_free_slips = free.data or []
 
             if not any([todays_slips, tomorrows_slips, active_manual_slips, active_free_slips]):
@@ -392,24 +363,12 @@ async def vip_area(request: Request):
     else:
         daily_status_message = "A VIP tartalom megtekintéséhez aktív előfizetés szükséges."
 
-    # VÁLASZ ÖSSZEÁLLÍTÁSA
-    response = templates.TemplateResponse(
-        request=request, name="vip_tippek.html", 
-        context={
-            "user": user, 
-            "is_subscribed": is_subscribed or user_is_admin,
-            "todays_slips": todays_slips, 
-            "tomorrows_slips": tomorrows_slips, 
-            "active_manual_slips": active_manual_slips, 
-            "active_free_slips": active_free_slips, 
-            "daily_status_message": daily_status_message
-        }
-    )
-    # Cache törlés kényszerítése (hogy az eredmények azonnal frissüljenek az oldalon)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
+        "user": user, "is_subscribed": is_subscribed or user_is_admin,
+        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
+        "active_manual_slips": active_manual_slips, "active_free_slips": active_free_slips,
+        "daily_status_message": daily_status_message
+    })
     
 @api.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
