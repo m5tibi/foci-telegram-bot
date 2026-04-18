@@ -555,6 +555,7 @@ async def create_checkout_session(request: Request, plan: str = Form(...)):
             payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
+            billing_address_collection='required',
             success_url=f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}&amount={amount}",
             cancel_url=f"{RENDER_APP_URL}/vip?payment=cancelled",
             metadata={
