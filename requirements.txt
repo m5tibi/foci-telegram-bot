@@ -13,3 +13,5 @@ python-multipart
 passlib
 bcrypt==3.2.0
 itsdangerous
+pandas
+openpyxl
