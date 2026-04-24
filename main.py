@@ -8,6 +8,7 @@ import telegram
 import secrets
 import pytz
 import time
+import pandas as pd
 import io
 import smtplib 
 from email.mime.text import MIMEText 
@@ -723,6 +724,45 @@ async def admin_upload_page(request: Request, message: Optional[str] = None, err
             "error": error
         }
     )
+
+@api.post("/admin/upload-analysis")
+async def admin_upload_analysis(
+    request: Request,
+    analysis_date: str = Form(...),
+    analysis_file: UploadFile = File(...)
+):
+    user = get_current_user(request)
+    if not user or str(user.get('chat_id')) != str(ADMIN_CHAT_ID):
+        return RedirectResponse(url="/vip", status_code=303)
+
+    try:
+        # Fájl beolvasása
+        contents = await analysis_file.read()
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+
+        # Adatok előkészítése a Supabase-hez
+        tips_to_insert = []
+        for _, row in df.iterrows():
+            # Igyekszünk felismerni az oszlopokat a csatolt fájljaid alapján
+            tips_to_insert.append({
+                "analysis_date": analysis_date,
+                "event": row.get('Esemény', ''),
+                "tip": row.get('Tipp', ''),
+                "odds": float(str(row.get('Odds (kb.)', '0')).replace(',', '.')),
+                "confidence_index": int(row.get('Biztonsági Index (%)', 0)),
+                "source": row.get('Forrás / Profil', ''),
+                "category": "Összes Tipp" # Itt később finomíthatjuk a logikát
+            })
+
+        # Feltöltés a Supabase-be
+        if tips_to_insert:
+            supabase.table("analysis_tips").insert(tips_to_insert).execute()
+
+        return RedirectResponse(url="/admin/upload?message=Táblázat sikeresen feldolgozva!", status_code=303)
+
+    except Exception as e:
+        print(f"Hiba: {e}")
+        return RedirectResponse(url=f"/admin/upload?error=Hiba: {str(e)}", status_code=303)
 
 @api.post("/admin/upload")
 async def admin_upload_process(
