@@ -231,7 +231,38 @@
             {% endif %}
         {% endif %}
 
-        {% if not todays_slips and not tomorrows_slips and not active_manual_slips and not active_free_slips %}
+        {% if analysis_tips %}
+<div class="analysis-section" style="margin-top: 30px;">
+    <h2 style="color: #ffcc00; text-align: center;">📊 Napi Részletes Elemzések</h2>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; background: #1a1a1a; color: white; border: 1px solid #333;">
+            <thead>
+                <tr style="background: #333; color: #ffcc00;">
+                    <th style="padding: 10px; border: 1px solid #444;">Esemény</th>
+                    <th style="padding: 10px; border: 1px solid #444;">Tipp</th>
+                    <th style="padding: 10px; border: 1px solid #444;">Odds</th>
+                    <th style="padding: 10px; border: 1px solid #444;">Index</th>
+                    <th style="padding: 10px; border: 1px solid #444;">Típus</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tip in analysis_tips %}
+                <tr style="border-bottom: 1px solid #333;">
+                    <td style="padding: 10px; border: 1px solid #444;">{{ tip.event }}</td>
+                    <td style="padding: 10px; border: 1px solid #444;">{{ tip.tip }}</td>
+                    <td style="padding: 10px; border: 1px solid #444; text-align: center;">{{ tip.odds }}</td>
+                    <td style="padding: 10px; border: 1px solid #444; text-align: center;">{{ tip.confidence_index }}%</td>
+                    <td style="padding: 10px; border: 1px solid #444; text-align: center;">
+                        <small style="background: #444; padding: 2px 6px; border-radius: 4px;">{{ tip.category }}</small>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% if not todays_slips and not tomorrows_slips and not active_manual_slips and not active_free_slips %}
              <div class="alert alert-info">{{ daily_status_message | default("Jelenleg nincsenek aktív szelvények. Nézz vissza később!") }}</div>
         {% endif %}
 
