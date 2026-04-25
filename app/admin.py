@@ -10,6 +10,12 @@ from fastapi.templating import Jinja2Templates
 from .database import get_db, s_get
 from .auth import get_current_user
 
+# Importáljuk az értesítő funkciót a bot.py-ból
+try:
+    from bot import send_telegram_broadcast_task
+except ImportError:
+    send_telegram_broadcast_task = None
+
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
@@ -21,7 +27,6 @@ async def admin_upload_page(request: Request, message: str = None, error: str = 
     if not user or str(s_get(user, 'chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
     
-    # JAVÍTÁS: Nevesített paraméterek használata
     return templates.TemplateResponse(
         request=request, 
         name="admin_upload.html", 
@@ -48,6 +53,8 @@ async def admin_upload_process(
 
     try:
         supabase = get_db()
+        
+        # 1. Kép feltöltése a Storage-ba
         contents = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1]
         file_name = f"{int(time.time())}_{secrets.token_hex(4)}.{file_ext}"
@@ -56,6 +63,7 @@ async def admin_upload_process(
         supabase.storage.from_("slips").upload(storage_path, contents)
         image_url = supabase.storage.from_("slips").get_public_url(storage_path)
 
+        # 2. Adatok mentése a megfelelő táblába
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
         data = {
             "tipp_neve": tipp_neve,
@@ -67,7 +75,30 @@ async def admin_upload_process(
         }
         supabase.table(table_name).insert(data).execute()
 
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
+        # 3. ÉRTESÍTÉSEK KIKÜLDÉSE A TAGOKNAK
+        if send_telegram_broadcast_task:
+            # Csak az aktív előfizetőket keressük le
+            vip_users = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").execute()
+            target_ids = [u['chat_id'] for u in vip_users.data if u.get('chat_id')]
+
+            if target_ids:
+                emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
+                site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
+                
+                # Értesítő üzenet összeállítása
+                notif_msg = (
+                    f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
+                    f"📝 Név: *{tipp_neve}*\n"
+                    f"📈 Odds: *{eredo_odds}*\n"
+                    f"📅 Dátum: *{target_date}*\n\n"
+                    f"🚀 [Megtekintés az oldalon]({site_url}/vip)"
+                )
+                
+                # Kiküldés indítása a háttérben
+                background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
+
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítések elindítva!", status_code=303)
         
     except Exception as e:
+        print(f"Admin feltöltési hiba: {e}")
         return RedirectResponse(url=f"/admin/upload?error=Hiba: {str(e)}", status_code=303)
