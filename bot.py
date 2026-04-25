@@ -513,3 +513,4 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
+send_telegram_broadcast_task = send_smart_broadcast
