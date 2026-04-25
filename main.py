@@ -45,8 +45,7 @@ async def read_root(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
-    # A gyökérkönyvtár a bejelentkezést jeleníti meg
-    return templates.TemplateResponse("login.html", {"request": request, "user": user})
+    return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
@@ -68,10 +67,8 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # Bot tippek lekérése és összefűzése
             resp = db.table("napi_tuti").select("*").order('created_at', desc=True).limit(20).execute()
             if resp.data:
-                # Összes érintett meccs ID kigyűjtése
                 all_ids = []
                 for sz in resp.data:
                     ids = sz.get('tipp_id_k', [])
@@ -96,7 +93,6 @@ async def vip_area(request: Request):
                                 except:
                                     m['kezdes_str'] = m['kezdes']
                                 
-                                # get_tip_details hívás javítva (csak 1 paraméter)
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
                                 meccs_list.append(m)
                         
@@ -108,7 +104,6 @@ async def vip_area(request: Request):
                             else:
                                 todays_slips.append(sz)
 
-            # Manuális és Ingyenes szelvények
             man = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
             active_manual = man.data or []
             
@@ -121,9 +116,8 @@ async def vip_area(request: Request):
     else:
         msg = "A tartalom megtekintéséhez aktív VIP előfizetés szükséges."
 
-    # JAVÍTÁS: Explicit context szótár a TypeError elkerülése érdekében
+    # JAVÍTOTT PARAMÉTER ÁTADÁS: request=request és context=context használata kötelező
     context = {
-        "request": request, 
         "user": user, 
         "is_subscribed": is_subscribed,
         "todays_slips": todays_slips, 
@@ -133,9 +127,9 @@ async def vip_area(request: Request):
         "daily_status_message": msg
     }
 
-    return templates.TemplateResponse("vip_tippek.html", context)
+    return templates.TemplateResponse(request=request, name="vip_tippek.html", context=context)
 
-# --- 4. Telegram Bot indítás ---
+# --- 4. Startup ---
 
 @api.on_event("startup")
 async def startup():
@@ -146,7 +140,6 @@ async def startup():
         application = Application.builder().token(token).persistence(persistence).build()
         add_handlers(application)
         await application.initialize()
-        print("✅ Telegram Bot inicializálva.")
 
 @api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}")
 async def process_telegram_update(request: Request):
