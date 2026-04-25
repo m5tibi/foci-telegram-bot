@@ -1,131 +1,116 @@
-# main.py (V21.36 - VIP Szűrés Javítás: Csak kiértékeletlen tippek megjelenítése)
+# main.py (V22.01 - Teljes szerkezet helyreállítása + VIP szűrés)
 
 import os
 import asyncio
 import stripe
-import requests
 import telegram
-import secrets
 import pytz
-import time
-import io
-import smtplib 
-from email.mime.text import MIMEText 
 from datetime import datetime, timedelta
 from typing import Optional
-from contextlib import redirect_stdout
 
-from fastapi import FastAPI, Request, Form, Depends, Header, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, Request, Form, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application, PicklePersistence
 
-from passlib.context import CryptContext
 from supabase import create_client, Client
-
-from bot import add_handlers, activate_subscription_and_notify_web, get_tip_details
-from tipp_generator import main as run_tipp_generator
-from eredmeny_ellenorzo import main as run_result_checker
+from bot import add_handlers, get_tip_details
 
 # --- Konfiguráció ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
-
-# STRIPE KULCSOK
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
-stripe.api_key = STRIPE_SECRET_KEY
-
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 api = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+# Middleware beállítások
 api.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 api.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY", "supersecret"), same_site="lax")
 
-def get_db():
-    return supabase
-
-def get_current_user(request: Request):
-    user = request.session.get("user")
-    return user
-
 # --- Segédfüggvények ---
+def get_current_user(request: Request):
+    return request.session.get("user")
+
 async def send_telegram_broadcast_task(chat_ids, message):
     bot = telegram.Bot(token=TOKEN)
     for c_id in chat_ids:
         try:
             await bot.send_message(chat_id=c_id, text=message, parse_mode='MarkdownV2')
             await asyncio.sleep(0.05)
-        except Exception as e:
-            print(f"Hiba a kiküldésnél ({c_id}): {e}")
+        except Exception:
+            pass
 
 # --- Útvonalak ---
 
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
+    # Ha be van jelentkezve, vigyük a profilra vagy a VIP-re, különben login
+    if user:
+        return RedirectResponse(url="/vip")
     return templates.TemplateResponse("login.html", {"request": request, "user": user})
+
+@api.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip(request: Request):
     user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+
     is_subscribed = False
     todays_slips = []
     tomorrows_slips = []
     active_manual = []
     msg = ""
 
-    if user:
-        try:
-            db = get_db()
-            # Felhasználói adatok és előfizetés lekérése
-            u_res = db.table("users").select("subscription_status").eq("id", user['id']).single().execute()
-            if u_res.data and u_res.data.get('subscription_status') == 'active':
-                is_subscribed = True
-                
-                # Időzóna beállítása a szétválogatáshoz
-                local_tz = pytz.timezone('Europe/Budapest')
-                now = datetime.now(local_tz)
-                tomorrow_str = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+    try:
+        # Előfizetés ellenőrzése
+        u_res = supabase.table("users").select("subscription_status").eq("id", user['id']).single().execute()
+        if u_res.data and u_res.data.get('subscription_status') == 'active':
+            is_subscribed = True
+            
+            local_tz = pytz.timezone('Europe/Budapest')
+            now = datetime.now(local_tz)
+            tomorrow_str = (now + timedelta(days=1)).strftime('%Y-%m-%d')
 
-                # JAVÍTÁS: Csak a "Folyamatban" státuszú bot tippeket kérjük le
-                res = db.table("generated_slips") \
-                    .select("*") \
-                    .eq("status", "Folyamatban") \
-                    .order("created_at", descending=True) \
-                    .execute()
+            # JAVÍTÁS: Csak a "Folyamatban" lévő bot tippek
+            res = supabase.table("generated_slips") \
+                .select("*") \
+                .eq("status", "Folyamatban") \
+                .order("created_at", descending=True) \
+                .execute()
+            
+            for sz in (res.data or []):
+                meccs_list = []
+                if sz.get('meccsek'):
+                    for m_id in sz['meccsek']:
+                        m = get_tip_details(m_id)
+                        if m: meccs_list.append(m)
                 
-                all_slips = res.data or []
-                for sz in all_slips:
-                    meccs_list = []
-                    if sz.get('meccsek'):
-                        for m_id in sz['meccsek']:
-                            m = get_tip_details(m_id)
-                            if m:
-                                meccs_list.append(m)
-                    
-                    if meccs_list:
-                        sz['meccsek'] = meccs_list
-                        # Mai/Holnapi szétválogatás a név alapján
-                        if tomorrow_str in (sz.get('tipp_neve') or ''):
-                            tomorrows_slips.append(sz)
-                        else:
-                            todays_slips.append(sz)
+                if meccs_list:
+                    sz['meccsek'] = meccs_list
+                    if tomorrow_str in (sz.get('tipp_neve') or ''):
+                        tomorrows_slips.append(sz)
+                    else:
+                        todays_slips.append(sz)
 
-                # Manuális szelvények lekérése (szintén csak a folyamatban lévők)
-                man_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
-                active_manual = man_res.data or []
-            else:
-                msg = "VIP előfizetés szükséges a tippek megtekintéséhez."
-        except Exception as e:
-            msg = f"Hiba az adatok betöltésekor: {e}"
-    else:
-        return RedirectResponse(url="/login")
+            # Manuális szelvények szűrése
+            man_res = supabase.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
+            active_manual = man_res.data or []
+        else:
+            msg = "VIP előfizetés szükséges."
+    except Exception as e:
+        msg = f"Hiba: {e}"
 
     return templates.TemplateResponse("vip_tippek.html", {
         "request": request, 
@@ -137,5 +122,29 @@ async def vip(request: Request):
         "daily_status_message": msg
     })
 
-# További végpontok (admin, auth stb.) helye...
-# (A kód többi része változatlan marad a korábbi verziókhoz képest)
+@api.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/")
+
+# --- Telegram Webhook ---
+@api.on_event("startup")
+async def startup():
+    global application
+    application = Application.builder().token(TOKEN).persistence(PicklePersistence(filepath="bot_data.pickle")).build()
+    add_handlers(application)
+    await application.initialize()
+    await application.start()
+
+@api.post(f"/{TOKEN}")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = telegram.Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return JSONResponse(content={"status": "ok"})
+
+# --- Render indítás ---
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(api, host="0.0.0.0", port=port)
