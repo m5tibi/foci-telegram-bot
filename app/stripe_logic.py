@@ -2,7 +2,8 @@ import os
 import stripe
 import pytz
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Form, JSONResponse
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import JSONResponse
 from fastapi.responses import RedirectResponse
 from app.database import get_db, s_get
 
