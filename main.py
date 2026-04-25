@@ -1,5 +1,4 @@
-# main.py (V22.06 - Dátum szétválogatás és Kezdési időpont fix)
-
+# main.py
 import os
 import telegram
 import pytz
@@ -17,7 +16,7 @@ from app.auth import router as auth_router, get_current_user
 from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
 from app.profile import router as profile_router
-from bot import add_handlers, get_tip_details
+from bot import get_tip_details, add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
@@ -42,7 +41,7 @@ api.include_router(stripe_router)
 api.include_router(admin_router)
 api.include_router(profile_router)
 
-# --- 4. Segédfüggvények ---
+# --- 4. ROI Számítás ---
 def calculate_roi(records):
     if not records: return 0
     total_staked = len(records)
@@ -69,7 +68,6 @@ async def vip_area(request: Request):
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     is_subscribed = (user.get("subscription_status") == "active") or (str(user.get('chat_id')) == admin_id)
     
-    # ROI számítás
     all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
     roi_value = calculate_roi(all_past_vip.data)
 
@@ -80,11 +78,13 @@ async def vip_area(request: Request):
         try:
             tz = pytz.timezone('Europe/Budapest')
             now_local = datetime.now(tz)
+            
+            # Formátum: 2026-04-26
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # Bot tippek lekérése
-            resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
+            resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(20).execute()
             
             if resp.data:
                 all_ids = []
@@ -93,7 +93,6 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # Csak a folyamatban lévő meccsek
                     meccsek_res = db.table("meccsek").select("*").in_("id", list(set(all_ids))).in_("eredmeny", ["Tipp leadva", "Folyamatban", "", None]).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
@@ -105,7 +104,6 @@ async def vip_area(request: Request):
                         for tid in sz_ids:
                             m = mm.get(tid)
                             if m:
-                                # Kezdési időpont formázása
                                 try:
                                     dt_val = m.get('kezdes', '')
                                     if dt_val:
@@ -123,24 +121,17 @@ async def vip_area(request: Request):
                             sz['meccsek'] = meccs_list
                             t_neve = sz.get('tipp_neve', '')
                             
-                            # --- STABIL DÁTUM SZÉTVÁLOGATÁS ---
+                            # --- JAVÍTOTT SZÉTVÁLOGATÁS ---
+                            # Ha a nevében benne van a holnapi dátum -> Holnapi
                             if tomorrow_str in t_neve:
                                 tomorrows_slips.append(sz)
-                            elif today_str in t_neve:
+                            # Ha a nevében benne van a mai dátum VAGY a tegnapi (de még tart a meccs) -> Mai
+                            elif today_str in t_neve or yesterday_str in t_neve:
                                 todays_slips.append(sz)
                             else:
-                                # Fallback: létrehozás napja alapján
-                                try:
-                                    created_at_dt = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00')).astimezone(tz)
-                                    if created_at_dt.date() == now_local.date():
-                                        todays_slips.append(sz)
-                                    else:
-                                        # Ha régebbi, de még aktív, akkor a maihoz tesszük
-                                        todays_slips.append(sz)
-                                except:
-                                    todays_slips.append(sz)
+                                # Ha semmi nem stimmel, de van benne aktív meccs, tegyük a maihoz
+                                todays_slips.append(sz)
 
-            # Manuális tippek
             active_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
             active_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
 
