@@ -3,28 +3,64 @@
 {% block title %}Bejelentkezés - Mondom a Tutit!{% endblock %}
 
 {% block content %}
-    <h1>Bejelentkezés</h1>
-    
-    {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
-    {% endif %}
-
-    <form action="/login" method="post">
-        <div class="form-group">
-            <label for="email">E-mail cím</label>
-            <input type="email" id="email" name="email" required>
+<div class="login-container">
+    <div class="login-box card">
+        <div class="card-header">
+            <h2 class="text-center">Üdvözlünk! Jelentkezz be:</h2>
         </div>
-        <div class="form-group">
-            <label for="password">Jelszó</label>
-            <input type="password" id="password" name="password" required>
+        <div class="card-body">
+            {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+
+            <form action="/login" method="post">
+                <div class="form-group mb-3">
+                    <label for="email" class="form-label">E-mail cím</label>
+                    <input type="email" id="email" name="email" class="form-control" placeholder="pelda@email.com" required>
+                </div>
+                
+                <div class="form-group mb-3">
+                    <label for="password" class="form-label">Jelszó</label>
+                    <input type="password" id="password" name="password" class="form-control" placeholder="********" required>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg">Bejelentkezés</button>
+                </div>
+
+                <div class="login-footer mt-3 d-flex justify-content-between align-items-center">
+                    <a href="/register" class="text-decoration-none">Még nincs fiókom</a>
+                    <a href="/forgot-password" class="text-muted small text-decoration-none">Elfelejtett jelszó?</a>
+                </div>
+            </form>
         </div>
-        
-        <button type="submit" class="button">Bejelentkezés</button>
+    </div>
+</div>
 
-        <p style="text-align: right; margin-top: 10px;">
-            <a href="/forgot-password" style="font-size: 0.9em; color: #aaa;">Elfelejtettem a jelszavam</a>
-        </p>
-
-    </form>
-    <p>Még nincs fiókod? <a href="/register">Regisztrálj!</a></p>
+<style>
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding-top: 20px; /* Közvetlenül a kezdőkép alatt */
+        padding-bottom: 50px;
+    }
+    .login-box {
+        width: 100%;
+        max-width: 450px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        border-radius: 12px;
+        background: #fff;
+    }
+    .card-header {
+        background-color: transparent;
+        border-bottom: none;
+        padding-top: 25px;
+    }
+    .btn-primary {
+        background-color: #007bff;
+        border: none;
+        font-weight: bold;
+    }
+</style>
 {% endblock %}
