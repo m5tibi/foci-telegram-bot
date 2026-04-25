@@ -1,4 +1,4 @@
-# main.py (V22.03 - Fix: TemplateResponse paraméterek és Router bekötések)
+# main.py (V22.04 - JAVÍTÁS: Csak kiértékeletlen tippek és helyes adatstruktúra)
 
 import os
 import telegram
@@ -36,19 +36,17 @@ api.add_middleware(
 )
 
 # --- 2. Routerek bekötése ---
-# Itt adjuk hozzá a modulokban definiált végpontokat a fő alkalmazáshoz
 api.include_router(auth_router, tags=["Authentication"])
 api.include_router(stripe_router, tags=["Payments"])
 api.include_router(admin_router, tags=["Admin"])
 
-# --- 3. Alap útvonalak ---
+# --- 3. Útvonalak ---
 
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
-    # FIX: Nevesített paraméterek használata
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
@@ -71,8 +69,10 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # Csak a "Folyamatban" lévő tippek lekérése
+            # --- BOT TIPPEK SZŰRÉSE ---
+            # Csak azokat a szelvényeket kérjük le, amik nincsenek elrejtve (is_admin_only=False)
             resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(20).execute()
+            
             if resp.data:
                 all_ids = []
                 for sz in resp.data:
@@ -80,7 +80,8 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    meccsek_res = db.table("meccsek").select("*").in_("id", list(set(all_ids))).execute()
+                    # Csak a "Tipp leadva" vagy "Folyamatban" státuszú (kiértékeletlen) meccseket kérjük le
+                    meccsek_res = db.table("meccsek").select("*").in_("id", list(set(all_ids))).in_("eredmeny", ["Tipp leadva", "Folyamatban", "", None]).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
                     for sz in resp.data:
@@ -90,25 +91,34 @@ async def vip_area(request: Request):
 
                         for tid in sz_ids:
                             m = mm.get(tid)
-                            if m and m.get('eredmeny') in ['Tipp leadva', 'Folyamatban', None, '']:
+                            if m: # Csak ha a meccs benne van a szűrt (kiértékeletlen) listában
                                 try:
                                     dt = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(tz)
                                     m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
                                 except:
                                     m['kezdes_str'] = m['kezdes']
+                                
+                                # A bot.py-ban lévő get_tip_details hívása a tipp nevére
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
                                 meccs_list.append(m)
                         
+                        # Csak akkor adjuk hozzá a szelvényt, ha van benne aktív meccs
                         if meccs_list:
                             sz['meccsek'] = meccs_list
-                            if tomorrow_str in (sz.get('tipp_neve') or ''): tomorrows_slips.append(sz)
-                            else: todays_slips.append(sz)
+                            if tomorrow_str in (sz.get('tipp_neve') or ''):
+                                tomorrows_slips.append(sz)
+                            else:
+                                todays_slips.append(sz)
 
+            # Manuális és Ingyenes szelvények szűrése "Folyamatban" státuszra
             man = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
             active_manual = man.data or []
             
             free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute()
             active_free = free.data or []
+
+            if not any([todays_slips, tomorrows_slips, active_manual, active_free]):
+                msg = "Jelenleg nincsenek aktív szelvények."
 
         except Exception as e:
             print(f"VIP Error: {e}")
@@ -116,6 +126,7 @@ async def vip_area(request: Request):
     else:
         msg = "A tartalom megtekintéséhez aktív VIP előfizetés szükséges."
 
+    # Kontextus összeállítása a sablonhoz
     context = {
         "request": request,
         "user": user, 
