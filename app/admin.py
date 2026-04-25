@@ -13,26 +13,25 @@ from .auth import get_current_user
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-# Konfiguráció az eredeti main.py-ból
 ADMIN_CHAT_ID = 1326707238 
-RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-# --- Feltöltési oldal megjelenítése ---
 @router.get("/admin/upload")
 async def admin_upload_page(request: Request, message: str = None, error: str = None):
     user = get_current_user(request)
-    # Csak az admin léphet be
     if not user or str(s_get(user, 'chat_id')) != str(ADMIN_CHAT_ID):
         return RedirectResponse(url="/vip", status_code=303)
     
-    return templates.TemplateResponse("admin_upload.html", {
-        "request": request,
-        "user": user,
-        "message": message,
-        "error": error
-    })
+    # JAVÍTÁS: Nevesített paraméterek használata
+    return templates.TemplateResponse(
+        request=request, 
+        name="admin_upload.html", 
+        context={
+            "user": user,
+            "message": message,
+            "error": error
+        }
+    )
 
-# --- Feltöltési folyamat kezelése ---
 @router.post("/admin/upload")
 async def admin_upload_process(
     request: Request, 
@@ -49,7 +48,6 @@ async def admin_upload_process(
 
     try:
         supabase = get_db()
-        # 1. Kép feltöltése a Supabase storage-ba
         contents = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1]
         file_name = f"{int(time.time())}_{secrets.token_hex(4)}.{file_ext}"
@@ -58,7 +56,6 @@ async def admin_upload_process(
         supabase.storage.from_("slips").upload(storage_path, contents)
         image_url = supabase.storage.from_("slips").get_public_url(storage_path)
 
-        # 2. Adatok mentése a megfelelő táblába
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
         data = {
             "tipp_neve": tipp_neve,
@@ -70,7 +67,6 @@ async def admin_upload_process(
         }
         supabase.table(table_name).insert(data).execute()
 
-        # Itt hívhatnád meg a Telegram értesítőt is
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
         
     except Exception as e:
