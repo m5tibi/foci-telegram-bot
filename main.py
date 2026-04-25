@@ -44,7 +44,9 @@ def calculate_roi(records):
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
-    if user: return RedirectResponse(url="/vip")
+    if user:
+        return RedirectResponse(url="/vip")
+    # Itt adjuk át a login.html-t, ami most már a kép alatt van
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
