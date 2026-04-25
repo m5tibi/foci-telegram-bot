@@ -9,29 +9,43 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application, PicklePersistence
 
+# Saját modulok importálása
 from app.database import get_db, s_get
 from app.auth import router as auth_router, get_current_user
 from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
 from bot import add_handlers, get_tip_details
 
-api = FastAPI()
+api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
 
-# Middleware-ek
-api.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-api.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY"), same_site="lax")
+# --- 1. Middleware beállítások ---
+api.add_middleware(
+    CORSMiddleware, 
+    allow_origins=["*"], 
+    allow_credentials=True, 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+api.add_middleware(
+    SessionMiddleware, 
+    secret_key=os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123"), 
+    same_site="lax"
+)
 
-# Routerek bekötése
-api.include_router(auth_router)
-api.include_router(stripe_router)
-api.include_router(admin_router)
+# --- 2. Routerek bekötése ---
+api.include_router(auth_router, tags=["Authentication"])
+api.include_router(stripe_router, tags=["Payments"])
+api.include_router(admin_router, tags=["Admin"])
+
+# --- 3. Útvonalak ---
 
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
+    # A gyökérkönyvtár a bejelentkezést jeleníti meg
     return templates.TemplateResponse("login.html", {"request": request, "user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
@@ -54,7 +68,7 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # 1. Bot tippek lekérése
+            # Bot tippek lekérése és összefűzése
             resp = db.table("napi_tuti").select("*").order('created_at', desc=True).limit(20).execute()
             if resp.data:
                 # Összes érintett meccs ID kigyűjtése
@@ -76,14 +90,13 @@ async def vip_area(request: Request):
                         for tid in sz_ids:
                             m = mm.get(tid)
                             if m:
-                                # Dátum formázása
                                 try:
                                     dt = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(tz)
                                     m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
                                 except:
                                     m['kezdes_str'] = m['kezdes']
                                 
-                                # Tipp nevének lefordítása (Javított hívás)
+                                # get_tip_details hívás javítva (csak 1 paraméter)
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
                                 meccs_list.append(m)
                         
@@ -95,7 +108,7 @@ async def vip_area(request: Request):
                             else:
                                 todays_slips.append(sz)
 
-            # 2. Manuális és Ingyenes szelvények
+            # Manuális és Ingyenes szelvények
             man = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
             active_manual = man.data or []
             
@@ -103,12 +116,13 @@ async def vip_area(request: Request):
             active_free = free.data or []
 
         except Exception as e:
-            print(f"VIP Hiba: {e}")
+            print(f"VIP Error: {e}")
             msg = "Hiba történt az adatok betöltésekor."
     else:
         msg = "A tartalom megtekintéséhez aktív VIP előfizetés szükséges."
 
-    return templates.TemplateResponse("vip_tippek.html", {
+    # JAVÍTÁS: Explicit context szótár a TypeError elkerülése érdekében
+    context = {
         "request": request, 
         "user": user, 
         "is_subscribed": is_subscribed,
@@ -117,16 +131,22 @@ async def vip_area(request: Request):
         "active_manual_slips": active_manual,
         "active_free_slips": active_free,
         "daily_status_message": msg
-    })
+    }
+
+    return templates.TemplateResponse("vip_tippek.html", context)
+
+# --- 4. Telegram Bot indítás ---
 
 @api.on_event("startup")
 async def startup():
     global application
     token = os.environ.get("TELEGRAM_TOKEN")
-    persistence = PicklePersistence(filepath="bot_data.pickle")
-    application = Application.builder().token(token).persistence(persistence).build()
-    add_handlers(application)
-    await application.initialize()
+    if token:
+        persistence = PicklePersistence(filepath="bot_data.pickle")
+        application = Application.builder().token(token).persistence(persistence).build()
+        add_handlers(application)
+        await application.initialize()
+        print("✅ Telegram Bot inicializálva.")
 
 @api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}")
 async def process_telegram_update(request: Request):
