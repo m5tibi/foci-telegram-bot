@@ -1,4 +1,4 @@
-# main.py (V22.05 - ROI fix, Kezdési időpont javítás, Moduláris integráció)
+# main.py (V22.06 - Dátum szétválogatás és Kezdési időpont fix)
 
 import os
 import telegram
@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application, PicklePersistence
 
-# --- 1. Saját modulok importálása ---
+# --- 1. Modulok importálása ---
 from app.database import get_db, s_get
 from app.auth import router as auth_router, get_current_user
 from app.stripe_logic import router as stripe_router
@@ -22,7 +22,7 @@ from bot import add_handlers, get_tip_details
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
 
-# --- 2. Middleware beállítások ---
+# --- 2. Middleware ---
 api.add_middleware(
     CORSMiddleware, 
     allow_origins=["*"], 
@@ -36,13 +36,13 @@ api.add_middleware(
     same_site="lax"
 )
 
-# --- 3. Routerek bekötése ---
+# --- 3. Routerek ---
 api.include_router(auth_router)
 api.include_router(stripe_router)
 api.include_router(admin_router)
 api.include_router(profile_router)
 
-# --- 4. Statisztikai segédfüggvény ---
+# --- 4. Segédfüggvények ---
 def calculate_roi(records):
     if not records: return 0
     total_staked = len(records)
@@ -57,7 +57,6 @@ async def read_root(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
-    # A login.html most már tartalmazza a bejelentkező boxot a hero alatt
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
@@ -70,7 +69,7 @@ async def vip_area(request: Request):
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     is_subscribed = (user.get("subscription_status") == "active") or (str(user.get('chat_id')) == admin_id)
     
-    # ROI kiszámítása a múltbeli VIP tippekből
+    # ROI számítás
     all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
     roi_value = calculate_roi(all_past_vip.data)
 
@@ -81,10 +80,12 @@ async def vip_area(request: Request):
         try:
             tz = pytz.timezone('Europe/Budapest')
             now_local = datetime.now(tz)
+            today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # BOT TIPPEK FELDOLGOZÁSA
+            # Bot tippek lekérése
             resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
+            
             if resp.data:
                 all_ids = []
                 for sz in resp.data:
@@ -92,7 +93,7 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # Csak a kiértékeletlen meccseket kérjük le
+                    # Csak a folyamatban lévő meccsek
                     meccsek_res = db.table("meccsek").select("*").in_("id", list(set(all_ids))).in_("eredmeny", ["Tipp leadva", "Folyamatban", "", None]).execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
@@ -104,16 +105,15 @@ async def vip_area(request: Request):
                         for tid in sz_ids:
                             m = mm.get(tid)
                             if m:
-                                # KEZDÉSI IDŐPONT JAVÍTÁSA
+                                # Kezdési időpont formázása
                                 try:
-                                    # Ha ISO formátum, konvertáljuk helyi időre
                                     dt_val = m.get('kezdes', '')
                                     if dt_val:
                                         dt = datetime.fromisoformat(dt_val.replace('Z', '+00:00')).astimezone(tz)
                                         m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
                                     else:
                                         m['kezdes_str'] = "Nincs időpont"
-                                except Exception:
+                                except:
                                     m['kezdes_str'] = m.get('kezdes', 'Nincs időpont')
                                 
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
@@ -122,12 +122,25 @@ async def vip_area(request: Request):
                         if meccs_list:
                             sz['meccsek'] = meccs_list
                             t_neve = sz.get('tipp_neve', '')
+                            
+                            # --- STABIL DÁTUM SZÉTVÁLOGATÁS ---
                             if tomorrow_str in t_neve:
                                 tomorrows_slips.append(sz)
-                            else:
+                            elif today_str in t_neve:
                                 todays_slips.append(sz)
+                            else:
+                                # Fallback: létrehozás napja alapján
+                                try:
+                                    created_at_dt = datetime.fromisoformat(sz['created_at'].replace('Z', '+00:00')).astimezone(tz)
+                                    if created_at_dt.date() == now_local.date():
+                                        todays_slips.append(sz)
+                                    else:
+                                        # Ha régebbi, de még aktív, akkor a maihoz tesszük
+                                        todays_slips.append(sz)
+                                except:
+                                    todays_slips.append(sz)
 
-            # Manuális és Ingyenes szelvények (Csak a folyamatban lévők)
+            # Manuális tippek
             active_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
             active_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
 
@@ -135,24 +148,16 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             msg = "Hiba történt az adatok betöltésekor."
     else:
-        msg = "A tartalom megtekintéséhez aktív VIP előfizetés szükséges."
+        msg = "Aktív VIP előfizetés szükséges."
 
-    context = {
-        "request": request,
-        "user": user, 
-        "is_subscribed": is_subscribed,
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips,
-        "active_manual_slips": active_manual,
-        "active_free_slips": active_free,
-        "roi": roi_value,
-        "daily_status_message": msg
-    }
+    return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
+        "request": request, "user": user, "is_subscribed": is_subscribed,
+        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
+        "active_manual_slips": active_manual, "active_free_slips": active_free,
+        "roi": roi_value, "daily_status_message": msg
+    })
 
-    return templates.TemplateResponse(request=request, name="vip_tippek.html", context=context)
-
-# --- 6. Telegram Bot indítás és Webhook ---
-
+# --- 6. Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
     global application
