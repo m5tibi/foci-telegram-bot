@@ -98,6 +98,23 @@ async def send_smart_broadcast(context: CallbackContext, user_ids: list, message
     except:
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=report, parse_mode='Markdown')
 
+async def send_admin_notification(chat_ids, message):
+    """
+    Körüzenet küldése az admin felületről érkező manuális feltöltésekhez.
+    """
+    bot = telegram.Bot(token=os.environ.get("TELEGRAM_TOKEN"))
+    success_count = 0
+    for c_id in chat_ids:
+        try:
+            # MarkdownV2 helyett sima Markdown-t használunk a kompatibilitás miatt, 
+            # de a speciális karaktereket (pl. pont, kötőjel) védeni kell, ha V2-t választasz.
+            await bot.send_message(chat_id=c_id, text=message, parse_mode='Markdown')
+            success_count += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            print(f"Hiba a kiküldésnél ({c_id}): {e}")
+    print(f"✅ Admin értesítés kész! Sikeres: {success_count}/{len(chat_ids)}")
+    
 # --- FŐ FUNKCIÓK ---
 async def start(update: telegram.Update, context: CallbackContext):
     user = update.effective_user; chat_id = update.effective_chat.id
@@ -513,4 +530,6 @@ def add_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(button_handler))
     print("Minden parancs- és gombkezelő sikeresen hozzáadva.")
     return application
-send_telegram_broadcast_task = send_smart_broadcast
+
+# bot.py legaljára add hozzá
+send_telegram_broadcast_task = send_admin_notification
