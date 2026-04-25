@@ -1,4 +1,4 @@
-# main.py (V22.01 - Teljes szerkezet helyreállítása + VIP szűrés)
+# main.py (V22.02 - ÖSSZESÍTETT JAVÍTÁS: TemplateResponse hiba fixálva mindenhol)
 
 import os
 import asyncio
@@ -52,14 +52,15 @@ async def send_telegram_broadcast_task(chat_ids, message):
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
-    # Ha be van jelentkezve, vigyük a profilra vagy a VIP-re, különben login
     if user:
         return RedirectResponse(url="/vip")
-    return templates.TemplateResponse("login.html", {"request": request, "user": user})
+    # JAVÍTÁS: Named parameters használata
+    return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    # JAVÍTÁS: Named parameters használata a 62. sornál
+    return templates.TemplateResponse(request=request, name="login.html", context={})
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip(request: Request):
@@ -83,7 +84,7 @@ async def vip(request: Request):
             now = datetime.now(local_tz)
             tomorrow_str = (now + timedelta(days=1)).strftime('%Y-%m-%d')
 
-            # JAVÍTÁS: Csak a "Folyamatban" lévő bot tippek
+            # Csak a "Folyamatban" lévő bot tippek lekérése
             res = supabase.table("generated_slips") \
                 .select("*") \
                 .eq("status", "Folyamatban") \
@@ -108,26 +109,30 @@ async def vip(request: Request):
             man_res = supabase.table("manual_slips").select("*").eq("status", "Folyamatban").execute()
             active_manual = man_res.data or []
         else:
-            msg = "VIP előfizetés szükséges."
+            msg = "A tartalom megtekintéséhez aktív VIP előfizetés szükséges."
     except Exception as e:
-        msg = f"Hiba: {e}"
+        msg = f"Hiba az adatok betöltésekor: {e}"
 
-    return templates.TemplateResponse("vip_tippek.html", {
-        "request": request, 
-        "user": user, 
-        "is_subscribed": is_subscribed,
-        "todays_slips": todays_slips, 
-        "tomorrows_slips": tomorrows_slips,
-        "active_manual_slips": active_manual, 
-        "daily_status_message": msg
-    })
+    # JAVÍTÁS: Explicit context és named parameters
+    return templates.TemplateResponse(
+        request=request, 
+        name="vip_tippek.html", 
+        context={
+            "user": user, 
+            "is_subscribed": is_subscribed,
+            "todays_slips": todays_slips, 
+            "tomorrows_slips": tomorrows_slips,
+            "active_manual_slips": active_manual, 
+            "daily_status_message": msg
+        }
+    )
 
 @api.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/")
 
-# --- Telegram Webhook ---
+# --- Telegram Webhook és Startup ---
 @api.on_event("startup")
 async def startup():
     global application
@@ -143,7 +148,6 @@ async def telegram_webhook(request: Request):
     await application.process_update(update)
     return JSONResponse(content={"status": "ok"})
 
-# --- Render indítás ---
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
