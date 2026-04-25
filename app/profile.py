@@ -28,8 +28,11 @@ async def profile_page(request: Request):
                     admin_client = get_admin_db()
                     admin_client.table("felhasznalok").update({"subscription_cancelled": is_cancelled}).eq("id", user['id']).execute()
                     user["subscription_cancelled"] = is_cancelled
+        except stripe.error.InvalidRequestError as e:
+            # Ez kezeli le, ha teszt vevőt próbálunk éles kulccsal lekérni
+            print(f"Stripe azonosító hiba (valószínűleg teszt adat éles módban): {e}")
         except Exception as e:
-            print(f"Profil frissítési hiba: {e}")
+            print(f"Általános profil frissítési hiba: {e}")
 
     return templates.TemplateResponse(
         request=request, 
