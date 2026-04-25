@@ -108,9 +108,13 @@ async def stripe_webhook(request: Request):
 
     obj = event.data.object
     
+    # Biztonságos metaadat lekérés (AttributeError fix)
+    metadata = getattr(obj, 'metadata', {})
+    user_id = metadata.get("user_id") if hasattr(metadata, 'get') else getattr(metadata, 'user_id', None)
+    plan = metadata.get("plan") if hasattr(metadata, 'get') else getattr(metadata, 'plan', None)
+
+    # 1. Első vásárlás feldolgozása
     if event.type == 'checkout.session.completed':
-        user_id = obj.metadata.get("user_id")
-        plan = obj.metadata.get("plan")
         dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
         
         if user_id:
@@ -120,5 +124,33 @@ async def stripe_webhook(request: Request):
                 "subscription_expires_at": new_exp, 
                 "stripe_customer_id": obj.customer
             }).eq("id", user_id).execute()
+            print(f"✅ Előfizetés aktiválva: User {user_id}")
+
+    # 2. Megújuló fizetések (ismétlődő számlázás)
+    elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
+        invoice_id = getattr(obj, 'id', None)
+        # Nem az első fizetés (azt a checkout kezeli)
+        if invoice_id and invoice_id not in processed_invoice_ids and getattr(obj, 'billing_reason', None) != 'subscription_create':
+            # Itt a customer ID alapján keressük meg a júzert
+            customer_id = getattr(obj, 'customer', None)
+            res = client.table("felhasznalok").select("*").eq("stripe_customer_id", customer_id).maybe_single().execute()
+            
+            if res.data:
+                processed_invoice_ids.add(invoice_id)
+                amount = getattr(obj, 'amount_paid', 0)
+                # Durva becslés az összegből a csomagra
+                dur = 31 if amount > 500000 else (7 if amount > 200000 else 1)
+                
+                start_dt = datetime.now(pytz.utc)
+                exp_at = res.data.get('subscription_expires_at')
+                if exp_at:
+                    try:
+                        old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
+                        if old_exp > start_dt: start_dt = old_exp
+                    except: pass
+                
+                new_exp = (start_dt + timedelta(days=dur)).isoformat()
+                client.table("felhasznalok").update({"subscription_expires_at": new_exp}).eq("id", res.data['id']).execute()
+                print(f"✅ Előfizetés meghosszabbítva: Customer {customer_id}")
 
     return JSONResponse(content={"status": "success"})
