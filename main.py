@@ -10,7 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.database import get_db, s_get
 from app.auth import get_current_user, router as auth_router
 from app.stripe_logic import router as stripe_router
-from bot import get_tip_details, send_telegram_broadcast_task
+from bot import get_tip_details, send_smart_broadcast as send_telegram_broadcast_task
 
 api = FastAPI(title="Mondom a Tutit VIP")
 api.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET", "super-secret"))
