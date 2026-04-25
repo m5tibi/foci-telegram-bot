@@ -40,7 +40,7 @@ async def vip_area(request: Request):
         if tips_res.data:
             for item in tips_res.data:
                 # get_tip_details összefűzi a meccseket a tippekkel a bot.py-ból
-                formatted = get_tip_details(item, db)
+                formatted = get_tip_details(item.get('tipp'))
                 if formatted['is_tomorrow']: tomorrows_slips.append(formatted)
                 else: todays_slips.append(formatted)
 
