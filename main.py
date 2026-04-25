@@ -3,6 +3,7 @@
 import os
 import telegram
 import pytz
+from app.profile import router as profile_router
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -39,6 +40,7 @@ api.add_middleware(
 api.include_router(auth_router, tags=["Authentication"])
 api.include_router(stripe_router, tags=["Payments"])
 api.include_router(admin_router, tags=["Admin"])
+api.include_router(profile_router)
 
 # --- 3. Útvonalak ---
 
