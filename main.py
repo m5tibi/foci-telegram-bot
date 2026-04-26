@@ -1,4 +1,5 @@
-# main.py
+# main.py (V22.08 - Biztonsági jóváhagyási szűrővel)
+
 import os
 import telegram
 import pytz
@@ -16,7 +17,7 @@ from app.auth import router as auth_router, get_current_user
 from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
 from app.profile import router as profile_router
-from bot import get_tip_details, add_handlers
+from bot import add_handlers, get_tip_details
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
@@ -35,13 +36,13 @@ api.add_middleware(
     same_site="lax"
 )
 
-# --- 3. Routerek ---
+# --- 3. Routerek bekötése ---
 api.include_router(auth_router)
 api.include_router(stripe_router)
 api.include_router(admin_router)
 api.include_router(profile_router)
 
-# --- 4. ROI Számítás ---
+# --- 4. Segédfüggvények ---
 def calculate_roi(records):
     if not records: return 0
     total_staked = len(records)
@@ -68,6 +69,7 @@ async def vip_area(request: Request):
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     is_subscribed = (user.get("subscription_status") == "active") or (str(user.get('chat_id')) == admin_id)
     
+    # ROI számítás a múltbeli adatokból
     all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
     roi_value = calculate_roi(all_past_vip.data)
 
@@ -79,12 +81,12 @@ async def vip_area(request: Request):
             tz = pytz.timezone('Europe/Budapest')
             now_local = datetime.now(tz)
             
-            # Formátum: 2026-04-26
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(20).execute()
+            # Bot tippek lekérése (napi_tuti tábla)
+            resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
                 all_ids = []
@@ -93,45 +95,43 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    meccsek_res = db.table("meccsek").select("*").in_("id", list(set(all_ids))).in_("eredmeny", ["Tipp leadva", "Folyamatban", "", None]).execute()
+                    # --- BIZTONSÁGI SZŰRÉS ---
+                    # Csak a "Folyamatban" státuszú (már jóváhagyott) meccseket kérjük le. 
+                    # A "Tipp leadva" állapotúak itt kiesnek, így nem látszanak a weben.
+                    meccsek_res = db.table("meccsek")\
+                        .select("*")\
+                        .in_("id", list(set(all_ids)))\
+                        .eq("eredmeny", "Folyamatban")\
+                        .execute()
+                    
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
                     for sz in resp.data:
                         meccs_list = []
-                        sz_ids = sz.get('tipp_id_k', [])
-                        if not isinstance(sz_ids, list): continue
-
-                        for tid in sz_ids:
+                        for tid in sz.get('tipp_id_k', []):
                             m = mm.get(tid)
                             if m:
                                 try:
-                                    dt_val = m.get('kezdes', '')
-                                    if dt_val:
-                                        dt = datetime.fromisoformat(dt_val.replace('Z', '+00:00')).astimezone(tz)
-                                        m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
-                                    else:
-                                        m['kezdes_str'] = "Nincs időpont"
+                                    dt = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(tz)
+                                    m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
                                 except:
                                     m['kezdes_str'] = m.get('kezdes', 'Nincs időpont')
-                                
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
                                 meccs_list.append(m)
                         
+                        # Csak akkor adjuk hozzá a szelvényt, ha van benne jóváhagyott meccs
                         if meccs_list:
                             sz['meccsek'] = meccs_list
                             t_neve = sz.get('tipp_neve', '')
                             
-                            # --- JAVÍTOTT SZÉTVÁLOGATÁS ---
-                            # Ha a nevében benne van a holnapi dátum -> Holnapi
                             if tomorrow_str in t_neve:
                                 tomorrows_slips.append(sz)
-                            # Ha a nevében benne van a mai dátum VAGY a tegnapi (de még tart a meccs) -> Mai
                             elif today_str in t_neve or yesterday_str in t_neve:
                                 todays_slips.append(sz)
                             else:
-                                # Ha semmi nem stimmel, de van benne aktív meccs, tegyük a maihoz
                                 todays_slips.append(sz)
 
+            # Manuális és ingyenes szelvények
             active_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
             active_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
 
@@ -139,7 +139,7 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             msg = "Hiba történt az adatok betöltésekor."
     else:
-        msg = "Aktív VIP előfizetés szükséges."
+        msg = "Aktív VIP előfizetés szükséges a tippek megtekintéséhez."
 
     return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
         "request": request, "user": user, "is_subscribed": is_subscribed,
