@@ -1,4 +1,4 @@
-# main.py (V22.08 - Biztonsági jóváhagyási szűrővel)
+# main.py (V22.09 - Növekvő sorrendű manuális szelvényekkel)
 
 import os
 import telegram
@@ -85,7 +85,7 @@ async def vip_area(request: Request):
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
             yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # Bot tippek lekérése (napi_tuti tábla)
+            # 1. Bot tippek lekérése
             resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
@@ -95,9 +95,7 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # --- BIZTONSÁGI SZŰRÉS ---
-                    # Csak a "Folyamatban" státuszú (már jóváhagyott) meccseket kérjük le. 
-                    # A "Tipp leadva" állapotúak itt kiesnek, így nem látszanak a weben.
+                    # Csak a jóváhagyott (Folyamatban) meccsek
                     meccsek_res = db.table("meccsek")\
                         .select("*")\
                         .in_("id", list(set(all_ids)))\
@@ -119,21 +117,29 @@ async def vip_area(request: Request):
                                 m['tipp_str'] = get_tip_details(m.get('tipp', ''))
                                 meccs_list.append(m)
                         
-                        # Csak akkor adjuk hozzá a szelvényt, ha van benne jóváhagyott meccs
                         if meccs_list:
                             sz['meccsek'] = meccs_list
                             t_neve = sz.get('tipp_neve', '')
-                            
                             if tomorrow_str in t_neve:
                                 tomorrows_slips.append(sz)
-                            elif today_str in t_neve or yesterday_str in t_neve:
-                                todays_slips.append(sz)
                             else:
                                 todays_slips.append(sz)
 
-            # Manuális és ingyenes szelvények
-            active_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
-            active_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
+            # 2. Manuális szelvények - NÖVEKVŐ SORREND (VIP 1 felül)
+            m_res = db.table("manual_slips")\
+                .select("*")\
+                .eq("status", "Folyamatban")\
+                .order("created_at", desc=False)\
+                .execute()
+            active_manual = m_res.data or []
+
+            # 3. Ingyenes szelvények - NÖVEKVŐ SORREND
+            f_res = db.table("free_slips")\
+                .select("*")\
+                .eq("status", "Folyamatban")\
+                .order("created_at", desc=False)\
+                .execute()
+            active_free = f_res.data or []
 
         except Exception as e:
             print(f"VIP Error: {e}")
