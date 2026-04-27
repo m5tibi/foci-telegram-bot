@@ -20,11 +20,11 @@ ADMIN_CHAT_ID = 1326707238
 stripe.api_key = STRIPE_SECRET_KEY
 processed_invoice_ids = set()
 
-# --- Ár azonosítók (A régi kódod alapján) ---
+# --- Ár azonosítók (Frissítve a logjaidban látott teszt ID-val) ---
 PRICE_IDS = {
-    "monthly": os.environ.get("STRIPE_MONTHLY_PRICE_ID", "price_1RyY3mGTueuLQQunEaKstS8Z"),
-    "weekly": os.environ.get("STRIPE_WEEKLY_PRICE_ID", "price_1RyY3mGTueuLQQunXvLhNfXy"), # Cseréld ha van más
-    "daily": os.environ.get("STRIPE_DAILY_PRICE_ID", "price_1RyY3mGTueuLQQunPZ9iHlO7")   # Cseréld ha van más
+    "monthly": os.environ.get("STRIPE_MONTHLY_PRICE_ID", "price_1RyYhiGTueuLQQun5BgKYFCY"),
+    "weekly": os.environ.get("STRIPE_WEEKLY_PRICE_ID", "price_1RyYhxGTueuLQQunU6m71Kbd"),
+    "daily": os.environ.get("STRIPE_DAILY_PRICE_ID", "price_1TGjOwGTueuLQQun3dzmD3w9")
 }
 
 async def send_admin_alert(message: str):
@@ -35,33 +35,48 @@ async def send_admin_alert(message: str):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
     except: pass
 
-# --- Checkout Session létrehozása (Ami az átirányításért felel) ---
-@router.post("/create-checkout-session")
-async def create_checkout_session(request: Request, plan: str = Form(...), user_id: str = Form(...)):
+# --- Checkout Session (ÁTNEVEZVE: create-checkout-session-web) ---
+@router.post("/create-checkout-session-web")
+async def create_checkout_web(request: Request, plan: str = Form(...)):
+    from app.auth import get_current_user
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
+
     try:
         price_id = PRICE_IDS.get(plan)
         if not price_id:
-            return JSONResponse({"error": "Érvénytelen csomag választás"}, status_code=400)
+            return RedirectResponse(url="/profile?error=invalid_plan", status_code=303)
 
-        checkout_session = stripe.checkout.session.create(
+        checkout_session = stripe.checkout.Session.create(
+            customer_email=user['email'], # Automatikusan kitölti az emailt a Stripe-nál
+            payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
-            success_url=f"{RENDER_APP_URL}/vip?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{RENDER_APP_URL}/",
-            metadata={"user_id": user_id, "plan": plan}
+            success_url=f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{RENDER_APP_URL}/profile?payment=cancel",
+            metadata={
+                "user_id": str(user['id']), 
+                "plan": plan
+            }
         )
-        # Itt történik az átirányítás a Stripe oldalára
         return RedirectResponse(url=checkout_session.url, status_code=303)
     except Exception as e:
         print(f"Checkout hiba: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
 
-# --- Billing Portal (Profil módosításhoz) ---
-@router.post("/create-portal-session")
-async def create_portal_session(request: Request, customer_id: str = Form(...)):
+# --- Portál munkamenet ---
+@router.get("/create-portal-session")
+async def create_portal_session(request: Request):
+    from app.auth import get_current_user
+    user = get_current_user(request)
+    
+    if not user or not user.get("stripe_customer_id"):
+        return RedirectResponse(url="/profile?error=no_customer", status_code=303)
+
     try:
         session = stripe.billing_portal.Session.create(
-            customer=customer_id,
+            customer=user["stripe_customer_id"],
             return_url=f"{RENDER_APP_URL}/profile",
         )
         return RedirectResponse(url=session.url, status_code=303)
@@ -69,7 +84,7 @@ async def create_portal_session(request: Request, customer_id: str = Form(...)):
         print(f"Portal hiba: {e}")
         return RedirectResponse(url="/profile?error=stripe_error", status_code=303)
 
-# --- Webhook (A korábbi restaurált verzió) ---
+# --- Webhook (A restaurált, üzembiztos verzió) ---
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
