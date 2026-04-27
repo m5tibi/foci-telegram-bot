@@ -168,18 +168,39 @@ async def activate_subscription_and_notify_web(user_id: int, duration_days: int,
     except Exception as e: print(f"Hiba a WEBES automatikus aktiválás során (user_id: {user_id}): {e}")
 
 # --- JÓVÁHAGYÁS HANDLER ---
+# bot.py - JAVÍTOTT JÓVÁHAGYÁSI FÜGGVÉNY
 @admin_only
 async def handle_approve_tips(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; await query.answer("Jóváhagyás...")
+    query = update.callback_query
+    await query.answer("Jóváhagyás...")
     
     date_str = query.data.split(":")[-1] 
     supabase_admin = get_admin_db_client()
     
-    # 1. MAI NAP
+    # --- JAVÍTÁS: Meccsek státuszának átírása ---
+    # Kikérjük a mai és holnapi szelvényeket, hogy megkapjuk a bennük lévő meccs ID-kat
+    slips = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{date_str}%").execute()
+    
+    all_tip_ids = []
+    if slips.data:
+        for s in slips.data:
+            ids = s.get('tipp_id_k', [])
+            if isinstance(ids, list):
+                all_tip_ids.extend(ids)
+
+    # Ha vannak meccsek, átírjuk őket "Folyamatban" állapotra
+    if all_tip_ids:
+        supabase_admin.table("meccsek")\
+            .update({"eredmeny": "Folyamatban"})\
+            .in_("id", list(set(all_tip_ids)))\
+            .execute()
+    # --- JAVÍTÁS VÉGE ---
+
+    # 1. MAI NAP státusz frissítése
     supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", date_str).execute()
     supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{date_str}%").execute()
     
-    # 2. HOLNAPI NAP
+    # 2. HOLNAPI NAP (ha van)
     today_dt = datetime.strptime(date_str, "%Y-%m-%d")
     tomorrow_dt = today_dt + timedelta(days=1)
     tomorrow_str = tomorrow_dt.strftime("%Y-%m-%d")
@@ -188,13 +209,23 @@ async def handle_approve_tips(update: telegram.Update, context: CallbackContext)
     tomorrow_approved = False
     
     if tomorrow_check.data:
+        # Holnapi meccsek aktiválása is
+        t_slips = supabase_admin.table("napi_tuti").select("tipp_id_k").like("tipp_neve", f"%{tomorrow_str}%").execute()
+        t_ids = []
+        if t_slips.data:
+            for ts in t_slips.data:
+                t_ids.extend(ts.get('tipp_id_k', []))
+        
+        if t_ids:
+            supabase_admin.table("meccsek").update({"eredmeny": "Folyamatban"}).in_("id", list(set(t_ids))).execute()
+
         supabase_admin.table("daily_status").update({"status": "Kiküldve"}).eq("date", tomorrow_str).execute()
         supabase_admin.table("napi_tuti").update({"is_admin_only": False}).like("tipp_neve", f"%{tomorrow_str}%").execute()
         tomorrow_approved = True
 
     original_message_text = query.message.text_markdown.split("\n\n*Állapot:")[0]
-    status_text = "✅ Jóváhagyva!"
-    if tomorrow_approved: status_text += f"\n➕ A holnapi ({tomorrow_str}) tippek is élesítve lettek!"
+    status_text = "✅ Jóváhagyva és aktiválva a weboldalon!"
+    if tomorrow_approved: status_text += f"\n➕ A holnapi ({tomorrow_str}) tippek is élesítve!"
 
     confirmation_text = (f"{original_message_text}\n\n*Állapot: {status_text}*\nBiztosan kiküldöd az értesítést a VIP tagoknak?")
     keyboard = [[InlineKeyboardButton("🚀 Igen, értesítés küldése", callback_data=f"confirm_send:{date_str}")], [InlineKeyboardButton("❌ Mégsem", callback_data="admin_close")]]
