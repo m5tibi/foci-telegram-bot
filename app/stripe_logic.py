@@ -11,6 +11,7 @@ from app.database import get_db, get_admin_db
 router = APIRouter()
 
 # --- Konfiguráció ---
+# Fontos, hogy mindkét kulcs be legyen állítva a Render-en!
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_TEST_SECRET_KEY = os.environ.get("STRIPE_TEST_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
@@ -20,12 +21,32 @@ ADMIN_CHAT_ID = 1326707238
 
 processed_invoice_ids = set()
 
-# --- Árak kezelése ---
-PRICE_IDS = {
-    "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
-    "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd", 
-    "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
-}
+def get_stripe_params(plan: str):
+    """
+    Meghatározza a megfelelő API kulcsot és Ár ID-t a választott csomag alapján.
+    Ha a Render-en be van állítva éles ár, azt használja, különben a tesztet.
+    """
+    # 1. Próbáljuk lekérni az éles ID-kat a környezeti változókból
+    live_prices = {
+        "monthly": os.environ.get("STRIPE_PRICE_ID_MONTHLY"),
+        "weekly": os.environ.get("STRIPE_PRICE_ID_WEEKLY"),
+        "daily": os.environ.get("STRIPE_PRICE_ID_DAILY")
+    }
+    
+    # 2. Fix teszt ID-k (amiket a logban láttunk)
+    test_prices = {
+        "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
+        "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd", 
+        "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
+    }
+    
+    price_id = live_prices.get(plan)
+    
+    if price_id and not price_id.startswith("price_1TGj"): # Ha van éles beállítva
+        return STRIPE_SECRET_KEY, price_id
+    else:
+        # Ha nincs éles, vagy tesztelünk, akkor a teszt kulcs kell!
+        return STRIPE_TEST_SECRET_KEY, test_prices.get(plan)
 
 async def send_admin_alert(message: str):
     token = os.environ.get("TELEGRAM_TOKEN")
@@ -33,10 +54,8 @@ async def send_admin_alert(message: str):
     try:
         bot = telegram.Bot(token=token)
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Admin értesítési hiba: {e}")
+    except: pass
 
-# --- Checkout Session ---
 @router.post("/create-checkout-session-web")
 async def create_checkout_web(request: Request, plan: str = Form(...)):
     from app.auth import get_current_user
@@ -44,12 +63,11 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="/", status_code=303)
 
-    # Teszt/Éles kulcs választás
-    is_test_user = user['email'] == "m5tibi77@gmail.com"
-    stripe.api_key = STRIPE_TEST_SECRET_KEY if is_test_user else STRIPE_SECRET_KEY
+    # ITT TÖRTÉNIK A VARÁZSLAT: Megfelelő kulcs kiválasztása
+    api_key, price_id = get_stripe_params(plan)
+    stripe.api_key = api_key
 
     try:
-        price_id = PRICE_IDS.get(plan)
         checkout_session = stripe.checkout.Session.create(
             customer_email=user['email'],
             payment_method_types=['card'],
@@ -61,10 +79,9 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         )
         return RedirectResponse(url=checkout_session.url, status_code=303)
     except Exception as e:
-        print(f"Checkout hiba: {e}")
-        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
+        print(f"Stripe hiba: {e}")
+        return RedirectResponse(url=f"/profile?error=Stripe hiba: {str(e)}", status_code=303)
 
-# --- Portál munkamenet (Javítva GET-re) ---
 @router.get("/create-portal-session")
 async def create_portal_session(request: Request):
     from app.auth import get_current_user
@@ -73,8 +90,8 @@ async def create_portal_session(request: Request):
     if not user or not user.get("stripe_customer_id"):
         return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
 
-    is_test_user = user['email'] == "m5tibi77@gmail.com"
-    stripe.api_key = STRIPE_TEST_SECRET_KEY if is_test_user else STRIPE_SECRET_KEY
+    # A portálnál is figyelni kell a kulcsra
+    stripe.api_key = STRIPE_TEST_SECRET_KEY if "test" in str(user.get("stripe_customer_id")) else STRIPE_SECRET_KEY
 
     try:
         session = stripe.billing_portal.Session.create(
@@ -83,10 +100,8 @@ async def create_portal_session(request: Request):
         )
         return RedirectResponse(url=session.url, status_code=303)
     except Exception as e:
-        print(f"Portal hiba: {e}")
-        return RedirectResponse(url="/profile?error=Stripe hiba", status_code=303)
+        return RedirectResponse(url=f"/profile?error=Portal hiba: {str(e)}", status_code=303)
 
-# --- Webhook ---
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -104,9 +119,8 @@ async def stripe_webhook(request: Request):
     obj = event.data.object
     
     if event.type == 'checkout.session.completed':
-        metadata = getattr(obj, 'metadata', {})
-        user_id = metadata.get("user_id")
-        plan = metadata.get("plan", "monthly")
+        user_id = obj.metadata.get("user_id")
+        plan = obj.metadata.get("plan", "monthly")
         if user_id:
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
@@ -115,32 +129,6 @@ async def stripe_webhook(request: Request):
                 "subscription_expires_at": new_exp, 
                 "stripe_customer_id": obj.customer
             }).eq("id", user_id).execute()
-            
-            email = getattr(obj, 'customer_details', {}).get('email', 'Ismeretlen')
-            await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {email}\n📦 {plan}")
-
-    elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
-        cust_id = obj.customer
-        if obj.id not in processed_invoice_ids and obj.billing_reason != 'subscription_create':
-            res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
-            if res.data:
-                processed_invoice_ids.add(obj.id)
-                amount = obj.amount_paid
-                dur = 31 if amount > 500000 else (7 if amount > 200000 else 1)
-                
-                # Dátum számítás a meglévő lejárattól
-                start_dt = datetime.now(pytz.utc)
-                exp_at = res.data.get('subscription_expires_at')
-                if exp_at:
-                    try:
-                        old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
-                        if old_exp > start_dt: start_dt = old_exp
-                    except: pass
-                
-                new_exp = (start_dt + timedelta(days=dur)).isoformat()
-                client.table("felhasznalok").update({"subscription_expires_at": new_exp}).eq("id", res.data['id']).execute()
-                
-                email = res.data.get('email', 'Ismeretlen')
-                await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {email}\n📅 +{dur} nap")
+            await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {obj.customer_details.email}")
 
     return JSONResponse({"status": "success"})
