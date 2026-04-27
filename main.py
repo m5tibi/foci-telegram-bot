@@ -1,4 +1,4 @@
-# main.py (V22.09 - Növekvő sorrendű manuális szelvényekkel)
+# main.py (V23.01 - Admin kivétel + Megfordított manuális sorrend)
 
 import os
 import telegram
@@ -68,6 +68,7 @@ async def vip_area(request: Request):
     db = get_db()
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     is_subscribed = (user.get("subscription_status") == "active") or (str(user.get('chat_id')) == admin_id)
+    is_admin = str(user.get('chat_id')) == admin_id
     
     # ROI számítás a múltbeli adatokból
     all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
@@ -95,13 +96,17 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # Csak a jóváhagyott (Folyamatban) meccsek
-                    meccsek_res = db.table("meccsek")\
-                        .select("*")\
-                        .in_("id", list(set(all_ids)))\
-                        .eq("eredmeny", "Folyamatban")\
-                        .execute()
+                    # SZŰRÉS LOGIKA:
+                    # Sima júzernek csak "Folyamatban" (jóváhagyott)
+                    # Adminnak "Folyamatban" ÉS "Tipp leadva" (reggeli nyers tippek)
+                    query = db.table("meccsek").select("*").in_("id", list(set(all_ids)))
                     
+                    if not is_admin:
+                        query = query.eq("eredmeny", "Folyamatban")
+                    else:
+                        query = query.in_("eredmeny", ["Folyamatban", "Tipp leadva"])
+                    
+                    meccsek_res = query.execute()
                     mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
                     for sz in resp.data:
@@ -125,20 +130,12 @@ async def vip_area(request: Request):
                             else:
                                 todays_slips.append(sz)
 
-            # 2. Manuális szelvények - NÖVEKVŐ SORREND (VIP 1 felül)
-            m_res = db.table("manual_slips")\
-                .select("*")\
-                .eq("status", "Folyamatban")\
-                .order("created_at", desc=False)\
-                .execute()
+            # 2. Manuális szelvények - NÖVEKVŐ (desc=False)
+            m_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_manual = m_res.data or []
 
-            # 3. Ingyenes szelvények - NÖVEKVŐ SORREND
-            f_res = db.table("free_slips")\
-                .select("*")\
-                .eq("status", "Folyamatban")\
-                .order("created_at", desc=False)\
-                .execute()
+            # 3. Ingyenes szelvények - NÖVEKVŐ (desc=False)
+            f_res = db.table("free_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_free = f_res.data or []
 
         except Exception as e:
@@ -154,7 +151,7 @@ async def vip_area(request: Request):
         "roi": roi_value, "daily_status_message": msg
     })
 
-# --- 6. Startup és Webhook ---
+# --- Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
     global application
