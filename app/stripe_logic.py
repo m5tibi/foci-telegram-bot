@@ -33,7 +33,8 @@ async def send_admin_alert(message: str):
     try:
         bot = telegram.Bot(token=token)
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
-    except: pass
+    except Exception as e:
+        print(f"Admin értesítési hiba: {e}")
 
 # --- Checkout Session ---
 @router.post("/create-checkout-session-web")
@@ -43,7 +44,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="/", status_code=303)
 
-    # TESZT FIX: Ha m5tibi77@gmail.com vagy, vagy teszt árat használsz, kényszerítsük a teszt kulcsot
+    # Teszt/Éles kulcs választás
     is_test_user = user['email'] == "m5tibi77@gmail.com"
     stripe.api_key = STRIPE_TEST_SECRET_KEY if is_test_user else STRIPE_SECRET_KEY
 
@@ -63,17 +64,15 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         print(f"Checkout hiba: {e}")
         return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
 
-# --- Portál munkamenet (JAVÍTVA: GET-re, mert a sablonod így hívja) ---
-@api_router_get_portal = APIRouter() # Ideiglenes belső jelölés
+# --- Portál munkamenet (Javítva GET-re) ---
 @router.get("/create-portal-session")
 async def create_portal_session(request: Request):
     from app.auth import get_current_user
     user = get_current_user(request)
     
     if not user or not user.get("stripe_customer_id"):
-        return RedirectResponse(url="/profile?error=Nincs aktive elofizetesed", status_code=303)
+        return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
 
-    # Teszt/Éles kulcs választás itt is
     is_test_user = user['email'] == "m5tibi77@gmail.com"
     stripe.api_key = STRIPE_TEST_SECRET_KEY if is_test_user else STRIPE_SECRET_KEY
 
@@ -87,16 +86,14 @@ async def create_portal_session(request: Request):
         print(f"Portal hiba: {e}")
         return RedirectResponse(url="/profile?error=Stripe hiba", status_code=303)
 
-# --- Webhook (Változatlan, üzembiztos verzió) ---
+# --- Webhook ---
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     client = get_admin_db()
 
-    event = None
     try:
-        # Megpróbáljuk mindkét webhook titokkal
         try:
             event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
         except:
@@ -107,8 +104,9 @@ async def stripe_webhook(request: Request):
     obj = event.data.object
     
     if event.type == 'checkout.session.completed':
-        user_id = obj.metadata.get("user_id")
-        plan = obj.metadata.get("plan", "monthly")
+        metadata = getattr(obj, 'metadata', {})
+        user_id = metadata.get("user_id")
+        plan = metadata.get("plan", "monthly")
         if user_id:
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
@@ -117,7 +115,9 @@ async def stripe_webhook(request: Request):
                 "subscription_expires_at": new_exp, 
                 "stripe_customer_id": obj.customer
             }).eq("id", user_id).execute()
-            await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {obj.customer_details.email}")
+            
+            email = getattr(obj, 'customer_details', {}).get('email', 'Ismeretlen')
+            await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {email}\n📦 {plan}")
 
     elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
         cust_id = obj.customer
@@ -125,10 +125,22 @@ async def stripe_webhook(request: Request):
             res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
             if res.data:
                 processed_invoice_ids.add(obj.id)
-                dur = 31 if obj.amount_paid > 500000 else (7 if obj.amount_paid > 200000 else 1)
-                # ... dátum számítás ...
-                new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+                amount = obj.amount_paid
+                dur = 31 if amount > 500000 else (7 if amount > 200000 else 1)
+                
+                # Dátum számítás a meglévő lejárattól
+                start_dt = datetime.now(pytz.utc)
+                exp_at = res.data.get('subscription_expires_at')
+                if exp_at:
+                    try:
+                        old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
+                        if old_exp > start_dt: start_dt = old_exp
+                    except: pass
+                
+                new_exp = (start_dt + timedelta(days=dur)).isoformat()
                 client.table("felhasznalok").update({"subscription_expires_at": new_exp}).eq("id", res.data['id']).execute()
-                await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {res.data.get('email')}")
+                
+                email = res.data.get('email', 'Ismeretlen')
+                await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {email}\n📅 +{dur} nap")
 
     return JSONResponse({"status": "success"})
