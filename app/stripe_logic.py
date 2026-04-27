@@ -81,7 +81,40 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     except Exception as e:
         print(f"Stripe hiba: {e}")
         return RedirectResponse(url=f"/profile?error=Stripe hiba: {str(e)}", status_code=303)
+@router.post("/create-checkout-session-web")
+async def create_checkout_web(request: Request, plan: str = Form(...)):
+    from app.auth import get_current_user
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
 
+    api_key, price_id = get_stripe_params(plan)
+    stripe.api_key = api_key
+
+    try:
+        # Összeállítjuk a kérést
+        session_data = {
+            "payment_method_types": ['card'],
+            "line_items": [{'price': price_id, 'quantity': 1}],
+            "mode": 'subscription',
+            "success_url": f"{RENDER_APP_URL}/vip?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
+            "metadata": {"user_id": str(user['id']), "plan": plan}
+        }
+
+        # JAVÍTÁS: Csak akkor küldjük a customer_id-t, ha az nem teszt vagy ha biztosan jó
+        # Tesztelésnél biztonságosabb az emailt küldeni, és hagyni, hogy a Stripe párosítsa
+        if user.get("stripe_customer_id") and not api_key.startswith("sk_test"):
+            session_data["customer"] = user["stripe_customer_id"]
+        else:
+            session_data["customer_email"] = user['email']
+
+        checkout_session = stripe.checkout.Session.create(**session_data)
+        return RedirectResponse(url=checkout_session.url, status_code=303)
+    except Exception as e:
+        print(f"Stripe hiba: {e}")
+        return RedirectResponse(url=f"/profile?error=Stripe hiba: {str(e)}", status_code=303)
+        
 @router.get("/create-portal-session")
 async def create_portal_session(request: Request):
     from app.auth import get_current_user
