@@ -18,10 +18,10 @@ STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 ADMIN_CHAT_ID = 1326707238
 
-# Duplikáció szűrő a memóriában
+# Duplikáció szűrő a memóriában (számlákhoz)
 processed_invoice_ids = set()
 
-# Fix Teszt Ár ID-k (amiket a logjaidban láttunk)
+# Fix Teszt Ár ID-k
 TEST_PRICE_IDS = {
     "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
     "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd", 
@@ -45,7 +45,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     if not user:
         return RedirectResponse(url="/", status_code=303)
 
-    # --- DINAMIKUS KULCS ÉS ÁR VÁLASZTÁS ---
+    # Kulcsválasztás a teszt fiók alapján
     is_test_user = user['email'] == "m5tibi77@gmail.com"
     
     if is_test_user:
@@ -56,9 +56,8 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         price_id = os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
 
     try:
-        # Session adatok összeállítása
         session_params = {
-            "api_key": active_key,  # KÉNYSZERÍTETT KULCS
+            "api_key": active_key,
             "payment_method_types": ['card'],
             "line_items": [{'price': price_id, 'quantity': 1}],
             "mode": 'subscription',
@@ -67,7 +66,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "metadata": {"user_id": str(user['id']), "plan": plan}
         }
 
-        # Customer ID kezelés: teszt módban biztonságosabb az email-alapú párosítás
+        # Customer ID kezelés: sk_test esetén biztonságosabb az email alapú azonosítás
         if user.get("stripe_customer_id") and not active_key.startswith("sk_test"):
             session_params["customer"] = user["stripe_customer_id"]
         else:
@@ -78,7 +77,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         
     except Exception as e:
         print(f"Checkout hiba: {e}")
-        return RedirectResponse(url=f"/profile?error=Stripe hiba: {str(e)}", status_code=303)
+        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
 
 @router.get("/create-portal-session")
 async def create_portal_session(request: Request):
@@ -89,7 +88,6 @@ async def create_portal_session(request: Request):
         return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
 
     cust_id = user["stripe_customer_id"]
-    # Kulcsválasztás a Customer ID vagy email alapján
     active_key = STRIPE_TEST_SECRET_KEY if "test" in str(cust_id) or user['email'] == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
 
     try:
@@ -100,8 +98,7 @@ async def create_portal_session(request: Request):
         )
         return RedirectResponse(url=session.url, status_code=303)
     except Exception as e:
-        print(f"Portal hiba: {e}")
-        return RedirectResponse(url=f"/profile?error=Portal hiba: {str(e)}", status_code=303)
+        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
 
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
@@ -109,7 +106,6 @@ async def stripe_webhook(request: Request):
     sig_header = request.headers.get("stripe-signature")
     client = get_admin_db()
 
-    # Webhook esemény hitelesítése (Teszt és Éles titokkal is megpróbáljuk)
     event = None
     for secret in [STRIPE_WEBHOOK_SECRET, STRIPE_TEST_WEBHOOK_SECRET]:
         if not secret: continue
@@ -119,16 +115,22 @@ async def stripe_webhook(request: Request):
         except: continue
     
     if not event:
-        return JSONResponse({"error": "Invalid webhook signature"}, status_code=400)
+        return JSONResponse({"error": "Invalid signature"}, status_code=400)
 
     obj = event.data.object
     
+    # --- BIZTONSÁGOS METADATA KEZELÉS ---
+    metadata = getattr(obj, 'metadata', {})
+    def get_meta(key, default=None):
+        if not metadata: return default
+        if hasattr(metadata, 'get'): return metadata.get(key, default)
+        return getattr(metadata, key, default)
+
+    user_id = get_meta("user_id")
+    plan = get_meta("plan", "monthly")
+
     # 1. SIKERES ÚJ FIZETÉS
     if event.type == 'checkout.session.completed':
-        metadata = getattr(obj, 'metadata', {})
-        user_id = metadata.get("user_id")
-        plan = metadata.get("plan", "monthly")
-        
         if user_id:
             dur = 31 if plan == 'monthly' else (7 if plan == 'weekly' else 1)
             new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
@@ -136,10 +138,11 @@ async def stripe_webhook(request: Request):
             client.table("felhasznalok").update({
                 "subscription_status": "active", 
                 "subscription_expires_at": new_exp, 
-                "stripe_customer_id": obj.customer
+                "stripe_customer_id": getattr(obj, 'customer', None)
             }).eq("id", user_id).execute()
             
-            email = getattr(obj, 'customer_details', {}).get('email', 'Ismeretlen')
+            details = getattr(obj, 'customer_details', {})
+            email = getattr(details, 'email', 'Ismeretlen') if details else "Ismeretlen"
             await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {email}\n📦 {plan}")
 
     # 2. MEGÚJULÁS
@@ -150,7 +153,6 @@ async def stripe_webhook(request: Request):
         if invoice_id in processed_invoice_ids:
             return JSONResponse({"status": "already_processed"})
 
-        # Keresés customer_id alapján
         res = client.table("felhasznalok").select("*").eq("stripe_customer_id", cust_id).maybe_single().execute()
         
         if res.data and getattr(obj, 'billing_reason', None) != 'subscription_create':
