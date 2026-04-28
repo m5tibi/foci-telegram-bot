@@ -167,7 +167,7 @@ def main():
         return
 
     # Csak azokat a meccseket kérjük le, amik jóvá vannak hagyva és még nincsenek kiértékelve
-    res = supabase.table("meccsek").select("*").eq("eredmeny", "Tipp leadva").in_("id", approved_ids).execute()
+    res = supabase.table("meccsek").select("*").or_('eredmeny.eq."Tipp leadva",eredmeny.eq."Folyamatban"').in_("id", approved_ids).execute()
     matches = res.data or []
     print(f"Ellenőrizendő meccsek száma: {len(matches)}")
     
