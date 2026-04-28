@@ -1,17 +1,27 @@
+# Web és Keretrendszer
 fastapi
 uvicorn[standard]
-python-telegram-bot
-supabase
-requests
 python-dotenv
-pytz
-python-dateutil
-stripe
-# Build frissítés kényszerítése: 2025.08.26
 jinja2
 python-multipart
 passlib
 bcrypt==3.2.0
 itsdangerous
+
+# Adatbázis és API
+supabase
+requests
+python-dateutil
+pytz
+
+# Matematikai és Statisztikai Modellek (PhD Protokollhoz)
+numpy>=1.23.5
+scipy>=1.10.1
 pandas
+
+# Adatkezelés és Logisztika
 openpyxl
+python-telegram-bot
+stripe
+
+# Build frissítés kényszerítése: 2026.04.28
