@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD Enhanced - Top 10 Value Filter)
+# tipp_generator.py (PhD Enhanced - 1X2, Over 2.5, GG Markets)
 import os
 import requests
 import numpy as np
@@ -7,23 +7,17 @@ from scipy.optimize import minimize
 import math
 import logging
 from datetime import datetime, timedelta, timezone
-from supabase import create_client, Client
-from app.database import supabase  # Meglévő kapcsolat használata
+from app.database import supabase #
 
-# Logging beállítása
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Konfiguráció ---
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
 API_KEY = raw_key.strip()
-HOSTS = {
-    "football": "v3.football.api-sports.io",
-}
+HOST = "v3.football.api-sports.io"
 
 class PhDBettingEngine:
     def __init__(self, delta_robustness=0.01):
-        # Ω-03 :: Robusztussági puffer
         self.delta = delta_robustness
 
     def shin_de_vig(self, odds):
@@ -42,109 +36,113 @@ class PhDBettingEngine:
         return [(math.sqrt(z_opt**2 + 4*(1-z_opt)*(p_hat**2)/(1+margin)) - z_opt) / (2*(1-z_opt)) for p_hat in raw_probs]
 
     def bivariate_poisson_grid(self, lambda_h, lambda_a, lambda_3=0.12):
-        """S-01 :: Bivariate Poisson gólrács."""
-        max_g = 8
-        grid = np.zeros((max_g, max_g))
+        """S-01 :: Bivariate Poisson gólrács generálás."""
+        grid = np.zeros((8, 8))
         l1, l2 = max(0.01, lambda_h - lambda_3), max(0.01, lambda_a - lambda_3)
-        for h in range(max_g):
-            for a in range(max_g):
+        for h in range(8):
+            for a in range(8):
                 prob = 0
                 for k in range(min(h, a) + 1):
-                    term = ( (l1**(h-k) * l2**(a-k) * lambda_3**k) / 
-                             (math.factorial(h-k) * math.factorial(a-k) * math.factorial(k)) )
+                    term = ( (l1**(h-k) * l2**(a-k) * lambda_3**k) / (math.factorial(h-k) * math.factorial(a-k) * math.factorial(k)) )
                     prob += term
                 grid[h, a] = prob * math.exp(-(l1 + l2 + lambda_3))
         return grid
 
-    def calculate_robust_edge(self, model_prob, market_odds):
-        """Ω-03 :: Robusztus várható érték számítása."""
-        robust_prob = model_prob - (self.delta * math.sqrt(model_prob * (1 - model_prob)))
-        return (robust_prob * market_odds) - 1
-
-    def get_api_data(self, endpoint, params):
-        url = f"https://{HOSTS['football']}/{endpoint}"
-        headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOSTS['football']}
-        try:
-            r = requests.get(url, headers=headers, params=params, timeout=20)
-            return r.json().get('response', [])
-        except Exception as e:
-            logger.error(f"API Hiba: {e}")
-            return []
-
     def process_football(self):
         now = datetime.now(timezone.utc)
         end_time = now + timedelta(hours=24)
-        
-        # Mai és holnapi nap lekérése a 24 órás lefedettséghez
         dates = [now.strftime('%Y-%m-%d'), end_time.strftime('%Y-%m-%d')]
         all_fixtures = []
+        headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
+
         for d in sorted(list(set(dates))):
-            all_fixtures += self.get_api_data("fixtures", {"date": d})
-        
-        logger.info(f"Összesen {len(all_fixtures)} mérkőzés elemzése a következő 24 órára...")
+            url = f"https://{HOST}/fixtures?date={d}"
+            all_fixtures += requests.get(url, headers=headers).json().get('response', [])
         
         candidate_tips = []
-
         for f in all_fixtures:
             try:
                 f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
-                
-                # Szigorú 24 órás időablak szűrés
-                if not (now < f_date <= end_time):
-                    continue
+                if not (now < f_date <= end_time): continue
 
                 f_id = f['fixture']['id']
-                odds_data = self.get_api_data("odds", {"fixture": f_id})
-                if not odds_data: continue
+                o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
+                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
+                if not o_resp or not p_resp: continue
+
+                # Oddsok kinyerése (1X2, Over/Under, GG)
+                bookie = o_resp[0]['bookmakers'][0]
                 
-                bookie = odds_data[0]['bookmakers'][0]
-                market = next(m for m in bookie['bets'] if m['id'] == 1)
-                odds_map = {v['value']: float(v['odd']) for v in market['values']}
-                
-                preds = self.get_api_data("predictions", {f"fixture": f_id})
-                if not preds: continue
-                
-                comp = preds[0]['comparison']
+                # 1X2 Market (ID: 1)
+                m1 = next((m for m in bookie['bets'] if m['id'] == 1), None)
+                # Over/Under 2.5 (ID: 5)
+                m5 = next((m for m in bookie['bets'] if m['id'] == 5), None)
+                # GG/NG (ID: 8)
+                m8 = next((m for m in bookie['bets'] if m['id'] == 8), None)
+
+                # xG becslés (S-06)
+                comp = p_resp[0]['comparison']
                 l_h = float(comp['att']['home'].replace('%','')) / 40
                 l_a = float(comp['att']['away'].replace('%','')) / 40
-                
                 grid = self.bivariate_poisson_grid(l_h, l_a)
-                p_h = np.sum(np.tril(grid, -1))
-                
-                edge = self.calculate_robust_edge(p_h, odds_map['Home'])
-                
-                # Szűrés: Odds >= 1.50 ÉS az érték reális (1% < Edge < 100%)
-                # Az extrém magas (>100%) értékek eldobása az adatbázis tisztasága érdekében
-                if 0.01 < edge < 1.00 and odds_map['Home'] >= 1.50:
-                    candidate_tips.append({
-                        "fixture_id": f_id,
-                        "kezdes": f['fixture']['date'],
-                        "csapat_H": f['teams']['home']['name'],
-                        "csapat_V": f['teams']['away']['name'],
-                        "odds": odds_map['Home'],
-                        "tipp": "Hazai győzelem",
-                        "liga_nev": f['league']['name'],
-                        "liga_orszag": f['league']['country'],
-                        "edge": edge,
-                        "confidence_score": int(edge * 1000),
-                        "indoklas": f"PhD Value: {round(edge*100,1)}% | Top 24h választás."
-                    })
-            except Exception:
-                continue
 
-        # Top 10 eredmény kiválasztása az Edge (matematikai előny) alapján
-        top_10_tips = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
+                # --- 1. 1X2 PIAC ELEMZÉSE ---
+                if m1:
+                    odds_1x2 = {v['value']: float(v['odd']) for v in m1['values']}
+                    probs_1x2 = [np.sum(np.tril(grid, -1)), np.sum(np.diag(grid)), np.sum(np.triu(grid, 1))]
+                    labels = ["Hazai", "Döntetlen", "Vendég"]
+                    for i, label in enumerate(labels):
+                        o = odds_1x2.get(label.replace("Hazai", "Home").replace("Vendég", "Away").replace("Döntetlen", "Draw"))
+                        if o:
+                            robust_p = probs_1x2[i] - (self.delta * math.sqrt(probs_1x2[i] * (1 - probs_1x2[i])))
+                            edge = (robust_p * o) - 1
+                            if 0.01 < edge < 1.0 and o >= 1.50:
+                                candidate_tips.append(self.create_tip_obj(f, o, label, edge))
 
-        if top_10_tips:
-            # Mentés előtt eltávolítjuk a segéd 'edge' mezőt
-            for tip in top_10_tips:
-                del tip['edge']
-            
-            supabase.table("meccsek").insert(top_10_tips).execute()
-            logger.info(f"Sikeresen mentve a legjobb {len(top_10_tips)} tipp.")
-        else:
-            logger.info("Nem találtam megfelelő value tippet a következő 24 órában.")
+                # --- 2. OVER 2.5 PIAC (S-03) ---
+                if m5:
+                    o25_market = next((v for v in m5['values'] if v['value'] == "Over 2.5"), None)
+                    if o25_market:
+                        o = float(o25_market['odd'])
+                        p_over = np.sum(grid[np.sum(np.indices(grid.shape), axis=0) > 2.5]) # Összes gól > 2.5
+                        robust_p = p_over - (self.delta * math.sqrt(p_over * (1 - p_over)))
+                        edge = (robust_p * o) - 1
+                        if 0.01 < edge < 1.0 and o >= 1.50:
+                            candidate_tips.append(self.create_tip_obj(f, o, "Over 2.5", edge))
+
+                # --- 3. GG (MINDKÉT CSAPAT GÓLT SZEREZ) ---
+                if m8:
+                    gg_market = next((v for v in m8['values'] if v['value'] == "Yes"), None)
+                    if gg_market:
+                        o = float(gg_market['odd'])
+                        p_gg = np.sum(grid[1:, 1:]) # Mindkét csapat gólja >= 1
+                        robust_p = p_gg - (self.delta * math.sqrt(p_gg * (1 - p_gg)))
+                        edge = (robust_p * o) - 1
+                        if 0.01 < edge < 1.0 and o >= 1.50:
+                            candidate_tips.append(self.create_tip_obj(f, o, "Mindkét csapat gól (GG)", edge))
+
+            except Exception: continue
+
+        top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
+        if top_10:
+            for t in top_10: del t['edge']
+            supabase.table("meccsek").insert(top_10).execute()
+            logger.info(f"Sikeresen mentve a legjobb {len(top_10)} tipp (1X2, Over, GG).")
+
+    def create_tip_obj(self, f, odds, tipp_text, edge):
+        return {
+            "fixture_id": f['fixture']['id'],
+            "kezdes": f['fixture']['date'],
+            "csapat_H": f['teams']['home']['name'],
+            "csapat_V": f['teams']['away']['name'],
+            "odds": odds,
+            "tipp": tipp_text,
+            "liga_nev": f['league']['name'],
+            "liga_orszag": f['league']['country'],
+            "edge": edge,
+            "confidence_score": int(edge * 1000),
+            "indoklas": f"PhD Value: {round(edge*100,1)}% | {tipp_text} kimenetel."
+        }
 
 if __name__ == "__main__":
-    engine = PhDBettingEngine(delta_robustness=0.01)
-    engine.process_football()
+    PhDBettingEngine(delta_robustness=0.01).process_football()
