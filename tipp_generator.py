@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Goals Focus: Over 3.5 & 4.5)
+# tipp_generator.py (PhD - Extreme Goals: Over 5.5+)
 import os
 import requests
 import numpy as np
@@ -21,7 +21,7 @@ HOST = "v3.football.api-sports.io"
 class PhDBettingEngine:
     def send_admin_alert(self, count):
         if not TELEGRAM_TOKEN: return
-        msg = f"🤖 *PhD Gólszám Generátor*\n\n✅ {count} új gólos tipp vár jóváhagyásra (O3.5 / O4.5)!"
+        msg = f"🔥 *PhD 6+ GÓL GENERÁTOR*\n\n✅ {count} brutális gólparádé tipp vár jóváhagyásra (Over 5.5)!"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
@@ -29,7 +29,7 @@ class PhDBettingEngine:
             logger.error(f"Telegram hiba: {e}")
 
     def get_poisson_over(self, lam, threshold):
-        """Kiszámolja a gólküszöb feletti valószínűséget."""
+        # Kiszámolja a gólküszöb feletti valószínűséget (pl. 5.5-nél a 6 vagy több gólt)
         return 1 - poisson.cdf(threshold, lam)
 
     def process_football(self):
@@ -42,7 +42,7 @@ class PhDBettingEngine:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        logger.info(f"Gólszám elemzés indul: {len(all_fixtures)} meccs...")
+        logger.info(f"6+ gól elemzés indul: {len(all_fixtures)} meccs...")
         candidate_tips = []
 
         for f in all_fixtures:
@@ -51,17 +51,17 @@ class PhDBettingEngine:
                 if not (now < f_date <= now + timedelta(hours=24)): continue
 
                 f_id = f['fixture']['id']
-                # Odds lekérése (Piac ID 5: Over/Under)
                 o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
                 if not o_resp: continue
                 
-                # Predikciók/xG adatok
-                l_h, l_a = 1.3, 1.1 # Alapérték
+                # Alap intenzitás becslése
+                l_h, l_a = 1.5, 1.2 
                 p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
                 if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
                     comp = p_resp[0]['comparison']
-                    l_h = float(comp['att']['home'].replace('%','')) / 35
-                    l_a = float(comp['att']['away'].replace('%','')) / 35
+                    # A szorzót 35-ről 32-re vettem, hogy érzékenyebb legyen a gólokra
+                    l_h = float(comp['att']['home'].replace('%','')) / 32
+                    l_a = float(comp['att']['away'].replace('%','')) / 32
 
                 lam_total = l_h + l_a
                 bookie = o_resp[0]['bookmakers'][0]
@@ -70,17 +70,15 @@ class PhDBettingEngine:
                 if m_ou:
                     for val in m_ou['values']:
                         odds = float(val['odd'])
-                        # Csak Over 3.5 és Over 4.5 piacokat nézünk, reális oddsok között
-                        if ("Over 3.5" in val['value'] or "Over 4.5" in val['value']) and (1.50 <= odds <= 5.50):
-                            threshold = 3.5 if "3.5" in val['value'] else 4.5
-                            prob = self.get_poisson_over(lam_total, threshold)
+                        # KIZÁRÓLAG Over 5.5 piac, 3.00 feletti oddsal
+                        if "Over 5.5" in val['value'] and (3.00 <= odds <= 15.00):
+                            prob = self.get_poisson_over(lam_total, 5.5)
                             edge = (prob * odds) - 1
-                            
-                            candidate_tips.append(self.create_tip_obj(f, odds, val['value'], edge))
+                            candidate_tips.append(self.create_tip_obj(f, odds, "6+ Gól (Over 5.5)", edge))
 
             except Exception: continue
 
-        # Top 10 sorrend
+        # Top 10 sorrend (a legmagasabb várható érték szerint)
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
         
         if top_10:
@@ -92,23 +90,20 @@ class PhDBettingEngine:
             
             supabase.table("meccsek").insert(final_to_insert).execute()
             self.send_admin_alert(len(final_to_insert))
-            logger.info("Gólszám tippek beküldve.")
+            logger.info("6+ gól tippek beküldve.")
         else:
-            logger.info("Nem találtam megfelelő gólszám tippet.")
+            logger.info("Nem találtam 6+ gólra alkalmas meccset.")
 
     def create_tip_obj(self, f, o, t, e):
         return {
             "fixture_id": f['fixture']['id'],
             "csapat_H": f['teams']['home']['name'],
             "csapat_V": f['teams']['away']['name'],
-            "odds": o,
-            "tipp": t,
-            "eredmeny": "Függőben",
+            "odds": o, "tipp": t, "eredmeny": "Függőben",
             "confidence_score": int(max(0, e * 1000)),
-            "indoklas": f"PhD Gól-várható érték: {round(e*100,1)}%",
+            "indoklas": f"PhD Brutál Gól-Value: {round(e*100,1)}%",
             "kezdes": f['fixture']['date'],
-            "liga_nev": f['league']['name'],
-            "liga_orszag": f['league']['country'],
+            "liga_nev": f['league']['name'], "liga_orszag": f['league']['country'],
             "edge": e
         }
 
