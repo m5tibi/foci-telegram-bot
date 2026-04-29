@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Safe Favorites / Value-Paperform Edition)
+# tipp_generator.py (PhD - Safe Favorites & Double Chance Edition)
 import os
 import requests
 import numpy as np
@@ -19,13 +19,13 @@ API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
 class PhDBettingEngine:
-    def __init__(self, delta_robustness=0.02):
-        # Ω-03 :: Visszaállítjuk a biztonsági puffert (2%)
+    def __init__(self, delta_robustness=0.015):
+        # Ω-03 :: 1.5% biztonsági puffer
         self.delta = delta_robustness
 
     def send_admin_alert(self, count):
         if not TELEGRAM_TOKEN: return
-        msg = f"🛡️ *PhD Biztonsági Favoritok*\n\n✅ {count} stabil papírforma tipp érkezett jóváhagyásra (1.40 - 1.95 odds)!"
+        msg = f"🛡️ *PhD Biztonsági Válogatás*\n\n✅ {count} új alacsony kockázatú tipp vár jóváhagyásra!"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
@@ -34,7 +34,7 @@ class PhDBettingEngine:
 
     def bivariate_poisson_grid(self, l_h, l_a):
         grid = np.zeros((8, 8))
-        l_3 = 0.12 # Szigorúbb döntetlen korreláció
+        l_3 = 0.12
         l1, l2 = max(0.01, l_h - l_3), max(0.01, l_a - l_3)
         for h in range(8):
             for a in range(8):
@@ -55,7 +55,7 @@ class PhDBettingEngine:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        logger.info(f"Biztonsági elemzés indul: {len(all_fixtures)} meccs...")
+        logger.info(f"Biztonsági elemzés (1X2 + DC) indul: {len(all_fixtures)} meccs...")
         candidate_tips = []
 
         for f in all_fixtures:
@@ -71,34 +71,40 @@ class PhDBettingEngine:
                 if not p_resp or not p_resp[0]['comparison']['att']['home']: continue
 
                 comp = p_resp[0]['comparison']
-                l_h = float(comp['att']['home'].replace('%','')) / 38
-                l_a = float(comp['att']['away'].replace('%','')) / 38
+                l_h, l_a = float(comp['att']['home'].replace('%','')) / 38, float(comp['att']['away'].replace('%','')) / 38
                 grid = self.bivariate_poisson_grid(l_h, l_a)
 
                 bookie = o_resp[0]['bookmakers'][0]
+                
+                # 1. 1X2 PIAC
                 m_1x2 = next((m for m in bookie['bets'] if m['id'] == 1), None)
-
                 if m_1x2:
                     o_m = {v['value']: float(v['odd']) for v in m_1x2['values']}
-                    # Csak Hazai vagy Vendég győzelmet nézünk (Papírforma)
                     p_vals = {"Hazai": np.sum(np.tril(grid, -1)), "Vendég": np.sum(np.triu(grid, 1))}
+                    for eng, hu in [("Home", "Hazai"), ("Away", "Vendég")]:
+                        if eng in o_m and 1.40 <= o_m[eng] <= 1.95:
+                            robust_p = p_vals[hu] - (self.delta * math.sqrt(p_vals[hu] * (1 - p_vals[hu])))
+                            edge = (robust_p * o_m[eng]) - 1
+                            if edge > 0.01:
+                                candidate_tips.append(self.create_tip_obj(f, o_m[eng], hu, edge))
+
+                # 2. DOUBLE CHANCE (ID: 12)
+                m_dc = next((m for m in bookie['bets'] if m['id'] == 12), None)
+                if m_dc:
+                    o_dc = {v['value']: float(v['odd']) for v in m_dc['values']}
+                    # Valószínűség számítás: 1X = Hazai + Döntetlen, X2 = Vendég + Döntetlen
+                    p_draw = np.sum(np.diag(grid))
+                    p_dc = {"Home/Draw": np.sum(np.tril(grid, -1)) + p_draw, "Draw/Away": np.sum(np.triu(grid, 1)) + p_draw}
                     
-                    for label_eng, label_hu in [("Home", "Hazai"), ("Away", "Vendég")]:
-                        if label_eng in o_m:
-                            odds = o_m[label_eng]
-                            # SZŰRÉS: 1.40 - 1.95 között
-                            if 1.40 <= odds <= 1.95:
-                                prob = p_vals[label_hu]
-                                # Ω-03 Robusztussági szűrő alkalmazása
-                                robust_p = prob - (self.delta * math.sqrt(prob * (1 - prob)))
-                                edge = (robust_p * odds) - 1
-                                
-                                if edge > 0.02: # Minimum 2% tiszta matek előny
-                                    candidate_tips.append(self.create_tip_obj(f, odds, label_hu, edge))
+                    for eng, hu in [("Home/Draw", "1X"), ("Draw/Away", "X2")]:
+                        if eng in o_dc and 1.30 <= o_dc[eng] <= 1.70:
+                            prob = p_dc[eng]
+                            edge = (prob * o_dc[eng]) - 1
+                            if edge > 0.02:
+                                candidate_tips.append(self.create_tip_obj(f, o_dc[eng], hu, edge))
 
             except Exception: continue
 
-        # Top 10 sorrend
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
         
         if top_10:
@@ -107,18 +113,17 @@ class PhDBettingEngine:
                 tip_data = t.copy()
                 del tip_data['edge']
                 final_to_insert.append(tip_data)
-            
             supabase.table("meccsek").insert(final_to_insert).execute()
             self.send_admin_alert(len(final_to_insert))
-            logger.info("Biztonsági favorit tippek beküldve.")
+            logger.info(f"Sikeres mentés: {len(final_to_insert)} biztonsági tipp.")
         else:
-            logger.info("Nem találtam megfelelő biztonsági favoritot.")
+            logger.info("Nincs a feltételeknek megfelelő biztonsági tipp.")
 
     def create_tip_obj(self, f, o, t, e):
         return {
             "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'], 
             "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t, "eredmeny": "Függőben",
-            "confidence_score": int(e * 1000), "indoklas": f"PhD Biztonsági Value: {round(e*100,1)}%",
+            "confidence_score": int(max(0, e * 1000)), "indoklas": f"PhD Safe Value: {round(e*100,1)}%",
             "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'], 
             "liga_orszag": f['league']['country'], "edge": e
         }
