@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Safe Favorites & Double Chance Edition)
+# tipp_generator.py (PhD - 6+ Strategy / Over 2.5 Output with Admin Approval)
 import os
 import requests
 import numpy as np
@@ -6,56 +6,45 @@ from scipy.stats import poisson
 import math
 import logging
 from datetime import datetime, timedelta, timezone
-from app.database import supabase 
+from app.database import supabase # A database.py-ban lévő kapcsolatot használjuk
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Konfiguráció ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = 1326707238 
+ADMIN_CHAT_ID = 1326707238 # A fájlból kiolvasott Admin ID
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
 API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
 class PhDBettingEngine:
-    def __init__(self, delta_robustness=0.015):
-        # Ω-03 :: 1.5% biztonsági puffer
-        self.delta = delta_robustness
-
-    def send_admin_alert(self, count):
+    def send_admin_notification(self, count):
+        """Azonnali értesítés az adminnak jóváhagyásra (ahogy a régi kódban volt)."""
         if not TELEGRAM_TOKEN: return
-        msg = f"🛡️ *PhD Biztonsági Válogatás*\n\n✅ {count} új alacsony kockázatú tipp vár jóváhagyásra!"
+        msg = f"🔔 *ÚJ TIPPEK JÓVÁHAGYÁSRA*\n\n✅ A rendszer {count} db 6+ alapú Over 2.5 tippet generált.\n\nKérlek, nézd meg az admin felületet!"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
         except Exception as e:
             logger.error(f"Telegram hiba: {e}")
 
-    def bivariate_poisson_grid(self, l_h, l_a):
-        grid = np.zeros((8, 8))
-        l_3 = 0.12
-        l1, l2 = max(0.01, l_h - l_3), max(0.01, l_a - l_3)
-        for h in range(8):
-            for a in range(8):
-                prob = 0
-                for k in range(min(h, a) + 1):
-                    term = ( (l1**(h-k) * l2**(a-k) * l_3**k) / (math.factorial(h-k) * math.factorial(a-k) * math.factorial(k)) )
-                    prob += term
-                grid[h, a] = prob * math.exp(-(l1 + l2 + l_3))
-        return grid
+    def get_poisson_over(self, lam, threshold):
+        return 1 - poisson.cdf(threshold, lam)
 
     def process_football(self):
         now = datetime.now(timezone.utc)
-        dates = [now.strftime('%Y-%m-%d'), (now + timedelta(days=1)).strftime('%Y-%m-%d')]
+        target_date = now.strftime('%Y-%m-%d')
+        tomorrow_date = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+        
         headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
         
         all_fixtures = []
-        for d in dates:
+        for d in [target_date, tomorrow_date]:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        logger.info(f"Biztonsági elemzés (1X2 + DC) indul: {len(all_fixtures)} meccs...")
+        logger.info(f"Elemzés indul (6+ -> O2.5): {len(all_fixtures)} meccs...")
         candidate_tips = []
 
         for f in all_fixtures:
@@ -67,65 +56,65 @@ class PhDBettingEngine:
                 o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
                 if not o_resp: continue
                 
+                # Predikciók lekérése az intenzitáshoz
                 p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
-                if not p_resp or not p_resp[0]['comparison']['att']['home']: continue
+                l_h, l_a = 1.6, 1.3 # Alapérték ha nincs adat
+                if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
+                    comp = p_resp[0]['comparison']
+                    l_h = float(comp['att']['home'].replace('%','')) / 30 # Érzékenyebb gólkeresés
+                    l_a = float(comp['att']['away'].replace('%','')) / 30
 
-                comp = p_resp[0]['comparison']
-                l_h, l_a = float(comp['att']['home'].replace('%','')) / 38, float(comp['att']['away'].replace('%','')) / 38
-                grid = self.bivariate_poisson_grid(l_h, l_a)
-
-                bookie = o_resp[0]['bookmakers'][0]
+                lam_total = l_h + l_a
                 
-                # 1. 1X2 PIAC
-                m_1x2 = next((m for m in bookie['bets'] if m['id'] == 1), None)
-                if m_1x2:
-                    o_m = {v['value']: float(v['odd']) for v in m_1x2['values']}
-                    p_vals = {"Hazai": np.sum(np.tril(grid, -1)), "Vendég": np.sum(np.triu(grid, 1))}
-                    for eng, hu in [("Home", "Hazai"), ("Away", "Vendég")]:
-                        if eng in o_m and 1.40 <= o_m[eng] <= 1.95:
-                            robust_p = p_vals[hu] - (self.delta * math.sqrt(p_vals[hu] * (1 - p_vals[hu])))
-                            edge = (robust_p * o_m[eng]) - 1
-                            if edge > 0.01:
-                                candidate_tips.append(self.create_tip_obj(f, o_m[eng], hu, edge))
+                # Kiszámoljuk az esélyt 5.5 gól felett (ez a szűrőnk)
+                prob_extreme = self.get_poisson_over(lam_total, 5.5)
+                
+                bookie = o_resp[0]['bookmakers'][0]
+                m_ou = next((m for m in bookie['bets'] if m['id'] == 5), None)
 
-                # 2. DOUBLE CHANCE (ID: 12)
-                m_dc = next((m for m in bookie['bets'] if m['id'] == 12), None)
-                if m_dc:
-                    o_dc = {v['value']: float(v['odd']) for v in m_dc['values']}
-                    # Valószínűség számítás: 1X = Hazai + Döntetlen, X2 = Vendég + Döntetlen
-                    p_draw = np.sum(np.diag(grid))
-                    p_dc = {"Home/Draw": np.sum(np.tril(grid, -1)) + p_draw, "Draw/Away": np.sum(np.triu(grid, 1)) + p_draw}
-                    
-                    for eng, hu in [("Home/Draw", "1X"), ("Draw/Away", "X2")]:
-                        if eng in o_dc and 1.30 <= o_dc[eng] <= 1.70:
-                            prob = p_dc[eng]
-                            edge = (prob * o_dc[eng]) - 1
-                            if edge > 0.02:
-                                candidate_tips.append(self.create_tip_obj(f, o_dc[eng], hu, edge))
+                if m_ou:
+                    # Megkeressük az Over 2.5 oddsát a kimenethez
+                    ov25 = next((v for v in m_ou['values'] if v['value'] == "Over 2.5"), None)
+                    if ov25:
+                        odds_25 = float(ov25['odd'])
+                        # Csak akkor vesszük fel, ha a 6+ esélye is kiemelkedő (>2%)
+                        if prob_extreme > 0.02:
+                            # Az Edge-et a 6+ esélye alapján számoljuk, hogy a legerősebbeket rangsoroljuk
+                            edge = prob_extreme * odds_25 
+                            candidate_tips.append(self.create_tip_obj(f, odds_25, "Over 2.5", edge, prob_extreme))
 
             except Exception: continue
 
+        # Top 10 rangsorolás
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
         
         if top_10:
-            final_to_insert = []
+            final_insert = []
             for t in top_10:
-                tip_data = t.copy()
-                del tip_data['edge']
-                final_to_insert.append(tip_data)
-            supabase.table("meccsek").insert(final_to_insert).execute()
-            self.send_admin_alert(len(final_to_insert))
-            logger.info(f"Sikeres mentés: {len(final_to_insert)} biztonsági tipp.")
+                data = t.copy()
+                del data['edge'] # Ideiglenes kulcs törlése mentés előtt
+                final_insert.append(data)
+            
+            supabase.table("meccsek").insert(final_insert).execute()
+            self.send_admin_notification(len(final_insert))
+            logger.info(f"Sikeres mentés: {len(final_insert)} tipp vár jóváhagyásra.")
         else:
-            logger.info("Nincs a feltételeknek megfelelő biztonsági tipp.")
+            logger.info("Nem találtam az extrém feltételeknek megfelelő meccset.")
 
-    def create_tip_obj(self, f, o, t, e):
+    def create_tip_obj(self, f, o, t, e, p_ex):
         return {
-            "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'], 
-            "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t, "eredmeny": "Függőben",
-            "confidence_score": int(max(0, e * 1000)), "indoklas": f"PhD Safe Value: {round(e*100,1)}%",
-            "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'], 
-            "liga_orszag": f['league']['country'], "edge": e
+            "fixture_id": f['fixture']['id'],
+            "csapat_H": f['teams']['home']['name'],
+            "csapat_V": f['teams']['away']['name'],
+            "odds": o,
+            "tipp": t,
+            "eredmeny": "Függőben", # Ez biztosítja az admin kontrollt
+            "confidence_score": int(p_ex * 1000),
+            "indoklas": f"PhD 6+ alapú szűrés (Esély: {round(p_ex*100,1)}%) -> Tipp: Over 2.5",
+            "kezdes": f['fixture']['date'],
+            "liga_nev": f['league']['name'],
+            "liga_orszag": f['league']['country'],
+            "edge": e
         }
 
 if __name__ == "__main__":
