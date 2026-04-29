@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Time Window: 17:00-22:00 & Admin Workflow)
+# tipp_generator.py (PhD - Final Optimization: All Markets & Adjusted Window)
 import os
 import requests
 import numpy as np
@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 import math
 import logging
 from datetime import datetime, timedelta, timezone
-from app.database import supabase #
+from app.database import supabase 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,9 +24,8 @@ class PhDBettingEngine:
         self.delta = delta_robustness
 
     def send_admin_alert(self, count):
-        """Értesítés az adminnak."""
         if not TELEGRAM_TOKEN: return
-        msg = f"🤖 *PhD Tipp Generátor*\n\n✅ {count} új tipp vár jóváhagyásra (17:00-22:00 ablak)!"
+        msg = f"🤖 *PhD Tipp Generátor*\n\n✅ {count} új top tipp vár jóváhagyásra!"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
@@ -34,7 +33,6 @@ class PhDBettingEngine:
             logger.error(f"Telegram hiba: {e}")
 
     def shin_de_vig(self, odds):
-        """C-02 :: Shin Model de-vigging."""
         if not odds or any(o <= 1 for o in odds): return [1/len(odds)] * len(odds)
         raw_probs = [1/o for o in odds]
         margin = sum(raw_probs) - 1
@@ -48,94 +46,89 @@ class PhDBettingEngine:
         z_opt = res.x[0]
         return [(math.sqrt(z_opt**2 + 4*(1-z_opt)*(p_hat**2)/(1+margin)) - z_opt) / (2*(1-z_opt)) for p_hat in raw_probs]
 
-    def bivariate_poisson_grid(self, lambda_h, lambda_a, lambda_3=0.12):
-        """S-01 :: Bivariate Poisson gólrács."""
+    def bivariate_poisson_grid(self, l_h, l_a, l_3=0.12):
         grid = np.zeros((8, 8))
-        l1, l2 = max(0.01, lambda_h - lambda_3), max(0.01, lambda_a - lambda_3)
+        l1, l2 = max(0.01, l_h - l_3), max(0.01, l_a - l_3)
         for h in range(8):
             for a in range(8):
                 prob = 0
                 for k in range(min(h, a) + 1):
-                    term = ( (l1**(h-k) * l2**(a-k) * lambda_3**k) / (math.factorial(h-k) * math.factorial(a-k) * math.factorial(k)) )
+                    term = ( (l1**(h-k) * l2**(a-k) * l_3**k) / (math.factorial(h-k) * math.factorial(a-k) * math.factorial(k)) )
                     prob += term
-                grid[h, a] = prob * math.exp(-(l1 + l2 + lambda_3))
+                grid[h, a] = prob * math.exp(-(l1 + l2 + l_3))
         return grid
 
     def process_football(self):
         now = datetime.now(timezone.utc)
         today_str = now.strftime('%Y-%m-%d')
-        
-        # Mai meccsek lekérése
         headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
-        url = f"https://{HOST}/fixtures?date={today_str}"
-        all_fixtures = requests.get(url, headers=headers).json().get('response', [])
+        all_fixtures = requests.get(f"https://{HOST}/fixtures?date={today_str}", headers=headers).json().get('response', [])
         
-        logger.info(f"Mai nap összesen: {len(all_fixtures)} meccs. Szűrés 17:00-22:00 között...")
-        
+        logger.info(f"Elemzés: {len(all_fixtures)} meccs. Ablak: 12:00-22:00 UTC...")
         candidate_tips = []
+
         for f in all_fixtures:
             try:
-                # Időpont elemzése
                 f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
                 
-                # SZŰRÉS: Csak a mai napon 17:00 és 22:00 között kezdődő meccsek
-                # (Az órák UTC-ben értendők, ha a szerver azon fut, vagy állítsd be a helyi időre)
-                if not (17 <= f_date.hour <= 22):
+                # SZŰRÉS: 12:00 és 22:00 UTC között (Magyarországon ez kb. 14:00 - 24:00)
+                if not (12 <= f_date.hour <= 22):
                     continue
 
                 f_id = f['fixture']['id']
-                o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
-                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
-                if not o_resp or not p_resp: continue
+                o_data = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
+                p_data = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
+                if not o_data or not p_data: continue
 
-                bookie = o_resp[0]['bookmakers'][0]
-                m_1x2 = next((m for m in bookie['bets'] if m['id'] == 1), None)
-                m_o25 = next((m for m in bookie['bets'] if m['id'] == 5), None)
+                bookie = o_data[0]['bookmakers'][0]
+                markets = {m['id']: m for m in bookie['bets'] if m['id'] in [1, 5, 8, 7]}
                 
-                comp = p_resp[0]['comparison']
-                l_h = float(comp['att']['home'].replace('%','')) / 40
-                l_a = float(comp['att']['away'].replace('%','')) / 40
+                comp = p_data[0]['comparison']
+                l_h, l_a = float(comp['att']['home'].replace('%','')) / 40, float(comp['att']['away'].replace('%','')) / 40
                 grid = self.bivariate_poisson_grid(l_h, l_a)
 
-                # 1X2 elemzés
-                if m_1x2:
-                    o_m = {v['value']: float(v['odd']) for v in m_1x2['values']}
-                    probs = [np.sum(np.tril(grid, -1)), np.sum(np.diag(grid)), np.sum(np.triu(grid, 1))]
-                    labels = ["Home", "Draw", "Away"]
-                    hu_labels = ["Hazai", "Döntetlen", "Vendég"]
-                    for i, label in enumerate(labels):
+                # 1. 1X2 PIAC
+                if 1 in markets:
+                    o_m = {v['value']: float(v['odd']) for v in markets[1]['values']}
+                    p_vals = [np.sum(np.tril(grid, -1)), np.sum(np.diag(grid)), np.sum(np.triu(grid, 1))]
+                    for i, label in enumerate(["Home", "Draw", "Away"]):
+                        hu_label = ["Hazai", "Döntetlen", "Vendég"][i]
                         if label in o_m:
-                            edge = (probs[i] * o_m[label]) - 1
-                            if 0.01 < edge < 0.8 and o_m[label] >= 1.50:
-                                candidate_tips.append(self.create_tip_obj(f, o_m[label], hu_labels[i], edge))
-            except Exception:
-                continue
+                            edge = (p_vals[i] * o_m[label]) - 1
+                            if 0.02 < edge < 0.8 and o_m[label] >= 1.50:
+                                candidate_tips.append(self.create_tip(f, o_m[label], hu_label, edge))
 
-        # Top 10 kiválasztása a szűkített listából
+                # 2. OVER 2.5
+                if 5 in markets:
+                    ov = next((v for v in markets[5]['values'] if v['value'] == "Over 2.5"), None)
+                    if ov:
+                        p_o = np.sum(grid[np.sum(np.indices(grid.shape), axis=0) > 2.5])
+                        edge = (p_o * float(ov['odd'])) - 1
+                        if 0.02 < edge < 0.8 and float(ov['odd']) >= 1.50:
+                            candidate_tips.append(self.create_tip(f, float(ov['odd']), "Over 2.5", edge))
+
+                # 3. GG
+                if 8 in markets:
+                    gv = next((v for v in markets[8]['values'] if v['value'] == "Yes"), None)
+                    if gv:
+                        p_gg = np.sum(grid[1:, 1:])
+                        edge = (p_gg * float(gv['odd'])) - 1
+                        if 0.02 < edge < 0.8 and float(gv['odd']) >= 1.50:
+                            candidate_tips.append(self.create_tip(f, float(gv['odd']), "Mindkét csapat gól (GG)", edge))
+
+            except Exception: continue
+
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
-        
         if top_10:
             for t in top_10: del t['edge']
             supabase.table("meccsek").insert(top_10).execute()
             self.send_admin_alert(len(top_10))
-            logger.info(f"Sikeresen mentve {len(top_10)} tipp jóváhagyásra.")
+            logger.info(f"Sikeres mentés: {len(top_10)} tipp.")
         else:
-            logger.info("Nem találtam megfelelő tippet ebben az időablakban.")
+            logger.info("Nincs találat a szűrt feltételekkel.")
 
-    def create_tip_obj(self, f, o, t, e):
-        return {
-            "fixture_id": f['fixture']['id'],
-            "csapat_H": f['teams']['home']['name'],
-            "csapat_V": f['teams']['away']['name'],
-            "odds": o,
-            "tipp": t,
-            "eredmeny": "Függőben",
-            "liga_nev": f['league']['name'],
-            "liga_orszag": f['league']['country'],
-            "confidence_score": int(e * 1000),
-            "indoklas": f"PhD Value: {round(e*100,1)}% | {t}",
-            "kezdes": f['fixture']['date']
-        }
+    def create_tip(self, f, o, t, e):
+        return {"fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'], "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t, "eredmeny": "Függőben", "confidence_score": int(e * 1000), "indoklas": f"PhD Value: {round(e*100,1)}% | {t}", "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'], "liga_orszag": f['league']['country']}
 
 if __name__ == "__main__":
     PhDBettingEngine().process_football()
