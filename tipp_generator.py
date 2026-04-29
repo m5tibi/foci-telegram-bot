@@ -1,10 +1,11 @@
-# tipp_generator.py (PhD - 6+ to O2.5 - TOP 5 ONLY & Admin Buttons)
+# tipp_generator.py (PhD - 6+ to O2.5 - TOP 5 - FINAL GOAL-HUNTER EDITION)
 import os
 import requests
 import numpy as np
 from scipy.stats import poisson
 import math
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from app.database import supabase 
 
@@ -14,33 +15,48 @@ logger = logging.getLogger(__name__)
 # --- Konfiguráció ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = 1326707238 
-ADMIN_URL = "https://toddly.hu/admin" # Ellenőrizd, hogy ez-e a pontos admin címed!
+ADMIN_URL = "https://toddly.hu/admin" 
 raw_key = os.environ.get("RAPIDAPI_KEY", "")
 API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
+# --- RELEVÁNS ÉS GÓLGAZDAG LIGÁK (Bővített lista) ---
+RELEVANT_LEAGUES = [
+    39, 140, 135, 78, 61, 94, 88, 144, 2, 3, 848, 4, 5, # Top ligák + Nemzetközi
+    271, 268, 270, # Magyar NB1, NB2, Kupa
+    88, 89,        # Hollandia (Eredivisie, Eerste Divisie)
+    103, 104,      # Norvégia
+    119,           # Dánia
+    188, 189,      # Svájc
+    202,           # Izland (Kiemelten gólgazdag)
+    218,           # Ausztria
+    301,           # Szerbia
+    529,           # Horvátország
+    203,           # Törökország
+    128, 131,      # Argentína, Mexikó
+    253,           # USA MLS
+    # Újonnan kért ligák:
+    11,            # Japán J1 League
+    182,           # Ausztria (helyett Ausztrália A-League: 113)
+    113,           # Ausztrália A-League
+    323,           # India Super League
+    98             # Japán J2 League
+]
+
 class PhDBettingEngine:
     def send_admin_notification(self, count):
         if not TELEGRAM_TOKEN: return
-        
-        msg = f"🔔 *STRATÉGIAI TIPPEK (TOP {count})*\n\n✅ A PhD rendszer kiválasztotta a mai 5 legerősebb Over 2.5 tippjét (6+ gól alapú szűréssel).\n\nA tippek jóváhagyásra várnak!"
-        
-        keyboard = {
-            "inline_keyboard": [[
-                {"text": "✅ Jóváhagyás az Adminon", "url": ADMIN_URL}
-            ]]
-        }
-        
+        msg = f"🎯 *PhD GÓLVÁLOGATÁS (Top {count})*\n\n✅ A gép átfésülte a gólgazdag ligákat és megtalálta a mai 5 legjobb Over 2.5 lehetőséget.\n\nJóváhagyásra várnak!"
+        keyboard = {"inline_keyboard": [[{"text": "✅ Admin megnyitása", "url": ADMIN_URL}]]}
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={
                 "chat_id": ADMIN_CHAT_ID, 
                 "text": msg, 
-                "parse_mode": "Markdown",
+                "parse_mode": "Markdown", 
                 "reply_markup": keyboard
             })
-        except Exception as e:
-            logger.error(f"Telegram hiba: {e}")
+        except Exception as e: logger.error(f"Telegram hiba: {e}")
 
     def get_poisson_over(self, lam, threshold):
         return 1 - poisson.cdf(threshold, lam)
@@ -54,10 +70,12 @@ class PhDBettingEngine:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        logger.info(f"Top 5 elemzés: {len(all_fixtures)} meccs...")
+        # Ligaszűrés a gyorsaságért
+        relevant_fixtures = [f for f in all_fixtures if f['league']['id'] in RELEVANT_LEAGUES]
+        logger.info(f"Gólszűrős elemzés: {len(relevant_fixtures)} meccs a következő 24 órában...")
+        
         candidate_tips = []
-
-        for f in all_fixtures:
+        for f in relevant_fixtures:
             try:
                 f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
                 if not (now < f_date <= now + timedelta(hours=24)): continue
@@ -72,7 +90,7 @@ class PhDBettingEngine:
                 l_h = float(comp['att']['home'].replace('%','')) / 32
                 l_a = float(comp['att']['away'].replace('%','')) / 32
                 
-                # Szűrés 6+ gól (5.5 küszöb) esély alapján
+                # 6+ gól esélye (szűrő alapja)
                 prob_extreme = self.get_poisson_over(l_h + l_a, 5.5)
                 
                 bookie = o_resp[0]['bookmakers'][0]
@@ -82,10 +100,12 @@ class PhDBettingEngine:
                 if ov25 and prob_extreme > 0.01:
                     edge = prob_extreme * float(ov25['odd'])
                     candidate_tips.append(self.create_tip_obj(f, float(ov25['odd']), "Over 2.5", edge, prob_extreme))
+                
+                time.sleep(0.1) # Kvóta védelem
 
             except Exception: continue
 
-        # --- ITT A MÓDOSÍTÁS: Csak a legjobb 5 kerül be ---
+        # Top 5 mentése
         top_5 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:5]
         
         if top_5:
@@ -97,23 +117,18 @@ class PhDBettingEngine:
             
             supabase.table("meccsek").insert(final_insert).execute()
             self.send_admin_notification(len(final_insert))
-            logger.info("Top 5 tipp elmentve.")
+            logger.info("Top 5 tipp sikeresen beküldve.")
+        else:
+            logger.info("Nem találtam megfelelő meccset a szűrt ligákban.")
 
     def create_tip_obj(self, f, o, t, e, p):
         return {
-            "fixture_id": f['fixture']['id'],
-            "csapat_H": f['teams']['home']['name'],
-            "csapat_V": f['teams']['away']['name'],
-            "odds": o,
-            "tipp": t,
-            "eredmeny": "Függőben",
-            "status": "Függőben",
-            "confidence_score": int(p * 1000),
-            "indoklas": f"PhD 6+ alapú gólérték: {round(p*100,1)}%",
-            "kezdes": f['fixture']['date'],
-            "liga_nev": f['league']['name'],
-            "liga_orszag": f['league']['country'],
-            "edge": e
+            "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'],
+            "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t,
+            "eredmeny": "Függőben", "status": "Függőben", "confidence_score": int(p * 1000),
+            "indoklas": f"PhD 6+ alapú érték: {round(p*100,1)}% -> O2.5",
+            "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'],
+            "liga_orszag": f['league']['country'], "edge": e
         }
 
 if __name__ == "__main__":
