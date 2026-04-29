@@ -1,9 +1,8 @@
-# tipp_generator.py (PhD - Final Production - 24h Flexible Multi-Market)
+# tipp_generator.py (PhD - Final Production - "Always Top 10" Mode)
 import os
 import requests
 import numpy as np
 from scipy.stats import poisson
-from scipy.optimize import minimize
 import math
 import logging
 from datetime import datetime, timedelta, timezone
@@ -20,9 +19,9 @@ API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
 class PhDBettingEngine:
-    def __init__(self, delta_robustness=0.001):
-        # Ω-03 :: Minimális puffer a garantált találatokért
-        self.delta = delta_robustness
+    def __init__(self):
+        # A delta_robustness-t kiiktattuk a garantált találatok érdekében
+        pass
 
     def send_admin_alert(self, count):
         if not TELEGRAM_TOKEN: return
@@ -34,7 +33,6 @@ class PhDBettingEngine:
             logger.error(f"Telegram hiba: {e}")
 
     def bivariate_poisson_grid(self, l_h, l_a, l_3=0.08):
-        """S-01 :: Bivariate Poisson gólrács."""
         grid = np.zeros((8, 8))
         l1, l2 = max(0.01, l_h - l_3), max(0.01, l_a - l_3)
         for h in range(8):
@@ -63,7 +61,6 @@ class PhDBettingEngine:
         for f in all_fixtures:
             try:
                 f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
-                # Csak a jövőbeli meccsek a következő 24 órában
                 if not (now < f_date <= now + timedelta(hours=24)): continue
 
                 f_id = f['fixture']['id']
@@ -75,7 +72,7 @@ class PhDBettingEngine:
                 markets = {m['id']: m for m in bookie['bets'] if m['id'] in [1, 5, 8]}
                 
                 comp = p_data[0]['comparison']
-                # S-06 :: Érzékenyebb xG skálázás a több találatért
+                # Intenzitás számítás
                 l_h, l_a = float(comp['att']['home'].replace('%','')) / 35, float(comp['att']['away'].replace('%','')) / 35
                 grid = self.bivariate_poisson_grid(l_h, l_a)
 
@@ -86,8 +83,10 @@ class PhDBettingEngine:
                     for i, label in enumerate(["Home", "Draw", "Away"]):
                         hu_label = ["Hazai", "Döntetlen", "Vendég"][i]
                         if label in o_m:
+                            # Tiszta matematikai várható érték számítása (Edge)
                             edge = (p_vals[i] * o_m[label]) - 1
-                            if edge > 0.001 and o_m[label] >= 1.25:
+                            # Engedékenyebb szűrő a Top 10-be kerüléshez
+                            if edge > -0.05 and o_m[label] >= 1.20:
                                 candidate_tips.append(self.create_tip(f, o_m[label], hu_label, edge))
 
                 # 2. OVER 2.5 ELEMZÉS
@@ -97,7 +96,7 @@ class PhDBettingEngine:
                         o = float(ov['odd'])
                         p_o = np.sum(grid[np.sum(np.indices(grid.shape), axis=0) > 2.5])
                         edge = (p_o * o) - 1
-                        if edge > 0.001 and o >= 1.25:
+                        if edge > -0.05 and o >= 1.20:
                             candidate_tips.append(self.create_tip(f, o, "Over 2.5", edge))
 
                 # 3. GG ELEMZÉS
@@ -107,22 +106,36 @@ class PhDBettingEngine:
                         o = float(gv['odd'])
                         p_gg = np.sum(grid[1:, 1:])
                         edge = (p_gg * o) - 1
-                        if edge > 0.001 and o >= 1.25:
+                        if edge > -0.05 and o >= 1.20:
                             candidate_tips.append(self.create_tip(f, o, "Mindkét csapat gól (GG)", edge))
 
             except Exception: continue
 
+        # A teljes listát Edge szerint csökkenő sorrendbe rakjuk
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
+        
         if top_10:
             for t in top_10: del t['edge']
             supabase.table("meccsek").insert(top_10).execute()
             self.send_admin_alert(len(top_10))
-            logger.info(f"Sikeres mentés: {len(top_10)} tipp.")
+            logger.info(f"Sikeres mentés: {len(top_10)} tipp beküldve jóváhagyásra.")
         else:
-            logger.info("Nincs találat a PhD szűrővel.")
+            logger.info("Még ezzel a szűrővel sem találtam értékelhető adatot.")
 
     def create_tip(self, f, o, t, e):
-        return {"fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'], "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t, "eredmeny": "Függőben", "confidence_score": int(e * 1000), "indoklas": f"PhD Value: {round(e*100,1)}%", "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'], "liga_orszag": f['league']['country']}
+        return {
+            "fixture_id": f['fixture']['id'], 
+            "csapat_H": f['teams']['home']['name'], 
+            "csapat_V": f['teams']['away']['name'], 
+            "odds": o, 
+            "tipp": t, 
+            "eredmeny": "Függőben", 
+            "confidence_score": int(e * 1000), 
+            "indoklas": f"PhD Várható érték: {round(e*100,1)}%", 
+            "kezdes": f['fixture']['date'], 
+            "liga_nev": f['league']['name'], 
+            "liga_orszag": f['league']['country']
+        }
 
 if __name__ == "__main__":
     PhDBettingEngine().process_football()
