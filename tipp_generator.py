@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Bulletproof "Always 10 Tips" Edition)
+# tipp_generator.py (PhD - Final Production - Stable "Always 10" Version)
 import os
 import requests
 import numpy as np
@@ -30,7 +30,7 @@ class PhDBettingEngine:
 
     def bivariate_poisson_grid(self, l_h, l_a):
         grid = np.zeros((8, 8))
-        l_3 = 0.1 # Átlagos döntetlen korreláció
+        l_3 = 0.1
         l1, l2 = max(0.01, l_h - l_3), max(0.01, l_a - l_3)
         for h in range(8):
             for a in range(8):
@@ -60,58 +60,69 @@ class PhDBettingEngine:
                 if not (now < f_date <= now + timedelta(hours=24)): continue
 
                 f_id = f['fixture']['id']
-                o_data = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
-                if not o_data: continue
+                o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
+                if not o_resp: continue
                 
-                p_data = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
-                
-                # --- Intenzitás meghatározása (xG vagy gólátlag alapján) ---
-                if p_data and 'comparison' in p_data[0] and p_data[0]['comparison']['att']['home']:
-                    comp = p_data[0]['comparison']
+                # Alapértelmezett gólintenzitások
+                l_h, l_a = 1.4, 1.1
+                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
+                if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
+                    comp = p_resp[0]['comparison']
                     l_h = float(comp['att']['home'].replace('%','')) / 35
                     l_a = float(comp['att']['away'].replace('%','')) / 35
-                else:
-                    # B-terv: Ha nincs xG adat, használjunk egy alapértelmezett támadóértéket
-                    l_h, l_a = 1.4, 1.2 
 
                 grid = self.bivariate_poisson_grid(l_h, l_a)
-                bookie = o_data[0]['bookmakers'][0]
+                bookie = o_resp[0]['bookmakers'][0]
                 m_1x2 = next((m for m in bookie['bets'] if m['id'] == 1), None)
 
                 if m_1x2:
                     o_m = {v['value']: float(v['odd']) for v in m_1x2['values']}
                     p_vals = [np.sum(np.tril(grid, -1)), np.sum(np.diag(grid)), np.sum(np.triu(grid, 1))]
-                    for i, label in enumerate(["Home", "Draw", "Away"]):
-                        hu_label = ["Hazai", "Döntetlen", "Vendég"][i]
+                    labels = ["Home", "Draw", "Away"]
+                    hu_labels = ["Hazai", "Döntetlen", "Vendég"]
+                    
+                    for i, label in enumerate(labels):
                         if label in o_m:
-                            edge = (p_vals[i] * o_m[label]) - 1
-                            # Mostantól mindenkit beengedünk a kalapba, hogy legyen miből választani
-                            candidate_tips.append(self.create_tip(f, o_m[label], hu_label, edge))
+                            edge_val = (p_vals[i] * o_m[label]) - 1
+                            candidate_tips.append(self.create_tip_obj(f, o_m[label], hu_labels[i], edge_val))
 
             except Exception as e:
+                logger.error(f"Hiba a meccs feldolgozásánál ({f['fixture']['id']}): {e}")
                 continue
 
-        # Válogatás: A legjobb 10 Edge (még ha negatív is, a legjobbak kellenek)
-        top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
-        
-        if top_10:
-            for t in top_10: del t['edge']
-            supabase.table("meccsek").insert(top_10).execute()
-            self.send_admin_alert(len(top_10))
-            logger.info(f"Sikeres mentés: {len(top_10)} tipp.")
+        # A kulcs hiba javítása: csak olyan elemeket rendezünk, amikben biztosan van 'edge'
+        if candidate_tips:
+            top_10 = sorted(candidate_tips, key=lambda x: x.get('edge', -99), reverse=True)[:10]
+            
+            final_to_insert = []
+            for t in top_10:
+                # Kiszűrjük a segéd 'edge' kulcsot a mentés előtt
+                tip_data = t.copy()
+                if 'edge' in tip_data: del tip_data['edge']
+                final_to_insert.append(tip_data)
+            
+            if final_to_insert:
+                supabase.table("meccsek").insert(final_to_insert).execute()
+                self.send_admin_alert(len(final_to_insert))
+                logger.info(f"Sikeres mentés: {len(final_to_insert)} tipp beküldve.")
         else:
-            logger.info("Valamilyen technikai hiba miatt nem készült tipp.")
+            logger.info("Nem sikerült érvényes tippeket generálni.")
 
-    def create_tip(self, f, o, t, e):
+    def create_tip_obj(self, f, o, t, e):
+        # Az 'edge' kulcsot szándékosan benne hagyjuk a rendezéshez
         return {
-            "fixture_id": f['fixture']['id'], 
-            "csapat_H": f['teams']['home']['name'], 
-            "csapat_V": f['teams']['away']['name'], 
-            "odds": o, "tipp": t, "eredmeny": "Függőben", 
-            "confidence_score": int(max(0, e * 1000)), 
-            "indoklas": f"PhD Várható érték: {round(e*100,1)}%", 
-            "kezdes": f['fixture']['date'], 
-            "liga_nev": f['league']['name'], "liga_orszag": f['league']['country']
+            "fixture_id": f['fixture']['id'],
+            "csapat_H": f['teams']['home']['name'],
+            "csapat_V": f['teams']['away']['name'],
+            "odds": o,
+            "tipp": t,
+            "eredmeny": "Függőben",
+            "confidence_score": int(max(0, e * 1000)),
+            "indoklas": f"PhD Várható érték: {round(e*100,1)}%",
+            "kezdes": f['fixture']['date'],
+            "liga_nev": f['league']['name'],
+            "liga_orszag": f['league']['country'],
+            "edge": e  
         }
 
 if __name__ == "__main__":
