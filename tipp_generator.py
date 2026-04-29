@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD - Final Production - Multi-Market & Flexible Filter)
+# tipp_generator.py (PhD - Final Production - Flexible Filter & Multi-Market)
 import os
 import requests
 import numpy as np
@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 import math
 import logging
 from datetime import datetime, timedelta, timezone
-from app.database import supabase 
+from app.database import supabase # Meglévő kapcsolat
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,13 +20,13 @@ API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
 class PhDBettingEngine:
-    def __init__(self, delta_robustness=0.002):
-        # Ω-03 :: Minimálisra vett robusztussági puffer (0.2%) a több találatért
+    def __init__(self, delta_robustness=0.001):
+        # Ω-03 :: Minimálisra vett puffer a szerdai kínálathoz
         self.delta = delta_robustness
 
     def send_admin_alert(self, count):
         if not TELEGRAM_TOKEN: return
-        msg = f"🤖 *PhD Tipp Generátor*\n\n✅ {count} új top tipp érkezett jóváhagyásra!"
+        msg = f"🤖 *PhD Tipp Generátor*\n\n✅ {count} új tipp érkezett jóváhagyásra!"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
@@ -54,13 +54,13 @@ class PhDBettingEngine:
         resp = requests.get(f"https://{HOST}/fixtures?date={today_str}", headers=headers).json()
         all_fixtures = resp.get('response', [])
         
-        logger.info(f"Kezdés: {len(all_fixtures)} meccs. Ablak: {now.hour}:00 - 23:59 UTC...")
+        logger.info(f"Elemzés: {len(all_fixtures)} meccs. Ablak: {now.hour}:00 - 23:59 UTC...")
         candidate_tips = []
 
         for f in all_fixtures:
             try:
                 f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
-                if f_date <= now: continue # Csak a jövőbeli meccsek
+                if f_date <= now: continue
 
                 f_id = f['fixture']['id']
                 o_data = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
@@ -74,7 +74,7 @@ class PhDBettingEngine:
                 l_h, l_a = float(comp['att']['home'].replace('%','')) / 38, float(comp['att']['away'].replace('%','')) / 38
                 grid = self.bivariate_poisson_grid(l_h, l_a)
 
-                # 1. 1X2 PIAC
+                # 1. 1X2 ELEMZÉS
                 if 1 in markets:
                     o_m = {v['value']: float(v['odd']) for v in markets[1]['values']}
                     p_vals = [np.sum(np.tril(grid, -1)), np.sum(np.diag(grid)), np.sum(np.triu(grid, 1))]
@@ -82,7 +82,7 @@ class PhDBettingEngine:
                         hu_label = ["Hazai", "Döntetlen", "Vendég"][i]
                         if label in o_m:
                             edge = (p_vals[i] * o_m[label]) - 1
-                            if edge > 0.001 and o_m[label] >= 1.30:
+                            if edge > 0.001 and o_m[label] >= 1.25:
                                 candidate_tips.append(self.create_tip(f, o_m[label], hu_label, edge))
 
                 # 2. OVER 2.5
@@ -92,7 +92,7 @@ class PhDBettingEngine:
                         o = float(ov['odd'])
                         p_o = np.sum(grid[np.sum(np.indices(grid.shape), axis=0) > 2.5])
                         edge = (p_o * o) - 1
-                        if edge > 0.001 and o >= 1.30:
+                        if edge > 0.001 and o >= 1.25:
                             candidate_tips.append(self.create_tip(f, o, "Over 2.5", edge))
 
                 # 3. GG (Mindkét csapat gól)
@@ -102,18 +102,18 @@ class PhDBettingEngine:
                         o = float(gv['odd'])
                         p_gg = np.sum(grid[1:, 1:])
                         edge = (p_gg * o) - 1
-                        if edge > 0.001 and o >= 1.30:
+                        if edge > 0.001 and o >= 1.25:
                             candidate_tips.append(self.create_tip(f, o, "Mindkét csapat gól (GG)", edge))
 
             except Exception: continue
 
-        # TOP 10 Sorbarendezés
+        # TOP 10 Válogatás
         top_10 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:10]
         if top_10:
             for t in top_10: del t['edge']
             supabase.table("meccsek").insert(top_10).execute()
             self.send_admin_alert(len(top_10))
-            logger.info(f"Siker! {len(top_10)} tipp elmentve.")
+            logger.info(f"Sikeres mentés: {len(top_10)} tipp.")
         else:
             logger.info("Nincs találat. A modell nem talált matematikai előnyt.")
 
