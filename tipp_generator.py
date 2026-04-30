@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD Hybrid - TOP 5 - FIX: Remove status column)
+# tipp_generator.py (PhD Hybrid - TOP 5 - Legacy Save Logic Fix)
 import os
 import requests
 import numpy as np
@@ -23,20 +23,21 @@ class PhDBettingEngine:
     def get_poisson_over(self, lam, threshold):
         return 1 - poisson.cdf(threshold, lam)
 
-    def send_approval_request(self, count):
+    def send_approval_request(self, date_str, count):
+        """Régi verzió interaktív gombjai"""
         if not TELEGRAM_TOKEN: return
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         keyboard = {
             "inline_keyboard": [
-                [{"text": "✅ Tippek Jóváhagyása", "callback_data": "approve_tips:today"}],
-                [{"text": "❌ Elutasítás (Törlés)", "callback_data": "reject_tips:today"}]
+                [{"text": "✅ Tippek Jóváhagyása", "callback_data": f"approve_tips:{date_str}"}],
+                [{"text": "❌ Elutasítás (Törlés)", "callback_data": f"reject_tips:{date_str}"}]
             ]
         }
-        msg = (f"🤖 *PhD Hibrid Gólvadász - Top {count}*\n\n"
-               f"A mentés sikeres! A tippek várják a jóváhagyást.")
+        msg = (f"🤖 *Új PhD Tippek Generálva*\n\nÖsszesen: *{count} db* tipp.\n"
+               f"A rendszer a 6+ gól statisztika alapján választott!")
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
-        except Exception as e: logger.error(f"Telegram hiba: {e}")
+        except Exception: pass
 
     def process_football(self):
         now = datetime.now(timezone.utc)
@@ -61,7 +62,7 @@ class PhDBettingEngine:
 
                 p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
                 
-                # Adatpótlás
+                # Adatpótlás ha nincs xG
                 l_h, l_a = 1.6, 1.4
                 if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
                     comp = p_resp[0]['comparison']
@@ -93,59 +94,56 @@ class PhDBettingEngine:
         top_5 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:5]
         
         if top_5:
-            self.save_and_notify(top_5, now.strftime('%Y-%m-%d'))
+            self.save_tips_split_by_date(top_5, now.strftime('%Y-%m-%d'))
         else:
             logger.info("Nincs feldolgozható tipp.")
 
-    def save_and_notify(self, tips, today_str):
+    def save_tips_split_by_date(self, single_tips, today_str):
+        """Régi fájlból átvett mentési logika"""
         try:
-            # Csak azokat a mezőket hagyjuk meg, amik biztosan ott vannak az adatbázisban
             tips_to_insert = []
-            for t in tips:
+            for t in single_tips:
                 tips_to_insert.append({
-                    "fixture_id": t["fixture_id"],
-                    "csapat_H": t["csapat_H"],
-                    "csapat_V": t["csapat_V"],
-                    "odds": t["odds"],
-                    "tipp": t["tipp"],
-                    "eredmeny": t["eredmeny"], # Ez biztosan létezik
-                    "confidence_score": t["confidence_score"],
-                    "indoklas": t["indoklas"],
-                    "kezdes": t["kezdes"],
-                    "liga_nev": t["liga_nev"],
-                    "liga_orszag": t["liga_orszag"]
+                    "fixture_id": t["fixture_id"], "csapat_H": t["csapat_H"],
+                    "csapat_V": t["csapat_V"], "odds": t["odds"],
+                    "tipp": t["tipp"], "eredmeny": "Tipp leadva", # Régi fájl szerinti név
+                    "confidence_score": t["confidence_score"], "indoklas": t["indoklas"],
+                    "kezdes": t["kezdes"], "liga_nev": t["liga_nev"], "liga_orszag": t["liga_orszag"]
                 })
             
             res = supabase.table("meccsek").insert(tips_to_insert).execute()
-            saved_data = res.data
+            saved_tips = res.data
             
-            # Napi tuti és státusz frissítése (régi logika alapján)
-            slips = []
-            for tip in saved_data:
-                slips.append({
-                    "tipp_neve": f"PhD Hibrid - {today_str}",
+            slips_to_insert = []
+            for tip in saved_tips:
+                slips_to_insert.append({
+                    "tipp_neve": f"Napi Tuti - {today_str}",
                     "eredo_odds": tip["odds"],
                     "tipp_id_k": [tip["id"]],
                     "confidence_percent": tip["confidence_score"]
                 })
             
-            if slips:
-                supabase.table("napi_tuti").insert(slips).execute()
-                supabase.table("daily_status").upsert({
-                    "date": today_str, "status": "Jóváhagyásra vár", "reason": "PhD generálva"
-                }, on_conflict="date").execute()
+            if slips_to_insert:
+                supabase.table("napi_tuti").insert(slips_to_insert).execute()
+                # Biztonsági mentés a daily_status táblába (RLS hiba kezelése)
+                try:
+                    supabase.table("daily_status").upsert({
+                        "date": today_str, "status": "Jóváhagyásra vár", "reason": f"{len(slips_to_insert)} tipp."
+                    }, on_conflict="date").execute()
+                except Exception as e:
+                    logger.warning(f"daily_status RLS hiba: {e} - De a tippek mentve!")
 
-            self.send_approval_request(len(tips))
-            logger.info(f"Sikeres mentés: {len(tips)} tipp.")
-        except Exception as e: 
+            self.send_approval_request(today_str, len(single_tips))
+            logger.info(f"Sikeres mentés: {len(single_tips)} tipp.")
+            
+        except Exception as e:
             logger.error(f"Mentési hiba: {e}")
 
     def create_tip_obj(self, f, o, t, e, p):
         return {
             "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'],
             "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t,
-            "eredmeny": "Függőben", "confidence_score": int(p * 1000),
-            "indoklas": f"PhD Gólpotenciál (Esély: {round(p*100,1)}%)",
+            "confidence_score": int(p * 1000), "indoklas": f"PhD Gólpotenciál (Esély: {round(p*100,1)}%)",
             "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'],
             "liga_orszag": f['league']['country'], "edge": e
         }
