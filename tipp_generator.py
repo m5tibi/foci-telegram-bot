@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD Auto-Hybrid - EXPANDED LEAGUE LIST)
+# tipp_generator.py (PhD Auto-Hybrid - MEGA LEAGUE LIST)
 import os
 import requests
 import numpy as np
@@ -18,18 +18,18 @@ raw_key = os.environ.get("RAPIDAPI_KEY", "")
 API_KEY = raw_key.strip()
 HOST = "v3.football.api-sports.io"
 
-# --- BŐVÍTETT MINŐSÉGI LIGALISTA ---
+# --- MEGA MINŐSÉGI LIGALISTA ---
 RELEVANT_LEAGUES = [
-    # Top Európa
-    39, 40, 140, 135, 78, 61, 94, 144, 88, 79, 136, 62,
-    # Kupák
-    2, 3, 848, 529, 531, 547,
-    # Skandináv & Benelux (Gólerős)
-    89, 90, 103, 104, 119, 120, 141, 106, 107, 202,
-    # Közép-Európa & Egyéb
-    271, 268, 270, 218, 219, 188, 189, 301, 106, 203, 197,
-    # Amerika & Ázsia (Stabilabbak)
-    253, 255, 11, 98, 12, 113, 114, 323, 101
+    # Top 5 & Másodosztályok
+    39, 40, 41, 140, 141, 135, 136, 78, 79, 61, 62, 94, 144, 
+    # Nemzetközi
+    2, 3, 848, 5, 9, 10, 11, 13, 15, 17, 529, 531, 
+    # Benelux & Észak
+    88, 89, 90, 141, 103, 104, 119, 120, 106, 107, 202, 301, 
+    # Közép- & Kelet-Európa
+    271, 268, 270, 218, 219, 188, 189, 203, 197, 106, 283, 286, 305, 345, 235,
+    # Amerika & Ázsia
+    253, 255, 128, 129, 131, 11, 98, 113, 114, 323, 101, 292
 ]
 
 class PhDBettingEngine:
@@ -45,9 +45,8 @@ class PhDBettingEngine:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        # Ligaszűrés
         relevant_fixtures = [f for f in all_fixtures if f['league']['id'] in RELEVANT_LEAGUES]
-        logger.info(f"Hibrid elemzés: {len(relevant_fixtures)} kibővített meccs...")
+        logger.info(f"Hibrid elemzés: {len(relevant_fixtures)} meccs a mega-listából...")
         
         candidate_tips = []
         for f in relevant_fixtures:
@@ -68,23 +67,23 @@ class PhDBettingEngine:
                 bookie = o_resp[0]['bookmakers'][0]
                 match_candidates = []
 
-                # Over 2.5 stratégia
+                # Stratégia: Poisson Over 2.5 alapú Edge
                 p_ex = self.get_poisson_prob(l_h + l_a, 5.5)
                 m_ou = next((m for m in bookie['bets'] if m['id'] == 5), None)
                 if m_ou:
                     ov25 = next((v for v in m_ou['values'] if v['value'] == "Over 2.5"), None)
                     if ov25:
-                        conf = int(min(95, 68 + (p_ex * 550)))
-                        match_candidates.append(self.create_tip_obj(f, float(ov25['odd']), "Over 2.5", p_ex * float(ov25['odd']), conf, "Gólpotenciál"))
+                        conf = int(min(95, 70 + (p_ex * 600)))
+                        match_candidates.append(self.create_tip_obj(f, float(ov25['odd']), "Over 2.5", p_ex * float(ov25['odd']), conf, "PhD Gól-analízis"))
 
-                # BTTS stratégia
+                # Stratégia: BTTS (GG)
                 m_b = next((m for m in bookie['bets'] if m['id'] == 8), None)
                 if m_b:
                     by = next((v for v in m_b['values'] if v['value'] == "Yes"), None)
                     if by:
                         p_gg = self.get_poisson_prob(l_h, 0.5) * self.get_poisson_prob(l_a, 0.5)
-                        conf_gg = int(min(95, 62 + (p_gg * 30)))
-                        match_candidates.append(self.create_tip_obj(f, float(by['odd']), "BTTS - Igen", p_gg * float(by['odd']), conf_gg, "GG esély"))
+                        conf_gg = int(min(95, 65 + (p_gg * 30)))
+                        match_candidates.append(self.create_tip_obj(f, float(by['odd']), "BTTS - Igen", p_gg * float(by['odd']), conf_gg, "GG-predikció"))
 
                 if match_candidates:
                     candidate_tips.append(sorted(match_candidates, key=lambda x: x['edge'], reverse=True)[0])
@@ -92,13 +91,13 @@ class PhDBettingEngine:
                 time.sleep(0.05)
             except Exception: continue
 
-        # Garantált Top 5
+        # Kényszerített Top 5
         top_5 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:5]
         
         if top_5:
             self.save_and_notify(top_5, now.strftime('%Y-%m-%d'))
         else:
-            logger.info("Nincs találat a kibővített listában sem.")
+            logger.info("Még a mega-listában sem volt elég adat a meccsekhez.")
 
     def save_and_notify(self, tips, today_str):
         try:
@@ -106,26 +105,22 @@ class PhDBettingEngine:
             res = supabase.table("meccsek").insert(tips_to_insert).execute()
             saved_tips = res.data
             
-            slips = [{"tipp_neve": f"Napi Tuti - {today_str}", "eredo_odds": t["odds"], "tipp_id_k": [t["id"]], "confidence_percent": t["confidence_score"]} for t in saved_tips]
+            slips = [{"tipp_neve": f"PhD Tuti - {today_str}", "eredo_odds": t["odds"], "tipp_id_k": [t["id"]], "confidence_percent": t["confidence_score"]} for t in saved_tips]
             
             if slips:
                 supabase.table("napi_tuti").insert(slips).execute()
-                try: 
-                    supabase.table("daily_status").upsert({"date": today_str, "status": "Jóváhagyásra vár"}, on_conflict="date").execute()
-                except Exception as e:
-                    logger.warning(f"daily_status RLS hiba (ignorálva): {e}")
+                try: supabase.table("daily_status").upsert({"date": today_str, "status": "Jóváhagyásra vár"}, on_conflict="date").execute()
+                except: pass
 
             self.send_approval_request(today_str, len(tips))
-            logger.info(f"Sikeres mentés: {len(tips)} hibrid tipp.")
-        except Exception as e: 
-            logger.error(f"Mentési hiba: {e}")
+            logger.info(f"Sikeres mentés: {len(tips)} tipp.")
+        except Exception as e: logger.error(f"Hiba: {e}")
 
     def send_approval_request(self, date_str, count):
         if not TELEGRAM_TOKEN: return
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         keyboard = {"inline_keyboard": [[{"text": "✅ Jóváhagyás", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Törlés", "callback_data": f"reject_tips:{date_str}"}]]}
-        msg = f"🤖 *PhD Expanded Hybrid Top {count}*\n\nLigák: Bővített minőségi lista.\nMeccsek száma megnőtt, mentés kész!"
-        requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
+        msg = f"🤖 *PhD Mega-Hybrid Top {count}*\n\nLigák: Kiterjesztett minőségi lista.\nA rendszer talált értékkel bíró tippeket!"
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
 
     def create_tip_obj(self, f, o, t, e, c, ind):
         return {
