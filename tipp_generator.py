@@ -66,7 +66,6 @@ class PhDBettingEngine:
                 if m_ou:
                     ov25 = next((v for v in m_ou['values'] if v['value'] == "Over 2.5"), None)
                     if ov25:
-                        # Dinamikus bizalom: 65% alap + extra a gólpotenciálra
                         conf = int(min(95, 65 + (p_extreme * 600)))
                         match_candidates.append(self.create_tip_obj(f, float(ov25['odd']), "Over 2.5", p_extreme * float(ov25['odd']), conf, "Gólpotenciál"))
 
@@ -105,8 +104,8 @@ class PhDBettingEngine:
                 supabase.table("napi_tuti").insert(slips).execute()
                 try: 
                     supabase.table("daily_status").upsert({"date": today_str, "status": "Jóváhagyásra vár"}, on_conflict="date").execute()
-                except: 
-                    pass # RLS hiba ignorálása a korábbiak szerint[cite: 2]
+                except Exception as e:
+                    logger.warning(f"daily_status RLS hiba (ignorálva): {e}")
 
             self.send_approval_request(today_str, len(tips))
             logger.info(f"Sikeres mentés: {len(tips)} hibrid tipp.")
