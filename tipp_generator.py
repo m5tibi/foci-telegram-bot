@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD Hybrid - TOP 5 - Anti-Empty-Fix)
+# tipp_generator.py (PhD Hybrid - TOP 5 - FIX: Remove status column)
 import os
 import requests
 import numpy as np
@@ -33,8 +33,7 @@ class PhDBettingEngine:
             ]
         }
         msg = (f"🤖 *PhD Hibrid Gólvadász - Top {count}*\n\n"
-               f"A gép sikeresen kiválasztotta a legjobb lehetőségeket a kínálatból.\n"
-               f"Hajnali/napi frissítés kész!")
+               f"A mentés sikeres! A tippek várják a jóváhagyást.")
         try:
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
         except Exception as e: logger.error(f"Telegram hiba: {e}")
@@ -58,11 +57,11 @@ class PhDBettingEngine:
 
                 f_id = f['fixture']['id']
                 o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
-                if not o_resp: continue # Odds nélkül nem rakunk tippet
+                if not o_resp: continue 
 
                 p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
                 
-                # ADATPÓTLÁS: Ha nincs predikció, használunk egy gólerős alapértéket
+                # Adatpótlás
                 l_h, l_a = 1.6, 1.4
                 if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
                     comp = p_resp[0]['comparison']
@@ -96,14 +95,31 @@ class PhDBettingEngine:
         if top_5:
             self.save_and_notify(top_5, now.strftime('%Y-%m-%d'))
         else:
-            logger.info("Még adatpótlással sem találtam meccset.")
+            logger.info("Nincs feldolgozható tipp.")
 
     def save_and_notify(self, tips, today_str):
         try:
-            tips_to_insert = [ {k: v for k, v in t.items() if k != 'edge'} for t in tips ]
+            # Csak azokat a mezőket hagyjuk meg, amik biztosan ott vannak az adatbázisban
+            tips_to_insert = []
+            for t in tips:
+                tips_to_insert.append({
+                    "fixture_id": t["fixture_id"],
+                    "csapat_H": t["csapat_H"],
+                    "csapat_V": t["csapat_V"],
+                    "odds": t["odds"],
+                    "tipp": t["tipp"],
+                    "eredmeny": t["eredmeny"], # Ez biztosan létezik
+                    "confidence_score": t["confidence_score"],
+                    "indoklas": t["indoklas"],
+                    "kezdes": t["kezdes"],
+                    "liga_nev": t["liga_nev"],
+                    "liga_orszag": t["liga_orszag"]
+                })
+            
             res = supabase.table("meccsek").insert(tips_to_insert).execute()
             saved_data = res.data
             
+            # Napi tuti és státusz frissítése (régi logika alapján)
             slips = []
             for tip in saved_data:
                 slips.append({
@@ -121,13 +137,14 @@ class PhDBettingEngine:
 
             self.send_approval_request(len(tips))
             logger.info(f"Sikeres mentés: {len(tips)} tipp.")
-        except Exception as e: logger.error(f"Mentési hiba: {e}")
+        except Exception as e: 
+            logger.error(f"Mentési hiba: {e}")
 
     def create_tip_obj(self, f, o, t, e, p):
         return {
             "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'],
             "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t,
-            "eredmeny": "Függőben", "status": "Függőben", "confidence_score": int(p * 1000),
+            "eredmeny": "Függőben", "confidence_score": int(p * 1000),
             "indoklas": f"PhD Gólpotenciál (Esély: {round(p*100,1)}%)",
             "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'],
             "liga_orszag": f['league']['country'], "edge": e
