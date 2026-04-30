@@ -1,4 +1,4 @@
-# tipp_generator.py (PhD Global Engine - Hybrid Version: Poisson Logic + Legacy Approval System)
+# tipp_generator.py (PhD Hybrid - TOP 5 - Anti-Empty-Fix)
 import os
 import requests
 import numpy as np
@@ -24,31 +24,20 @@ class PhDBettingEngine:
         return 1 - poisson.cdf(threshold, lam)
 
     def send_approval_request(self, count):
-        """Régi kódodból átvett interaktív Telegram értesítés gombokkal."""
         if not TELEGRAM_TOKEN: return
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        
-        # Interaktív gombok a régi kódod stílusában
         keyboard = {
             "inline_keyboard": [
                 [{"text": "✅ Tippek Jóváhagyása", "callback_data": "approve_tips:today"}],
                 [{"text": "❌ Elutasítás (Törlés)", "callback_data": "reject_tips:today"}]
             ]
         }
-        
-        msg = (f"🤖 *PhD Gólvadász - Top {count} Tipp*\n\n"
-               f"A gép átfésülte a globális kínálatot és kiválasztotta a legjobb lehetőségeket.\n\n"
-               f"Kérlek, hagyd jóvá vagy utasítsd el a tippeket!")
-        
+        msg = (f"🤖 *PhD Hibrid Gólvadász - Top {count}*\n\n"
+               f"A gép sikeresen kiválasztotta a legjobb lehetőségeket a kínálatból.\n"
+               f"Hajnali/napi frissítés kész!")
         try:
-            requests.post(url, json={
-                "chat_id": ADMIN_CHAT_ID, 
-                "text": msg, 
-                "parse_mode": "Markdown", 
-                "reply_markup": keyboard
-            })
-        except Exception as e:
-            logger.error(f"Telegram hiba: {e}")
+            requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
+        except Exception as e: logger.error(f"Telegram hiba: {e}")
 
     def process_football(self):
         now = datetime.now(timezone.utc)
@@ -59,7 +48,7 @@ class PhDBettingEngine:
             resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers).json()
             all_fixtures += resp.get('response', [])
         
-        logger.info(f"Globális elemzés: {len(all_fixtures)} meccs...")
+        logger.info(f"Hibrid elemzés: {len(all_fixtures)} meccs...")
         
         candidate_tips = []
         for f in all_fixtures:
@@ -69,15 +58,17 @@ class PhDBettingEngine:
 
                 f_id = f['fixture']['id']
                 o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers).json().get('response', [])
+                if not o_resp: continue # Odds nélkül nem rakunk tippet
+
                 p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers).json().get('response', [])
                 
-                if not o_resp or not p_resp: continue
+                # ADATPÓTLÁS: Ha nincs predikció, használunk egy gólerős alapértéket
+                l_h, l_a = 1.6, 1.4
+                if p_resp and 'comparison' in p_resp[0] and p_resp[0]['comparison']['att']['home']:
+                    comp = p_resp[0]['comparison']
+                    l_h = float(comp['att']['home'].replace('%','')) / 32
+                    l_a = float(comp['att']['away'].replace('%','')) / 32
 
-                comp = p_resp[0]['comparison']
-                l_h = float(comp['att']['home'].replace('%','')) / 32
-                l_a = float(comp['att']['away'].replace('%','')) / 32
-                
-                # PhD motor: 6+ gól esélye
                 prob_extreme = self.get_poisson_over(l_h + l_a, 5.5)
                 
                 bookie = o_resp[0]['bookmakers'][0]
@@ -87,7 +78,6 @@ class PhDBettingEngine:
                 ov25 = next((v for v in m_ou['values'] if v['value'] == "Over 2.5"), None)
                 ov35 = next((v for v in m_ou['values'] if v['value'] == "Over 3.5"), None)
 
-                # SMART kimenet választás
                 final_odds, final_tipp = 0, ""
                 if ov25 and float(ov25['odd']) >= 1.35:
                     final_odds, final_tipp = float(ov25['odd']), "Over 2.5"
@@ -101,31 +91,23 @@ class PhDBettingEngine:
                 time.sleep(0.05)
             except Exception: continue
 
-        # TOP 5 KIVÁLASZTÁSA
         top_5 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:5]
         
         if top_5:
             self.save_and_notify(top_5, now.strftime('%Y-%m-%d'))
         else:
-            logger.info("Nem találtam megfelelő adatot a meccsekhez.")
+            logger.info("Még adatpótlással sem találtam meccset.")
 
     def save_and_notify(self, tips, today_str):
-        """Régi kódod mentési logikája (több táblás frissítés)."""
         try:
-            # 1. Mentés a 'meccsek' táblába
-            tips_to_insert = []
-            for t in tips:
-                data = t.copy()
-                del data['edge']
-                tips_to_insert.append(data)
+            tips_to_insert = [ {k: v for k, v in t.items() if k != 'edge'} for t in tips ]
+            res = supabase.table("meccsek").insert(tips_to_insert).execute()
+            saved_data = res.data
             
-            saved_data = supabase.table("meccsek").insert(tips_to_insert).execute().data
-            
-            # 2. Mentés a 'napi_tuti' táblába (ahogy a régi kódodban volt)
             slips = []
             for tip in saved_data:
                 slips.append({
-                    "tipp_neve": f"PhD Gól-Tuti - {today_str}",
+                    "tipp_neve": f"PhD Hibrid - {today_str}",
                     "eredo_odds": tip["odds"],
                     "tipp_id_k": [tip["id"]],
                     "confidence_percent": tip["confidence_score"]
@@ -133,26 +115,20 @@ class PhDBettingEngine:
             
             if slips:
                 supabase.table("napi_tuti").insert(slips).execute()
-                
-            # 3. daily_status frissítése
-            supabase.table("daily_status").upsert({
-                "date": today_str, 
-                "status": "Jóváhagyásra vár", 
-                "reason": f"{len(slips)} PhD tipp generálva"
-            }, on_conflict="date").execute()
+                supabase.table("daily_status").upsert({
+                    "date": today_str, "status": "Jóváhagyásra vár", "reason": "PhD generálva"
+                }, on_conflict="date").execute()
 
             self.send_approval_request(len(tips))
-            logger.info(f"Sikeres hibrid mentés: {len(tips)} tipp.")
-            
-        except Exception as e:
-            logger.error(f"Hiba a hibrid mentésnél: {e}")
+            logger.info(f"Sikeres mentés: {len(tips)} tipp.")
+        except Exception as e: logger.error(f"Mentési hiba: {e}")
 
     def create_tip_obj(self, f, o, t, e, p):
         return {
             "fixture_id": f['fixture']['id'], "csapat_H": f['teams']['home']['name'],
             "csapat_V": f['teams']['away']['name'], "odds": o, "tipp": t,
             "eredmeny": "Függőben", "status": "Függőben", "confidence_score": int(p * 1000),
-            "indoklas": f"PhD 6+ Gól-intenzitás (Esély: {round(p*100,1)}%)",
+            "indoklas": f"PhD Gólpotenciál (Esély: {round(p*100,1)}%)",
             "kezdes": f['fixture']['date'], "liga_nev": f['league']['name'],
             "liga_orszag": f['league']['country'], "edge": e
         }
