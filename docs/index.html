@@ -30,8 +30,8 @@
             display: flex;
             align-items: center;
             text-align: center;
-            /* CSÖKKENTVE: Csak minimális padding alul, hogy ne legyen nagy a rés */
-            padding: 60px 0 20px 0; 
+            /* Csak felül hagyunk paddinget, alul a doboz szekciója következik */
+            padding: 60px 0 0 0; 
         }
         .hero-content { max-width: 800px; margin: 0 auto; }
         .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
@@ -44,14 +44,13 @@
 
         .auth-section {
             background-color: var(--bg-color);
-            /* BEÁLLÍTVA: Ez adja meg a távolságot a kép és a doboz között */
-            padding: 40px 0; 
-            margin-bottom: 0;
+            /* BEÁLLÍTVA: 50px térköz alul és felül a tökéletes szimmetriához */
+            padding: 50px 0; 
+            margin: 0;
         }
         .auth-box {
             width: 100%;
             max-width: 450px; 
-            /* JAVÍTVA: Töröltük a negatív margót, így nem lóg rá a képre */
             margin: 0 auto; 
             background-color: var(--bg-card);
             padding: 30px;
@@ -61,6 +60,11 @@
             position: relative;
             z-index: 10;
             box-sizing: border-box;
+        }
+
+        /* Eltávolítjuk a Story szekció felső paddingjét, hogy ne adjon hozzá extra helyet alul */
+        #story {
+            padding-top: 0;
         }
         .auth-tabs {
             display: flex;
