@@ -41,13 +41,12 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/", status_code=303)
 
-    is_test_user = user['email'] == "m5tibi77@gmail.com"
-    active_key = STRIPE_TEST_SECRET_KEY if is_test_user else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
-    
-    # Stripe API kulcs beállítása a híváshoz
+    # CSAK az m5tibi77@gmail.com használja a technikai Teszt kulcsot[cite: 5]
+    is_technical_test = user['email'] == "m5tibi77@gmail.com"
+    active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
     stripe.api_key = active_key
     
-    price_id = TEST_PRICE_IDS.get(plan) if is_test_user else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
+    price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
 
     try:
         session_params = {
@@ -59,16 +58,15 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "metadata": {"user_id": str(user['id']), "plan": plan},
             "billing_address_collection": "required",
             "tax_id_collection": {"enabled": True},
-            # --- JAVÍTÁS: Ez az a rész, amit a hibaüzenet kért ---
-            "customer_update": {
-                "name": "auto",
-                "address": "auto"
-            }
-            # ---------------------------------------------------
         }
         
         if user.get("stripe_customer_id"):
             session_params["customer"] = user["stripe_customer_id"]
+            # customer_update csak meglévő customer esetén használható[cite: 5]
+            session_params["customer_update"] = {
+                "name": "auto",
+                "address": "auto"
+            }
         else:
             session_params["customer_email"] = user['email']
 
@@ -153,7 +151,9 @@ async def create_portal_session(request: Request):
         return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
 
     c_id = user["stripe_customer_id"]
-    active_key = STRIPE_TEST_SECRET_KEY if "test" in str(c_id) or user['email'] == "m5tibi77@gmail.com" else STRIPE_SECRET_KEY
+    # Itt is érvényesítjük a technikai teszt elkülönítést[cite: 5]
+    is_technical_test = user['email'] == "m5tibi77@gmail.com"
+    active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else STRIPE_SECRET_KEY
     try:
         session = stripe.billing_portal.Session.create(api_key=active_key, customer=c_id, return_url=f"{RENDER_APP_URL}/profile")
         return RedirectResponse(url=session.url, status_code=303)
