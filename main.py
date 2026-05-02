@@ -1,4 +1,4 @@
-# main.py (V23.01 - Admin kivétel + Megfordított manuális sorrend)
+# main.py (V23.02 - Szigorított lejárati ellenőrzés és szimmetria fix)
 
 import os
 import telegram
@@ -57,6 +57,7 @@ async def read_root(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
+    # Bejelentkező oldal kiszolgálása a főoldalon
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @api.get("/vip", response_class=HTMLResponse)
@@ -67,24 +68,38 @@ async def vip_area(request: Request):
     
     db = get_db()
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    is_subscribed = (user.get("subscription_status") == "active") or (str(user.get('chat_id')) == admin_id)
+    
+    # --- SZIGORÍTOTT JOGOSULTSÁG ELLENŐRZÉS ---
+    now_utc = datetime.now(pytz.utc)
+    expires_at_str = user.get("subscription_expires_at")
+    expires_at = None
+    if expires_at_str:
+        try:
+            # ISO formátum kezelése
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+        except:
+            expires_at = None
+
+    # Előfizetés érvényes, ha: státusz active ÉS a lejárati dátum a jövőben van
+    is_active_member = (user.get("subscription_status") == "active") and (expires_at and expires_at > now_utc)
     is_admin = str(user.get('chat_id')) == admin_id
     
-    # ROI számítás a múltbeli adatokból
+    # VIP tartalom elérése (Előfizető vagy Admin)
+    access_granted = is_active_member or is_admin
+    
+    # ROI számítás
     all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
     roi_value = calculate_roi(all_past_vip.data)
 
     todays_slips, tomorrows_slips, active_manual, active_free = [], [], [], []
     msg = ""
 
-    if is_subscribed:
+    if access_granted:
         try:
             tz = pytz.timezone('Europe/Budapest')
             now_local = datetime.now(tz)
-            
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
-            yesterday_str = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
             # 1. Bot tippek lekérése
             resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
@@ -96,11 +111,7 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # SZŰRÉS LOGIKA:
-                    # Sima júzernek csak "Folyamatban" (jóváhagyott)
-                    # Adminnak "Folyamatban" ÉS "Tipp leadva" (reggeli nyers tippek)
                     query = db.table("meccsek").select("*").in_("id", list(set(all_ids)))
-                    
                     if not is_admin:
                         query = query.eq("eredmeny", "Folyamatban")
                     else:
@@ -130,11 +141,9 @@ async def vip_area(request: Request):
                             else:
                                 todays_slips.append(sz)
 
-            # 2. Manuális szelvények - NÖVEKVŐ (desc=False)
+            # 2. Manuális és Ingyenes szelvények
             m_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_manual = m_res.data or []
-
-            # 3. Ingyenes szelvények - NÖVEKVŐ (desc=False)
             f_res = db.table("free_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_free = f_res.data or []
 
@@ -142,10 +151,15 @@ async def vip_area(request: Request):
             print(f"VIP Error: {e}")
             msg = "Hiba történt az adatok betöltésekor."
     else:
-        msg = "Aktív VIP előfizetés szükséges a tippek megtekintéséhez."
+        # Hibaüzenet összeállítása lejárat esetén
+        if expires_at:
+            expiry_date = expires_at.astimezone(pytz.timezone('Europe/Budapest')).strftime('%Y-%m-%d %H:%M')
+            msg = f"Az előfizetésed lejárt ({expiry_date}). Kérjük, újítsd meg a hozzáférésedet a profilodban!"
+        else:
+            msg = "Aktív VIP előfizetés szükséges a tippek megtekintéséhez."
 
     return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
-        "request": request, "user": user, "is_subscribed": is_subscribed,
+        "request": request, "user": user, "is_subscribed": access_granted,
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
         "active_manual_slips": active_manual, "active_free_slips": active_free,
         "roi": roi_value, "daily_status_message": msg
