@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates # ÚJ IMPORT
 from passlib.context import CryptContext
 from .database import get_db, get_admin_db, s_get
 
@@ -14,13 +15,14 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 supabase = get_db()
 
+# DEFINIÁLJUK A TEMPLATES OBJEKTUMOT, HOGY NE LEGYEN ERROR
+templates = Jinja2Templates(directory="templates")
+
 # --- Jelszókezelő segédfüggvények ---
 def get_password_hash(password):
-    """Új jelszó titkosítása."""
     return pwd_context.hash(password)
 
 def verify_password(plain_password, hashed_password):
-    """Jelszó ellenőrzése belépéskor."""
     try:
         return pwd_context.verify(plain_password, hashed_password)
     except Exception:
@@ -28,7 +30,6 @@ def verify_password(plain_password, hashed_password):
 
 # --- Jelszóvisszaállító Email küldése ---
 def send_reset_email(to_email: str, token: str):
-    """Email küldése a jelszóvisszaállító linkkel."""
     SMTP_SERVER = "mail.mondomatutit.hu"
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
@@ -57,13 +58,11 @@ def send_reset_email(to_email: str, token: str):
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
         server.quit()
-        print(f"✅ Reset email elküldve: {to_email}")
     except Exception as e:
         print(f"❌ Email hiba: {e}")
 
 # --- Felhasználó lekérése ---
 def get_current_user(request: Request):
-    """Visszaadja a bejelentkezett felhasználó adatait a session alapján."""
     user_id = request.session.get("user_id")
     if user_id and supabase:
         try:
@@ -77,18 +76,12 @@ def get_current_user(request: Request):
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
-        
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
-        
-        # Session beállítása
         request.session["user_id"] = user_res.data['id']
-        
         render_app_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
         return RedirectResponse(url=f"{render_app_url}/vip", status_code=303)
-
     except Exception as e:
-        print(f"Login hiba: {e}")
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
 
 # --- Kijelentkezési útvonal ---
@@ -97,13 +90,11 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 
-# --- Jelszóvisszaállítási útvonalak (Régi verzió alapján) ---
+# --- Jelszóvisszaállítási útvonalak ---
 
 @router.get("/forgot-password")
 async def forgot_password_page(request: Request):
-    # Feltételezve, hogy a main.py-ban definiált templates elérése megoldott (pl. importálva vagy globálisan)
-    from .main import templates
-    return templates.TemplateResponse(request=request, name="forgot_password.html", context={"request": request})
+    return templates.TemplateResponse(name="forgot_password.html", context={"request": request})
 
 @router.post("/forgot-password")
 async def handle_forgot_password(request: Request, email: str = Form(...)):
@@ -119,8 +110,7 @@ async def handle_forgot_password(request: Request, email: str = Form(...)):
         }).eq("email", email).execute()
         send_reset_email(email, token)
         
-    from .main import templates
-    return templates.TemplateResponse(request=request, name="forgot_password.html", context={
+    return templates.TemplateResponse(name="forgot_password.html", context={
         "request": request, 
         "message": "Ha létezik fiók ezzel a címmel, elküldtük a visszaállító linket!"
     })
@@ -139,8 +129,7 @@ async def new_password_page(request: Request, token: str):
         if datetime.now(pytz.utc) > expiry:
             error = "A link lejárt. Kérj újat!"
             
-    from .main import templates
-    return templates.TemplateResponse(request=request, name="new_password.html", context={
+    return templates.TemplateResponse(name="new_password.html", context={
         "request": request, "token": token, "error": error
     })
 
@@ -150,8 +139,7 @@ async def handle_new_password(request: Request, token: str = Form(...), password
     user_res = admin_supabase.table("felhasznalok").select("*").eq("reset_token", token).execute()
     
     if not user_res.data:
-        from .main import templates
-        return templates.TemplateResponse(request=request, name="new_password.html", context={
+        return templates.TemplateResponse(name="new_password.html", context={
             "request": request, "token": token, "error": "Érvénytelen link."
         })
     
