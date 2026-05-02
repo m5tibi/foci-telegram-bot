@@ -39,17 +39,19 @@
         .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
         .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
         .auth-section {
-            background-color: var(--bg-dark);
-            padding: 50px 0;
+            background-color: var(--bg-color); /* Világos háttér a kép alatt */
+            padding: 0 0 50px 0;
         }
         .auth-box {
             max-width: 450px;
-            margin: auto;
+            margin: -50px auto 0; /* Rácsúszik a hero-ra */
             background-color: var(--bg-card);
             padding: 30px;
             border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
             color: var(--text-light);
+            position: relative;
+            z-index: 10;
         }
         .auth-tabs {
             display: flex;
@@ -180,7 +182,6 @@
         t.src=v;s=b.getElementsByTagName(e)[0];
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
-        // A PIXEL INICIALIZÁLÁSA ITT MÉG NEM TÖRTÉNIK MEG!
     </script>
     <noscript><img height="1" width="1" style="display:none"
     src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"
@@ -192,6 +193,49 @@
         <div class="container hero-content">
             <h1>Többé ne a szerencsére bízd! Találd meg az értéket a sportfogadásban, mesterséges intelligencia segítségével!</h1>
             <p>Naponta elemezzük a piacot rejtett lehetőségek, ún. "value bet"-ek után kutatva. Az AI megtalálja a mintákat, a szerkesztő pedig szelvénnyé fűzi őket – vagy megkapod a legerősebb tippeket önállóan.</p>
+        </div>
+    </section>
+
+    <!-- Bejelentkezés / Regisztráció ide áthelyezve -->
+    <section id="login-register" class="auth-section">
+        <div class="auth-box">
+            <h2 style="text-align: center; margin-top: 0;">Készen állsz, hogy szintet lépj?</h2>
+            <div class="auth-tabs">
+                <button class="tab-link active" onclick="openTab(event, 'login')">Bejelentkezés</button>
+                <button class="tab-link" onclick="openTab(event, 'register')">Regisztráció</button>
+            </div>
+            <div id="login" class="auth-content active">
+                <form action="https://foci-telegram-bot.onrender.com/login" method="post">
+                    <div class="form-group">
+                        <label for="login-email">E-mail cím</label>
+                        <input type="email" id="login-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Jelszó</label>
+                        <input type="password" id="login-password" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-button">Bejelentkezés</button>
+
+                    <p style="text-align: right; margin-top: 10px;">
+                        <a href="https://foci-telegram-bot.onrender.com/forgot-password" style="font-size: 0.9em; color: #aaa; text-decoration: underline;">
+                            Elfelejtettem a jelszavam
+                        </a>
+                    </p>
+                </form>
+            </div>
+            <div id="register" class="auth-content">
+                <form action="https://foci-telegram-bot.onrender.com/register" method="post">
+                    <div class="form-group">
+                        <label for="reg-email">E-mail cím</label>
+                        <input type="email" id="reg-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-password">Jelszó</label>
+                        <input type="password" id="reg-password" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-button">Regisztráció</button>
+                </form>
+            </div>
         </div>
     </section>
 
@@ -225,50 +269,6 @@
                     <h3>3. Azonnali Hozzáférés</h3>
                     <p>A gondosan összeállított, AI-adatokkal megerősített tippek és szelvények azonnal elérhetővé válnak számodra a VIP zónában, amint átmentek a minőség-ellenőrzésen.</p>
                 </div>
-            </div>
-        </div>
-    </section>
-
-    <section id="login-register" class="auth-section">
-        <div class="auth-box">
-            <h2 style="text-align: center; margin-top: 0;">Készen állsz, hogy szintet lépj?</h2>
-            <p style="text-align: center; padding-bottom: 10px;">Hagyd abba a hasraütésszerű fogadásokat, és csatlakozz! Regisztrálj most, és férj hozzá azonnal az első, AI-vel támogatott tippjeidhez!</p>
-            <div class="auth-tabs">
-                <button class="tab-link active" onclick="openTab(event, 'login')">Bejelentkezés</button>
-                <button class="tab-link" onclick="openTab(event, 'register')">Regisztráció</button>
-            </div>
-            <div id="login" class="auth-content active">
-                <form action="https://foci-telegram-bot.onrender.com/login" method="post">
-                    <div class="form-group">
-                        <label for="login-email">E-mail cím</label>
-                        <input type="email" id="login-email" name="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="login-password">Jelszó</label>
-                        <input type="password" id="login-password" name="password" required>
-                    </div>
-                    <button type="submit" class="auth-button">Bejelentkezés</button>
-
-                    <p style="text-align: right; margin-top: 10px;">
-                        <a href="https://foci-telegram-bot.onrender.com/forgot-password" style="font-size: 0.9em; color: #aaa; text-decoration: underline;">
-                            Elfelejtettem a jelszavam
-                        </a>
-                    </p>
-
-                </form>
-            </div>
-            <div id="register" class="auth-content">
-                <form action="https://foci-telegram-bot.onrender.com/register" method="post">
-                    <div class="form-group">
-                        <label for="reg-email">E-mail cím</label>
-                        <input type="email" id="reg-email" name="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="reg-password">Jelszó</label>
-                        <input type="password" id="reg-password" name="password" required>
-                    </div>
-                    <button type="submit" class="auth-button">Regisztráció</button>
-                </form>
             </div>
         </div>
     </section>
@@ -315,7 +315,8 @@
             <div class="splide" id="image-carousel" aria-label="Korábbi nyerő szelvények galériája">
                 <div class="splide__track">
                     <ul class="splide__list">
-                        </ul>
+                        <!-- Ide kerülnek a képek JS-sel -->
+                    </ul>
                 </div>
             </div>
         </div>
@@ -343,9 +344,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
     <script>
-        // FACEBOOK PIXEL ÉS SÜTI KEZELŐ LOGIKA
         function initializeFacebookPixel() {
-            console.log("Facebook Pixel inicializálása...");
             fbq('init', '1858049415130011');
             fbq('track', 'PageView');
         }
@@ -385,7 +384,6 @@
                 banner.style.display = 'none';
             });
             
-            // A galéria és a fülek logikája
             const splideList = document.querySelector('#image-carousel .splide__list');
             const basePath = './images/wins/';
             const totalImages = 99;
