@@ -30,7 +30,8 @@
             display: flex;
             align-items: center;
             text-align: center;
-            padding: 40px 0 80px 0;
+            /* 2. Alul levesszük a nagy belső térközt, hogy ne legyen messze a doboz */
+            padding: 40px 0 20px 0; 
         }
         .hero-content { max-width: 800px; margin: 0 auto; }
         .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.2; }
@@ -40,13 +41,14 @@
         .section-title { text-align: center; font-size: 2.5rem; margin-bottom: 40px; }
         .auth-section {
             background-color: var(--bg-color);
-            padding: 0; 
-            margin-bottom: 40px;
+            /* 3. Itt állítjuk be a pontos távolságot a kép és a doboz között */
+            padding: 20px 0; 
+            margin-bottom: 0;
         }
-        .auth-box {
+        auth-box {
             max-width: 450px;
-            /* -60px margóval finoman ráhúzzuk a sötét képre a dobozt */
-            margin: -60px auto 0; 
+            /* 4. MEGSZÜNTETVE: A negatív margót 0-ra (vagy autóra) állítjuk, így nem lóg rá a képre */
+            margin: 0 auto; 
             background-color: var(--bg-card);
             padding: 30px;
             border-radius: 12px;
