@@ -53,7 +53,11 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "mode": 'subscription',
             "success_url": f"{RENDER_APP_URL}/vip?payment=success",
             "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
-            "metadata": {"user_id": str(user['id']), "plan": plan}
+            "metadata": {"user_id": str(user['id']), "plan": plan},
+            # --- MÓDOSÍTÁS: Számlázási adatok kötelezővé tétele ---
+            "billing_address_collection": "required",
+            "tax_id_collection": {"enabled": True}
+            # ---------------------------------------------------
         }
         if user.get("stripe_customer_id") and not active_key.startswith("sk_test"):
             session_params["customer"] = user["stripe_customer_id"]
