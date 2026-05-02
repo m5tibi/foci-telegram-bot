@@ -25,7 +25,7 @@ async def profile_page(request: Request):
     
     if expires_at_str:
         try:
-            # ISO formátum kezelése (Z vagy +00:00 végződés)[cite: 6]
+            # ISO formátum kezelése (Z vagy +00:00 végződés)
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
         except Exception as e:
             print(f"Dátum formátum hiba: {e}")
@@ -39,7 +39,7 @@ async def profile_page(request: Request):
         try:
             admin_client = get_admin_db()
             admin_client.table("felhasznalok").update({"subscription_status": "inactive"}).eq("id", user['id']).execute()
-            user["subscription_status"] = "inactive" # Frissítjük a helyi változót is[cite: 6]
+            user["subscription_status"] = "inactive" # Frissítjük a helyi változót is
             print(f"✅ Felhasználó ({user['email']}) státusza automatikusan deaktiválva a lejárat miatt.")
         except Exception as e:
             print(f"Hiba az öntisztítás során: {e}")
@@ -48,10 +48,9 @@ async def profile_page(request: Request):
     cust_id = user.get("stripe_customer_id")
     if cust_id:
         try:
-            # JAVÍTÁS: Intelligens kulcsválasztás a hiba elkerülésére
-            # Ha a Customer ID teszt alapú, vagy teszt emailt használsz, a teszt kulcsot használjuk
-            is_test = "test" in str(cust_id) or user['email'] in ["m5tibi77@gmail.com", "tvargabusiness@gmail.com"]
-            stripe.api_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_test else os.environ.get("STRIPE_SECRET_KEY")
+            # CSAK az m5tibi77@gmail.com használja a technikai Teszt kulcsot, mindenki más az éleset[cite: 6]
+            is_technical_test = user['email'] == "m5tibi77@gmail.com"
+            stripe.api_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_technical_test else os.environ.get("STRIPE_SECRET_KEY")
             
             subs = stripe.Subscription.list(customer=cust_id, limit=1)
             if subs.data:
@@ -62,8 +61,7 @@ async def profile_page(request: Request):
                     admin_client.table("felhasznalok").update({"subscription_cancelled": is_cancelled}).eq("id", user['id']).execute()
                     user["subscription_cancelled"] = is_cancelled
         except stripe.error.InvalidRequestError as e:
-            # Ez kezeli le, ha mégis rossz kulccsal próbálnánk bekérni[cite: 6]
-            print(f"Stripe azonosító hiba a profil oldalon (valószínűleg kulcs ütközés): {e}")
+            print(f"Stripe azonosító hiba a profil oldalon: {e}")
         except Exception as e:
             print(f"Általános profil frissítési hiba: {e}")
 
@@ -72,6 +70,6 @@ async def profile_page(request: Request):
         name="profile.html", 
         context={
             "user": user,
-            "is_subscribed": is_actually_active # A valódi, dátummal ellenőrzött státusz[cite: 6]
+            "is_subscribed": is_actually_active 
         }
     )
