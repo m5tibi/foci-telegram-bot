@@ -1,10 +1,9 @@
-# tipp_generator.py (PhD Hybrid - Turbo Speed Edition)
+# tipp_generator.py (PhD Hybrid - High Speed Batch Edition)
 import os
 import requests
 import numpy as np
 from scipy.stats import poisson
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from app.database import supabase 
 
@@ -17,7 +16,7 @@ ADMIN_CHAT_ID = 1326707238
 API_KEY = os.environ.get("RAPIDAPI_KEY", "").strip()
 HOST = "v3.football.api-sports.io"
 
-# --- SZŰRT LIGÁK ---
+# --- TIPPMIXPRO LIGÁK ---
 RELEVANT_LEAGUES = [39, 40, 140, 135, 78, 61, 94, 88, 144, 2, 3, 848, 271, 268, 89, 90, 103, 104, 119, 106, 202, 218, 253, 11, 98, 113]
 
 class PhDBettingEngine:
@@ -27,67 +26,50 @@ class PhDBettingEngine:
     def process_football(self):
         now = datetime.now(timezone.utc)
         headers = {"x-apisports-key": API_KEY, "x-apisports-host": HOST}
+        today_str = now.strftime('%Y-%m-%d')
         
-        # 1. Alapadatok lekérése
-        all_fixtures = []
-        for d in [now.strftime('%Y-%m-%d'), (now + timedelta(days=1)).strftime('%Y-%m-%d')]:
-            try:
-                resp = requests.get(f"https://{HOST}/fixtures?date={d}", headers=headers, timeout=5).json()
-                all_fixtures += resp.get('response', [])
-            except: continue
+        # 1. BATCH ODDS LEKÉRÉS: Az összes mai odds egyben (Ez a kulcs a sebességhez!)
+        logger.info(f"Mai összes odds lekérése...")
+        try:
+            odds_resp = requests.get(f"https://{HOST}/odds?date={today_str}&bookmaker=6", headers=headers, timeout=20).json()
+            all_odds = {o['fixture']['id']: o for o in odds_resp.get('response', [])}
+        except:
+            all_odds = {}
+
+        # 2. MECCSEK LISTÁZÁSA
+        fixtures_resp = requests.get(f"https://{HOST}/fixtures?date={today_str}", headers=headers, timeout=15).json()
+        relevant_fixtures = [f for f in fixtures_resp.get('response', []) if f['league']['id'] in RELEVANT_LEAGUES]
         
-        relevant_fixtures = [f for f in all_fixtures if f['league']['id'] in RELEVANT_LEAGUES]
-        logger.info(f"Gyorsított elemzés: {len(relevant_fixtures)} meccs...")
+        logger.info(f"Batch elemzés: {len(relevant_fixtures)} szűrt meccs...")
         
         candidate_tips = []
         for f in relevant_fixtures:
             try:
-                f_date = datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00'))
-                if not (now < f_date <= now + timedelta(hours=20)): continue # Csak a közeli meccsek
-
                 f_id = f['fixture']['id']
+                if f_id not in all_odds: continue
                 
-                # OPTIMALIZÁCIÓ: Először csak az oddsot kérjük le. Ha nincs vagy túl magas, nem kérünk predikciót (spórolunk)
-                o_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}", headers=headers, timeout=5).json().get('response', [])
-                if not o_resp: continue
-                
-                bookie = o_resp[0]['bookmakers'][0]
-                m_ou = next((m for m in bookie['bets'] if m['id'] == 5), None)
+                # Odds szűrés helyben (nincs újabb API hívás!)
+                bookie = all_odds[f_id]['bookmakers'][0]
+                bets = bookie['bets']
+                m_ou = next((m for m in bets if m['id'] == 5), None)
                 ov25_odd = next((float(v['odd']) for v in m_ou['values'] if v['value'] == "Over 2.5"), None) if m_ou else None
                 
-                # Ha az odds nem ígéretes (túl magas), átugorjuk a drága predikció hívást
-                if ov25_odd and ov25_odd > 2.30: continue 
+                if not ov25_odd or ov25_odd > 2.20: continue
 
-                # Predikció lekérése szigorú timeout-tal
-                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers, timeout=5).json().get('response', [])
+                # Csak akkor hívunk predikciót, ha az odds jó (Ezzel spórolunk a legtöbbet!)
+                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers, timeout=7).json().get('response', [])
                 if not p_resp: continue
 
                 comp = p_resp[0]['comparison']
                 l_h = float(comp['att']['home'].replace('%','')) / 32
                 l_a = float(comp['att']['away'].replace('%','')) / 32
                 
-                match_candidates = []
-                # Stratégia: Gólok
-                if ov25_odd and ov25_odd <= 2.15:
-                    p = self.get_poisson_prob(l_h + l_a, 2.5)
-                    match_candidates.append(self.create_tip_obj(f, ov25_odd, "Over 2.5", p, int(68+(p*15)), "Gól-intenzitás"))
-                
-                # Stratégia: Szöglet (Csak ha az oddsok között eleve ott van)
-                m_c = next((m for m in bookie['bets'] if m['id'] == 15), None)
-                if m_c:
-                    ov9 = next((v for v in m_c['values'] if "Over 9.5" in v['value']), None)
-                    if ov9:
-                        c_w = (float(comp['corners']['home'].replace('%','')) + float(comp['corners']['away'].replace('%',''))) / 200
-                        match_candidates.append(self.create_tip_obj(f, float(ov9['odd']), "Szöglet: 9.5 felett", c_w, int(62+(c_w*25)), "Szöglet stat"))
-
-                if match_candidates:
-                    candidate_tips.append(sorted(match_candidates, key=lambda x: x['edge'], reverse=True)[0])
-                
-                time.sleep(0.05) # Minimális késleltetés a Rate Limit elkerülésére
+                p = self.get_poisson_prob(l_h + l_a, 2.5)
+                candidate_tips.append(self.create_tip_obj(f, ov25_odd, "Over 2.5", p, int(68+(p*15)), "Gól-intenzitás"))
             except: continue
 
         top_5 = sorted(candidate_tips, key=lambda x: x['confidence_score'], reverse=True)[:5]
-        if top_5: self.save_and_notify(top_5, now.strftime('%Y-%m-%d'))
+        if top_5: self.save_and_notify(top_5, today_str)
 
     def save_and_notify(self, tips, today_str):
         try:
@@ -97,17 +79,14 @@ class PhDBettingEngine:
             slips = [{"tipp_neve": f"PhD Hibrid - {today_str}", "eredo_odds": t["odds"], "tipp_id_k": [t["id"]], "confidence_percent": t["confidence_score"]} for t in saved]
             if slips: supabase.table("napi_tuti").insert(slips).execute()
             
-            try: supabase.table("daily_status").upsert({"date": today_str, "status": "Jóváhagyásra vár"}, on_conflict="date").execute()
-            except: pass
-
+            # Telegram üzenet gombokkal
             self.send_approval_request(today_str, len(tips))
-        except Exception as e: logger.error(f"Hiba: {e}")
+        except Exception as e: logger.error(f"Mentési hiba: {e}")
 
     def send_approval_request(self, date_str, count):
-        if not TELEGRAM_TOKEN: return
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         keyboard = {"inline_keyboard": [[{"text": "✅ Jóváhagyás", "callback_data": f"approve_tips:{date_str}"}], [{"text": "❌ Törlés", "callback_data": f"reject_tips:{date_str}"}]]}
-        msg = f"🤖 *PhD Hibrid Elemzés*\n\nMa *{count} db* tipp érkezett.\nA mentés sikeres, várom a jóváhagyást!"
+        msg = f"🤖 *PhD Hibrid Elemzés*\n\nSikeresen legenerálva *{count} db* minőségi tipp.\nVárom a jóváhagyást!"
         requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
 
     def create_tip_obj(self, f, o, t, e, c, ind):
