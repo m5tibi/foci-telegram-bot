@@ -54,12 +54,13 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "success_url": f"{RENDER_APP_URL}/vip?payment=success",
             "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
             "metadata": {"user_id": str(user['id']), "plan": plan},
-            # --- MÓDOSÍTÁS: Számlázási adatok kötelezővé tétele ---
+            # --- Számlázási adatok kötelezővé tétele ---
             "billing_address_collection": "required",
             "tax_id_collection": {"enabled": True}
-            # ---------------------------------------------------
         }
-        if user.get("stripe_customer_id") and not active_key.startswith("sk_test"):
+        
+        # JAVÍTÁS: Mindig használjuk a meglévő customer_id-t, ha létezik, a hibátlan újravásárláshoz[cite: 16]
+        if user.get("stripe_customer_id"):
             session_params["customer"] = user["stripe_customer_id"]
         else:
             session_params["customer_email"] = user['email']
@@ -121,7 +122,6 @@ async def stripe_webhook(request: Request):
             # BIZTONSÁGOS LEKÉRDEZÉS
             res = client.table("felhasznalok").select("*").eq("stripe_customer_id", c_id).maybe_single().execute()
             
-            # Ellenőrizzük, hogy res és res.data is létezik-e!
             if res and hasattr(res, 'data') and res.data and get_val(obj, 'billing_reason') != 'subscription_create':
                 processed_invoice_ids.add(inv_id)
                 amount = getattr(obj, 'amount_paid', 0)
