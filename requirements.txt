@@ -16,7 +16,6 @@ pytz
 
 # Matematikai és Statisztikai Modellek (PhD Protokollhoz)
 numpy>=1.23.5
-scipy>=1.10.1
 pandas
 
 # Adatkezelés és Logisztika
