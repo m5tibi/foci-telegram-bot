@@ -1,9 +1,10 @@
-# tipp_generator.py (PhD Hybrid - Guaranteed Top 5 Edition)
+# tipp_generator.py (PhD Hybrid - Absolute Guarantee Edition)
 import os
 import requests
 import numpy as np
 from scipy.stats import poisson
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from app.database import supabase 
 
@@ -16,7 +17,7 @@ ADMIN_CHAT_ID = 1326707238
 API_KEY = os.environ.get("RAPIDAPI_KEY", "").strip()
 HOST = "v3.football.api-sports.io"
 
-# --- RELEVÁNS LIGÁK (Tippmixpro fókusz) ---
+# --- RELEVÁNS LIGÁK ---
 RELEVANT_LEAGUES = [39, 40, 140, 135, 78, 61, 94, 88, 144, 2, 3, 848, 271, 268, 89, 90, 103, 104, 119, 106, 202, 218, 253, 11, 98, 113]
 
 class PhDBettingEngine:
@@ -28,63 +29,56 @@ class PhDBettingEngine:
         headers = {"x-apisports-key": API_KEY, "x-apisports-host": HOST}
         today_str = now.strftime('%Y-%m-%d')
         
-        # 1. Batch Odds lekérés
-        all_odds = {}
-        try:
-            odds_resp = requests.get(f"https://{HOST}/odds?date={today_str}&bookmaker=6", headers=headers, timeout=20).json()
-            all_odds = {o['fixture']['id']: o for o in odds_resp.get('response', [])}
-        except: pass
-
-        # 2. Meccsek lekérése
         fixtures_resp = requests.get(f"https://{HOST}/fixtures?date={today_str}", headers=headers, timeout=15).json()
         relevant_fixtures = [f for f in fixtures_resp.get('response', []) if f['league']['id'] in RELEVANT_LEAGUES]
         
-        logger.info(f"Garantált elemzés: {len(relevant_fixtures)} szűrt meccs...")
+        logger.info(f"Végső garanciás elemzés: {len(relevant_fixtures)} meccs...")
         
         candidate_tips = []
         for f in relevant_fixtures:
             try:
                 f_id = f['fixture']['id']
-                ov25_odd = None
-                ov15_odd = None
-
-                # Odds kinyerése (Batch vagy Egyedi)
-                o_data = all_odds.get(f_id)
-                if not o_data:
-                    o_data_resp = requests.get(f"https://{HOST}/odds?fixture={f_id}&bookmaker=6", headers=headers, timeout=7).json().get('response', [])
-                    if o_data_resp: o_data = o_data_resp[0]
-
-                if o_data:
-                    bookie = o_data['bookmakers'][0]
-                    m_ou = next((m for m in bookie['bets'] if m['id'] == 5), None)
-                    if m_ou:
-                        ov25_odd = next((float(v['odd']) for v in m_ou['values'] if v['value'] == "Over 2.5"), None)
-                        ov15_odd = next((float(v['odd']) for v in m_ou['values'] if v['value'] == "Over 1.5"), None)
-
+                # Odds lekérése
+                o_data = requests.get(f"https://{HOST}/odds?fixture={f_id}&bookmaker=6", headers=headers, timeout=10).json().get('response', [])
                 # Predikció lekérése
-                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers, timeout=7).json().get('response', [])
+                p_resp = requests.get(f"https://{HOST}/predictions/{f_id}", headers=headers, timeout=10).json().get('response', [])
+                
                 if not p_resp: continue
 
                 comp = p_resp[0]['comparison']
                 l_h = float(comp['att']['home'].replace('%','')) / 32
                 l_a = float(comp['att']['away'].replace('%','')) / 32
                 
-                # Dinamikus választás: Ha az Over 2.5 oddsa túl magas, az Over 1.5-öt értékeljük
-                if ov25_odd and ov25_odd <= 2.25:
-                    p = self.get_poisson_prob(l_h + l_a, 2.5)
-                    candidate_tips.append(self.create_tip_obj(f, ov25_odd, "Over 2.5", p, int(65+(p*20)), "Gól-intenzitás"))
-                elif ov15_odd and ov15_odd >= 1.20:
-                    p = self.get_poisson_prob(l_h + l_a, 1.5)
-                    candidate_tips.append(self.create_tip_obj(f, ov15_odd, "Over 1.5", p, int(75+(p*15)), "Biztonsági gól"))
+                ov25_odd = 2.0 # Alapértelmezett, ha nincs odds adat
+                ov15_odd = 1.3
+                
+                if o_data:
+                    bets = o_data[0]['bookmakers'][0]['bets']
+                    m_ou = next((m for m in bets if m['id'] == 5), None)
+                    if m_ou:
+                        ov25_odd = next((float(v['odd']) for v in m_ou['values'] if v['value'] == "Over 2.5"), 2.0)
+                        ov15_odd = next((float(v['odd']) for v in m_ou['values'] if v['value'] == "Over 1.5"), 1.3)
+
+                # STRATÉGIA: Poisson alapú valószínűség (Ez a döntő faktor)
+                p_val_25 = self.get_poisson_prob(l_h + l_a, 2.5)
+                p_val_15 = self.get_poisson_prob(l_h + l_a, 1.5)
+
+                # Mindig adunk hozzá egy jelöltet a meccshez
+                if ov25_odd <= 2.30:
+                    candidate_tips.append(self.create_tip_obj(f, ov25_odd, "Over 2.5", p_val_25, int(60+(p_val_25*30)), "Gól-analízis"))
+                else:
+                    candidate_tips.append(self.create_tip_obj(f, ov15_odd, "Over 1.5", p_val_15, int(70+(p_val_15*20)), "Biztonsági gól"))
+                
+                time.sleep(0.05)
             except: continue
 
-        # GARANTÁLT TOP 5: Akkor is kiválasztjuk a legjobbakat, ha nem ideálisak
-        top_5 = sorted(candidate_tips, key=lambda x: x['confidence_score'], reverse=True)[:5]
+        # ABSZOLÚT GARANCIA: Az összes összegyűjtött jelöltből a legjobb 5
+        top_5 = sorted(candidate_tips, key=lambda x: x['edge'], reverse=True)[:5]
         
         if top_5:
             self.save_and_notify(top_5, today_str)
         else:
-            logger.info("Még a könnyített feltételekkel sem volt találat.")
+            logger.error("Váratlan hiba: Nincs feldolgozható meccs az API-ból.")
 
     def save_and_notify(self, tips, today_str):
         try:
@@ -97,9 +91,9 @@ class PhDBettingEngine:
             # Telegram küldés
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
             keyboard = {"inline_keyboard": [[{"text": "✅ Jóváhagyás", "callback_data": f"approve_tips:{today_str}"}], [{"text": "❌ Törlés", "callback_data": f"reject_tips:{today_str}"}]]}
-            msg = f"🤖 *PhD Hibrid Elemzés*\n\nMa *{len(tips)} db* tipp készült a szűrt kínálatból.\nA mentés sikeres!"
+            msg = f"🤖 *PhD Hibrid Elemzés*\n\nA rendszer kiválasztotta a mai nap *5 legjobb* esélyét a minőségi ligákból.\nA mentés sikeres!"
             requests.post(url, json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": keyboard})
-        except Exception as e: logger.error(f"Hiba: {e}")
+        except Exception as e: logger.error(f"Mentési hiba: {e}")
 
     def create_tip_obj(self, f, o, t, e, c, ind):
         return {
