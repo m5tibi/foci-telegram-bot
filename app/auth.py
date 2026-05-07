@@ -15,7 +15,7 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 supabase = get_db()
 
-# JAVÍTÁS: Saját templates objektum definiálása a hiba elkerülésére
+# Saját templates objektum definiálása
 templates = Jinja2Templates(directory="templates")
 
 # --- Jelszókezelő segédfüggvények ---
@@ -34,7 +34,6 @@ def send_reset_email(to_email: str, token: str):
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
     SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-    # Fontos: győződj meg róla, hogy ez a URL helyes a Renderen!
     RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
     
     reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
@@ -73,6 +72,31 @@ def get_current_user(request: Request):
         except: return None
     return None
 
+# --- REGISZTRÁCIÓS ÚTVONAL (Ez hiányzott!) ---
+@router.post("/register")
+async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
+    try:
+        # Ellenőrizzük, létezik-e már a felhasználó
+        existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
+        if existing_user.data:
+            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+        
+        hashed_password = get_password_hash(password)
+        # Új felhasználó beszúrása
+        insert_res = supabase.table("felhasznalok").insert({
+            "email": email, 
+            "hashed_password": hashed_password, 
+            "subscription_status": "inactive"
+        }).execute()
+        
+        if insert_res.data:
+            return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
+        else:
+            raise Exception("Insert failed")
+    except Exception as e:
+        print(f"Regisztrációs hiba: {e}")
+        return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
+
 # --- Bejelentkezési útvonal ---
 @router.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -94,10 +118,8 @@ async def logout(request: Request):
     return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
 
 # --- Jelszóvisszaállítási útvonalak ---
-
 @router.get("/forgot-password")
 async def forgot_password_page(request: Request):
-    # JAVÍTÁS: A helyi templates objektumot használja
     return templates.TemplateResponse(request=request, name="forgot_password.html", context={"request": request})
 
 @router.post("/forgot-password")
