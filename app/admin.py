@@ -1,34 +1,42 @@
 # app/admin.py
 import os
-from datetime import datetime  # <--- EZ HIÁNYZOTT!
-from fastapi import APIRouter, Request, Form, File, UploadFile
+import pytz
+from datetime import datetime
+from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from .database import get_admin_db
+from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user
+
+# Importáljuk az értesítő funkciót a bot.py-ból (mint a régi fájlban)
+try:
+    from bot import send_telegram_broadcast_task
+except ImportError:
+    send_telegram_broadcast_task = None
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
+ADMIN_CHAT_ID = "1326707238"
+
 # --- ADMIN ELLENŐRZŐ SEGÉDFÜGGVÉNY ---
 def is_admin(request: Request):
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     user = get_current_user(request)
-    return user and str(user.get('chat_id')) == admin_id
+    return user and str(s_get(user, 'chat_id')) == ADMIN_CHAT_ID
 
-# --- 1. OLDAL MEGJELENÍTÉSE (LISTÁZÁSSAL) ---
+# --- 1. ADMIN OLDAL MEGJELENÍTÉSE (LISTÁZÁSSAL) ---
 @router.get("/admin/upload", response_class=HTMLResponse)
-async def get_upload_page(request: Request):
+async def get_upload_page(request: Request, message: str = None, error: str = None):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
     
     admin_supabase = get_admin_db()
     
-    # Lekérjük a feltöltött fájlok listáját a táblázathoz
+    # Elemzések lekérése a táblázathoz
     files_res = admin_supabase.table("elemzesek").select("*").order("created_at", desc=True).execute()
     files = files_res.data if files_res.data else []
     
-    # Lekérjük a manuális szelvényeket is
+    # Manuális szelvények lekérése
     manual_res = admin_supabase.table("manual_slips").select("*").order("created_at", desc=True).execute()
     manual_slips = manual_res.data if manual_res.data else []
 
@@ -38,54 +46,81 @@ async def get_upload_page(request: Request):
         context={
             "user": get_current_user(request),
             "files": files,
-            "manual_slips": manual_slips
+            "manual_slips": manual_slips,
+            "message": message,
+            "error": error
         }
     )
 
-# --- 2. MANUÁLIS SZELVÉNY FELTÖLTÉSE (KÉPPEL) ---
+# --- 2. MANUÁLIS SZELVÉNY FELTÖLTÉSE (KÉPPEL + TELEGRAM ÉRTESÍTÉS) ---
 @router.post("/admin/upload")
 async def handle_manual_upload(
     request: Request,
-    tip_type: str = Form(...),
+    background_tasks: BackgroundTasks,
+    tip_type: str = Form(...), # 'vip' vagy 'free'
     tipp_neve: str = Form(...),
-    eredo_odds: float = Form(...),
+    eredo_odds: str = Form(...),
     target_date: str = Form(...),
     slip_image: UploadFile = File(...)
 ):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
 
-    admin_supabase = get_admin_db()
+    supabase = get_admin_db()
+    tz = pytz.timezone('Europe/Budapest')
     
     try:
-        # 1. Kép feltöltése a Storage-ba (manual_slips bucket)
+        # 1. Fájl feltöltése a Supabase Storage-ba
         image_content = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1]
-        # Most már működni fog a datetime.now() hívás:
-        file_path = f"{tip_type}/{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
+        # Egyedi fájlnév generálása időbélyeggel
+        filename = f"{datetime.now(tz).strftime('%Y%m%d_%H%M%S')}.{file_ext}"
+        storage_path = f"{tip_type}/{filename}"
         
-        admin_supabase.storage.from_("manual_slips").upload(
-            path=file_path,
+        supabase.storage.from_("manual_slips").upload(
+            path=storage_path,
             file=image_content,
-            file_options={"content-type": slip_image.content_type}
+            file_options={"content-type": slip_image.content_type, "upsert": "true"}
         )
         
-        image_url = admin_supabase.storage.from_("manual_slips").get_public_url(file_path)
+        image_url = supabase.storage.from_("manual_slips").get_public_url(storage_path)
 
-        # 2. Mentés az adatbázisba
+        # 2. Mentés az adatbázisba (a régi logikát követve)
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
-        admin_supabase.table(table_name).insert({
+        data = {
             "tipp_neve": tipp_neve,
             "eredo_odds": eredo_odds,
             "target_date": target_date,
             "image_url": image_url,
-            "status": "Folyamatban"
-        }).execute()
+            "status": "Folyamatban",
+            "created_at": datetime.now(tz).isoformat()
+        }
+        supabase.table(table_name).insert(data).execute()
 
-        return RedirectResponse(url="/admin/upload?status=success", status_code=303)
+        # 3. TELEGRAM ÉRTESÍTÉS KIKÜLDÉSE (A régi kódból visszaállítva)
+        if send_telegram_broadcast_task:
+            # Összes felhasználó lekérése, akinek van chat_id-ja
+            users_res = supabase.table("felhasznalok").select("chat_id").execute()
+            target_ids = [u['chat_id'] for u in users_res.data if u.get('chat_id')]
+
+            if target_ids:
+                emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
+                site_url = "https://mondomatutit.hu"
+                
+                notif_msg = (
+                    f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
+                    f"📝 Név: *{tipp_neve}*\n"
+                    f"📈 Odds: *{eredo_odds}*\n"
+                    f"📅 Dátum: *{target_date}*\n\n"
+                    f"🚀 [Megtekintés az oldalon]({site_url}/vip)"
+                )
+                # Háttérben küldjük ki, hogy ne lassítsa a feltöltést
+                background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
+
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítés!", status_code=303)
     except Exception as e:
-        print(f"Hiba: {e}")
-        return RedirectResponse(url="/admin/upload?status=error", status_code=303)
+        print(f"Hiba a feltöltésnél: {e}")
+        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 # --- 3. EXCEL/PDF ELEMZÉS FELTÖLTÉSE ---
 @router.post("/upload-analysis")
@@ -97,7 +132,8 @@ async def handle_upload_analysis(
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
 
-    admin_supabase = get_admin_db()
+    supabase = get_admin_db()
+    tz = pytz.timezone('Europe/Budapest')
     
     try:
         ext = file.filename.split('.')[-1].lower()
@@ -105,25 +141,25 @@ async def handle_upload_analysis(
         file_content = await file.read()
         
         storage_path = f"{category}/{file.filename}"
-        admin_supabase.storage.from_("elemzesek").upload(
+        supabase.storage.from_("elemzesek").upload(
             path=storage_path,
             file=file_content,
             file_options={"upsert": "true", "content-type": file.content_type}
         )
         
-        file_url = admin_supabase.storage.from_("elemzesek").get_public_url(storage_path)
+        file_url = supabase.storage.from_("elemzesek").get_public_url(storage_path)
         
-        admin_supabase.table("elemzesek").insert({
+        supabase.table("elemzesek").insert({
             "file_name": file.filename,
             "file_url": file_url,
             "category": category,
-            "file_type": file_type
+            "file_type": file_type,
+            "created_at": datetime.now(tz).isoformat()
         }).execute()
         
-        return RedirectResponse(url="/admin/upload?status=upload_success", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Fájl sikeresen feltöltve!", status_code=303)
     except Exception as e:
-        print(f"Hiba: {e}")
-        return RedirectResponse(url="/admin/upload?status=upload_error", status_code=303)
+        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 # --- 4. TÖRLÉSI FUNKCIÓK ---
 @router.get("/admin/delete-file/{file_id}")
@@ -131,29 +167,27 @@ async def delete_analysis(request: Request, file_id: str):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
 
-    admin_supabase = get_admin_db()
-    
+    supabase = get_admin_db()
     try:
-        res = admin_supabase.table("elemzesek").select("*").eq("id", file_id).single().execute()
+        res = supabase.table("elemzesek").select("*").eq("id", file_id).single().execute()
         if res.data:
             storage_path = f"{res.data['category']}/{res.data['file_name']}"
-            admin_supabase.storage.from_("elemzesek").remove([storage_path])
-            admin_supabase.table("elemzesek").delete().eq("id", file_id).execute()
-            
-        return RedirectResponse(url="/admin/upload?status=delete_success", status_code=303)
+            supabase.storage.from_("elemzesek").remove([storage_path])
+            supabase.table("elemzesek").delete().eq("id", file_id).execute()
+        return RedirectResponse(url="/admin/upload?message=Fájl törölve", status_code=303)
     except Exception as e:
-        print(f"Hiba: {e}")
-        return RedirectResponse(url="/admin/upload?status=delete_error", status_code=303)
+        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 @router.get("/admin/delete-manual/{slip_id}")
 async def delete_manual_slip(request: Request, slip_id: str):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
 
-    admin_supabase = get_admin_db()
+    supabase = get_admin_db()
     try:
-        admin_supabase.table("manual_slips").delete().eq("id", slip_id).execute()
-        return RedirectResponse(url="/admin/upload?status=delete_success", status_code=303)
+        # Törlés mindkét lehetséges táblából (biztonság kedvéért)
+        supabase.table("manual_slips").delete().eq("id", slip_id).execute()
+        supabase.table("free_slips").delete().eq("id", slip_id).execute()
+        return RedirectResponse(url="/admin/upload?message=Szelvény törölve", status_code=303)
     except Exception as e:
-        print(f"Hiba: {e}")
-        return RedirectResponse(url="/admin/upload?status=delete_error", status_code=303)
+        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
