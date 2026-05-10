@@ -5,14 +5,16 @@
 {% block content %}
 <div class="container" style="max-width: 800px; margin: 20px auto; color: white;">
     
-    <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #4299e1;">
-        <h2 style="margin-top: 0;">📂 Elemzések & Táblázatok Feltöltése</h2>
+    <h1 style="text-align: center; margin-bottom: 30px;">Admin Vezérlőpult</h1>
+
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #4299e1; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #4299e1;">📂 Elemzések & Táblázatok Feltöltése</h2>
         <p style="color: #a0aec0; font-size: 0.9em;">Használd ezt az Excel (.xlsx) vagy PDF fájlok publikálásához.</p>
         
         <form action="/upload-analysis" method="POST" enctype="multipart/form-data" style="margin-top: 15px;">
             <div style="margin-bottom: 15px;">
                 <label style="display: block; margin-bottom: 5px;">Fájl kiválasztása:</label>
-                <input type="file" name="file" accept=".pdf,.xlsx" required style="width: 100%; padding: 10px; background: #1a202c; border-radius: 6px; border: 1px solid #4a5568;">
+                <input type="file" name="file" accept=".pdf,.xlsx" required style="width: 100%; padding: 10px; background: #1a202c; border-radius: 6px; border: 1px solid #4a5568; color: white;">
             </div>
 
             <div style="margin-bottom: 15px;">
@@ -23,14 +25,14 @@
                 </select>
             </div>
 
-            <button type="submit" style="width: 100%; padding: 12px; background: #4299e1; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
+            <button type="submit" style="width: 100%; padding: 12px; background: #4299e1; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">
                 🚀 Fájl Feltöltése
             </button>
         </form>
     </div>
 
-    <div style="background: #2d3748; padding: 25px; border-radius: 12px; border-left: 5px solid #38a169;">
-        <h2 style="margin-top: 0;">📝 Manuális Szelvény Feltöltése</h2>
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #38a169; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #38a169;">📝 Manuális Szelvény Feltöltése</h2>
         <p style="color: #a0aec0; font-size: 0.9em;">Használd ezt, ha egy megrakott szelvény képét (screenshot) akarod megosztani.</p>
 
         <form action="/admin/upload" method="post" enctype="multipart/form-data" style="margin-top: 15px;">
@@ -62,10 +64,51 @@
                 <input type="file" name="slip_image" accept="image/*" required style="color: white;">
             </div>
 
-            <button type="submit" style="width: 100%; padding: 12px; background: #38a169; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
+            <button type="submit" style="width: 100%; padding: 12px; background: #38a169; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">
                 ✅ Szelvény Beküldése és Értesítés
             </button>
         </form>
+    </div>
+
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; border: 1px solid #4a5568; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #cbd5e0;">📂 Feltöltött fájlok kezelése</h2>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9rem;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #4a5568; text-align: left; color: #a0aec0;">
+                        <th style="padding: 10px;">Fájlnév</th>
+                        <th style="padding: 10px;">Kategória</th>
+                        <th style="padding: 10px;">Dátum</th>
+                        <th style="padding: 10px; text-align: right;">Művelet</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr style="border-bottom: 1px solid #4a5568;">
+                        <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ file.file_name }}
+                        </td>
+                        <td style="padding: 10px;">
+                            <span style="padding: 3px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; background: {{ '#3182ce' if file.category == 'vip' else '#718096' }}; color: white;">
+                                {{ file.category.upper() }}
+                            </span>
+                        </td>
+                        <td style="padding: 10px; color: #a0aec0;">{{ file.created_at[:10] }}</td>
+                        <td style="padding: 10px; text-align: right;">
+                            <a href="/admin/delete-file/{{ file.id }}" 
+                               onclick="return confirm('Biztosan törlöd ezt a fájlt? A művelet nem vonható vissza!')"
+                               style="color: #e53e3e; text-decoration: none; font-weight: bold; padding: 5px 10px; border: 1px solid #e53e3e; border-radius: 4px; transition: all 0.2s;">
+                               Törlés
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if not files %}
+            <p style="text-align: center; color: #a0aec0; margin-top: 20px; font-style: italic;">Még nincs feltöltött elemzés vagy táblázat.</p>
+        {% endif %}
     </div>
 
 </div>
