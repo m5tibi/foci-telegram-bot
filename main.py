@@ -1,4 +1,4 @@
-# main.py (V23.03 - Javított lejárati ellenőrzés és stabil moduláris struktúra)
+# main.py (V23.03 - Javított lejárati ellenőírés és stabil moduláris struktúra)
 
 import os
 import telegram
@@ -77,23 +77,23 @@ async def vip_area(request: Request):
     db = get_db()
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     
-    # --- SZIGORÍTOTT JOGOSULTSÁG ELLENŐRZÉS[cite: 17] ---
+    # --- SZIGORÍTOTT JOGOSULTSÁG ELLENŐRZÉS ---
     now_utc = datetime.now(pytz.utc)
     expires_at_str = user.get("subscription_expires_at")
     expires_at = None
     
     if expires_at_str:
         try:
-            # ISO formátum kezelése (Z vagy +00:00 végződés szinkronizálása)[cite: 17]
+            # ISO formátum kezelése (Z vagy +00:00 végződés szinkronizálása)
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
         except Exception:
             expires_at = None
 
-    # Előfizetés akkor érvényes, ha a státusz 'active' ÉS a lejárati dátum a jövőben van[cite: 17]
+    # Előfizetés akkor érvényes, ha a státusz 'active' ÉS a lejárati dátum a jövőben van
     is_active_member = (user.get("subscription_status") == "active") and (expires_at and expires_at > now_utc)
     is_admin = str(user.get('chat_id')) == admin_id
     
-    # Hozzáférés megadva, ha érvényes tag vagy admin[cite: 17]
+    # Hozzáférés megadva, ha érvényes tag vagy admin
     access_granted = is_active_member or is_admin
     
     # ROI (megtérülés) lekérése a statisztikákhoz
@@ -101,6 +101,7 @@ async def vip_area(request: Request):
     roi_value = calculate_roi(all_past_vip.data)
 
     todays_slips, tomorrows_slips, active_manual, active_free = [], [], [], []
+    analysis_files, free_analysis_files = [], []
     msg = ""
 
     if access_granted:
@@ -111,7 +112,7 @@ async def vip_area(request: Request):
             today_str = now_local.strftime("%Y-%m-%d")
             tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # 1. Automata (Bot) tippek lekérése[cite: 14, 17]
+            # 1. Automata (Bot) tippek lekérése
             resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
             
             if resp.data:
@@ -121,7 +122,7 @@ async def vip_area(request: Request):
                     if isinstance(ids, list): all_ids.extend(ids)
 
                 if all_ids:
-                    # Meccsek szűrése állapot szerint (admin látja a nyers tippeket is)[cite: 14]
+                    # Meccsek szűrése állapot szerint (admin látja a nyers tippeket is)
                     query = db.table("meccsek").select("*").in_("id", list(set(all_ids)))
                     if not is_admin:
                         query = query.eq("eredmeny", "Folyamatban")
@@ -152,20 +153,27 @@ async def vip_area(request: Request):
                             else:
                                 todays_slips.append(sz)
 
-            # 2. Manuális és Ingyenes szelvények lekérése[cite: 14, 17]
+            # 2. Manuális és Ingyenes szelvények lekérése
             m_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_manual = m_res.data or []
             
             f_res = db.table("free_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_free = f_res.data or []
 
+            # --- ÚJ: FÁJLOK LEKÉRDEZÉSE (Elemzések & Táblázatok) ---
+            analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).limit(5).execute()
+            analysis_files = analysis_res.data or []
+            
+            free_analysis_res = db.table("elemzesek").select("*").eq("category", "free").order("created_at", desc=True).limit(5).execute()
+            free_analysis_files = free_analysis_res.data or []
+
         except Exception as e:
             print(f"VIP Error: {e}")
             msg = "Hiba történt az adatok betöltésekor."
     else:
-        # Hibaüzenet kezelése, ha lejárt az előfizetés[cite: 17]
+        # Hibaüzenet kezelése, ha lejárt az előfizetés
         if expires_at:
-            # Formázott dátum megjelenítése magyar időzónában[cite: 17]
+            # Formázott dátum megjelenítése magyar időzónában
             expiry_date = expires_at.astimezone(pytz.timezone('Europe/Budapest')).strftime('%Y-%m-%d %H:%M')
             msg = f"Az előfizetésed lejárt ({expiry_date}). Kérjük, újítsd meg a hozzáférésedet a profilodban!"
         else:
@@ -175,6 +183,7 @@ async def vip_area(request: Request):
         "request": request, "user": user, "is_subscribed": access_granted,
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
         "active_manual_slips": active_manual, "active_free_slips": active_free,
+        "analysis_files": analysis_files, "free_analysis_files": free_analysis_files,
         "roi": roi_value, "daily_status_message": msg
     })
 
