@@ -4,7 +4,7 @@
 
 {% block content %}
 <style>
-    /* --- EREDETI ÁRAZÁSI STÍLUSOK --- */
+    /* --- ÁRAZÁSI STÍLUSOK --- */
     .pricing-container {
         display: flex;
         justify-content: center;
@@ -34,7 +34,7 @@
         z-index: 1;
     }
 
-    /* --- ÚJ: ELEMZÉS LETÖLTŐ STÍLUSOK --- */
+    /* --- ELEMZÉS LETÖLTŐ STÍLUSOK --- */
     .analysis-container {
         background: #2D3748;
         border-left: 5px solid #F6E05E;
@@ -70,7 +70,7 @@
     }
     .file-icon { font-size: 1.4em; }
 
-    /* --- ÚJ: RUGALMAS KÉPES ELRENDEZÉS (FLEXBOX - JAVÍTOTT) --- */
+    /* --- RUGALMAS KÉPES ELRENDEZÉS --- */
     .manual-slips-grid {
         display: flex;
         flex-wrap: wrap;
@@ -153,7 +153,7 @@
 
     {% if is_subscribed %}
 
-        {# --- ÚJ: VIP LETÖLTHETŐ ELEMZÉSEK --- #}
+        {# --- 1. VIP FÁJLOK (Csak az előfizetők látják) --- #}
         {% if analysis_files %}
         <div class="analysis-container">
             <h3 style="margin-top: 0; color: #F6E05E;"><i class="fas fa-file-download"></i> Napi Stratégiai Elemzések & Adatbázisok</h3>
@@ -172,34 +172,12 @@
         </div>
         {% endif %}
 
-        {# --- 1. SZERKESZTŐI (VIP) TIPPEK --- #}
+        {# --- 2. SZERKESZTŐI (VIP) TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
-                
                 <div class="manual-slips-grid">
                 {% for slip in active_manual_slips %}
-                    {% if slip.image_url %}
-                        <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
-                            <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                            <div class="manual-card-footer" style="text-align: center;">
-                                <span class="manual-card-title">{{ slip.tipp_neve }}</span>
-                                <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
-                            </div>
-                        </a>
-                    {% endif %}
-                {% endfor %}
-                </div>
-            </div>
-        {% endif %}
-
-        {# --- 2. INGYENES TIPPEK --- #}
-        {% if active_free_slips %}
-            <div class="manual-slips-section" style="margin-top: 40px; border-top: 1px dashed #4A5568; padding-top: 20px;">
-                <h3>Ingyenes Tippek</h3>
-                
-                <div class="manual-slips-grid">
-                {% for slip in active_free_slips %}
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                             <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
@@ -281,85 +259,24 @@
             {% endif %}
         {% endif %}
 
-        {% if not todays_slips and not tomorrows_slips and not active_manual_slips and not active_free_slips %}
-             <div class="alert alert-info">{{ daily_status_message | default("Jelenleg nincsenek aktív szelvények. Nézz vissza később!") }}</div>
-        {% endif %}
-
-        <div class="disclaimer">
-            <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Kérjük, csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippjeink nem garantálnak nyereséget.</p>
-            <ul>
-                <li>Ne próbálj meg visszanyerni veszteségeket!</li>
-                <li>Csak szórakozásból játssz, ne a megélhetésért!</li>
-                <li>Soha ne játssz alkoholos vagy egyéb befolyásoltság alatt!</li>
-                <li>Ismerd a saját határaidat, és soha ne lépd túl őket!</li>
-                <li>Csak 18 éven felülieknek. Kérj segítséget, ha úgy érzed, problémáid vannak!</li>
-                <li>A tippek felhasználása kizárólag a te felelősséged, az oldal semmilyen anyagi felelősséget nem vállal.</li>
-                <li>A szelvényeket gondosan válogatjuk, de a sportfogadásban nincs 100%. Mindig felelősségteljesen játssz!</li>
-            </ul>
-        </div>
-        
     {% else %}
-        {# --- NEM ELŐFIZETETT NÉZET --- #}
+        {# --- ELŐFIZETÉS NÉLKÜLI NÉZET --- #}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
-
-        {# --- ÚJ: INGYENES ELEMZÉSEK (Mindenkinek látható) --- #}
-        {% if free_analysis_files %}
-        <div class="analysis-container" style="border-left-color: #38A169;">
-            <h3 style="margin-top: 0; color: #38A169;"><i class="fas fa-gift"></i> Ingyenes Napi Elemzések</h3>
-            <div class="analysis-grid">
-                {% for file in free_analysis_files %}
-                <a href="{{ file.file_url }}" target="_blank" class="analysis-item">
-                    <span class="file-icon">📊</span>
-                    <div>
-                        <div style="font-weight: bold;">{{ file.file_name }}</div>
-                        <small>Ingyenes betekintő</small>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        <p style="text-align: center; font-size: 1.1em;">Kérlek, válassz egyet az alábbi csomagok közül a tippek megtekintéséhez!</p>
+        <p style="text-align: center; font-size: 1.1em;">Válassz egy csomagot a VIP tartalom (Elemzések, Szerkesztői és Bot tippek) megtekintéséhez!</p>
         
         <div class="pricing-container">
             <div class="pricing-card" style="border: 1px solid #F6E05E;">
                 <h3 style="color: #F6E05E;">🎫 Próbanap</h3>
                 <p class="price" style="color: #F6E05E;">1.190 Ft<span>/nap</span></p>
-                <ul class="features">
-                    <li>24 órás hozzáférés</li>
-                    <li>Kockázatmentes teszt</li>
-                    <li>Azonnali VIP tippek</li>
-                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="daily">
                     <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
                 </form>
             </div>
-    
-            <div class="pricing-card">
-                <h3>🗓️ Heti Csomag</h3>
-                <p class="price">3.490 Ft<span>/hét</span></p>
-                <ul class="features">
-                    <li>7 napos hozzáférés</li>
-                    <li>Minden VIP tipp</li>
-                    <li>Kedvező ár</li>
-                </ul>
-                <form action="/create-checkout-session-web" method="POST">
-                    <input type="hidden" name="plan" value="weekly">
-                    <button type="submit" class="button">Előfizetek</button>
-                </form>
-            </div>
-    
             <div class="pricing-card popular">
                 <div style="background: #38A169; color: white; font-size: 0.8em; padding: 5px; border-radius: 5px; margin-bottom: 10px; display: inline-block;">LEGJOBB AJÁNLAT</div>
                 <h3>📅 Havi Csomag</h3>
                 <p class="price">9.999 Ft<span>/hó</span></p>
-                <ul class="features">
-                    <li>30 napos hozzáférés</li>
-                    <li>Legjobb ár/érték arány</li>
-                    <li>Folyamatos profit lehetőség</li>
-                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="monthly">
                     <button type="submit" class="button" style="background-color: #38A169;">Kérem a Profitot</button>
@@ -368,18 +285,62 @@
         </div>
     {% endif %}
 
+    <hr style="margin: 40px 0; border: 0; border-top: 1px dashed #4A5568;">
+
+    {# --- INGYENES SZEKCIÓ (Mindenki látja) --- #}
+    <div class="free-section">
+        <h2 style="text-align: center; color: #38A169;">🆓 Ingyenes Betekintő</h2>
+
+        {# INGYENES FÁJLOK - Csak az Ingyenes kategória #}
+        {% if free_analysis_files %}
+        <div class="analysis-container" style="border-left-color: #38A169;">
+            <h3 style="margin-top: 0; color: #38A169;"><i class="fas fa-gift"></i> Ingyenes Napi Elemzések</h3>
+            <div class="analysis-grid">
+                {% for file in free_analysis_files %}
+                <a href="{{ file.file_url }}" target="_blank" class="analysis-item" style="border-color: #38A169;">
+                    <span class="file-icon">📊</span>
+                    <div>
+                        <div style="font-weight: bold;">{{ file.file_name }}</div>
+                        <small>Ingyenes hozzáférés</small>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# INGYENES KÉPES SZELVÉNYEK (Csalogató - VIP-es is látja) #}
+        {% if active_free_slips %}
+            <h3>Mai Ingyenes Szelvények</h3>
+            <div class="manual-slips-grid">
+            {% for slip in active_free_slips %}
+                {% if slip.image_url %}
+                    <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
+                        <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
+                        <div class="manual-card-footer" style="text-align: center;">
+                            <span class="manual-card-title">{{ slip.tipp_neve }}</span>
+                            <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
+                        </div>
+                    </a>
+                {% endif %}
+            {% endfor %}
+            </div>
+        {% else %}
+            <p style="text-align: center; color: #a0aec0; font-style: italic;">Jelenleg nincs aktív ingyenes tipp.</p>
+        {% endif %}
+    </div>
+
+    {# FELELŐSSÉGVÁLLALÁS #}
+    <div class="disclaimer" style="margin-top: 50px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85em; color: #A0AEC0;">
+        <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Csak 18 éven felülieknek.</p>
+    </div>
+
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
         const modal = document.createElement('div');
         modal.className = 'modal-success';
-        modal.innerHTML = '<h2>Sikeres Fizetés!</h2><p>Köszönjük az előfizetésed! A VIP tippek mostantól elérhetőek számodra.</p><button onclick="this.parentElement.remove()">Bezárás</button>';
-        document.body.appendChild(modal);
-    }
-    if (urlParams.has('error') && urlParams.get('error') === 'active_subscription') {
-        const modal = document.createElement('div');
-        modal.className = 'modal-error';
-        modal.innerHTML = '<h2>Már van előfizetésed!</h2><p>A rendszerünk szerint már rendelkezel aktív előfizetéssel. Újabb vásárlásra nincs szükség.</p><button onclick="this.parentElement.remove()">Bezárás</button>';
+        modal.innerHTML = '<h2>Sikeres Fizetés!</h2><p>Köszönjük az előfizetésed!</p><button onclick="this.parentElement.remove()">Bezárás</button>';
         document.body.appendChild(modal);
     }
 </script>
