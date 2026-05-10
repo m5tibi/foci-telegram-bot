@@ -34,7 +34,7 @@
         z-index: 1;
     }
 
-    /* --- ELEMZÉS LETÖLTŐ STÍLUSOK --- */
+    /* --- ELEMZÉS LETÖLTŐ STÍLUSOK (JAVÍTOTT MOBILOS NÉZET) --- */
     .analysis-container {
         background: #2D3748;
         border-left: 5px solid #F6E05E;
@@ -51,7 +51,7 @@
     }
     .analysis-item {
         background: #1A202C;
-        padding: 12px 18px;
+        padding: 12px 15px;
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -61,14 +61,30 @@
         border: 1px solid #4A5568;
         transition: all 0.2s;
         flex: 1;
-        min-width: 200px;
+        min-width: 260px;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
     }
     .analysis-item:hover {
         border-color: #F6E05E;
         background: #2D3748;
         transform: translateY(-2px);
     }
-    .file-icon { font-size: 1.4em; }
+    .analysis-text {
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .file-name {
+        font-weight: bold;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+    }
+    .file-icon { font-size: 1.4em; flex-shrink: 0; }
 
     /* --- RUGALMAS KÉPES ELRENDEZÉS --- */
     .manual-slips-grid {
@@ -83,7 +99,6 @@
         margin-right: auto;
         box-sizing: border-box;
     }
-
     .manual-slip-card {
         box-sizing: border-box;
         flex: 0 0 calc(50% - 12px);
@@ -99,47 +114,15 @@
         color: inherit;
         position: relative;
     }
-
-    .manual-slip-card:hover {
-        transform: translateY(-5px);
-        border-color: #38A169;
-        box-shadow: 0 5px 15px rgba(56, 161, 105, 0.3);
-    }
-
-    .manual-slip-card img {
-        width: 100%;
-        height: auto;
-        display: block;
-        object-fit: contain;
-    }
-
-    .manual-card-footer {
-        padding: 10px;
-        background: rgba(0,0,0,0.4);
-        border-top: 1px solid #4A5568;
-    }
-
-    .manual-card-title {
-        display: block;
-        font-weight: bold;
-        color: #38A169;
-        font-size: 1.1em;
-        margin-bottom: 4px;
-    }
-
-    .manual-card-date {
-        display: block;
-        font-size: 0.85em;
-        color: #A0AEC0;
-    }
+    .manual-slip-card img { width: 100%; height: auto; display: block; object-fit: contain; }
+    .manual-card-footer { padding: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid #4A5568; text-align: center; }
+    .manual-card-title { display: block; font-weight: bold; color: #38A169; font-size: 1.1em; margin-bottom: 4px; }
+    .manual-card-date { display: block; font-size: 0.85em; color: #A0AEC0; }
     
     @media (max-width: 768px) {
         .pricing-card.popular { transform: none; }
-        .manual-slip-card {
-            flex: 0 0 100%;
-            width: 100%;
-            max-width: 100%;
-        }
+        .manual-slip-card { flex: 0 0 100%; width: 100%; max-width: 100%; }
+        .analysis-item { min-width: 100%; }
     }
 </style>
 
@@ -153,17 +136,17 @@
 
     {% if is_subscribed %}
 
-        {# --- 1. VIP FÁJLOK (Csak az előfizetők látják) --- #}
+        {# --- 1. VIP FÁJLOK --- #}
         {% if analysis_files %}
         <div class="analysis-container">
             <h3 style="margin-top: 0; color: #F6E05E;"><i class="fas fa-file-download"></i> Napi Stratégiai Elemzések & Adatbázisok</h3>
-            <p style="font-size: 0.9em; color: #CBD5E0;">Az alábbi fájlokban találod a mai nap részletes statisztikai elemzését és a teljes tipp-adatbázist.</p>
+            <p style="font-size: 0.9em; color: #CBD5E0;">Kizárólagos VIP fájlok részletes statisztikai adatokkal.</p>
             <div class="analysis-grid">
                 {% for file in analysis_files %}
                 <a href="{{ file.file_url }}" target="_blank" class="analysis-item">
                     <span class="file-icon">{% if file.file_type == 'pdf' %}📕{% else %}📊{% endif %}</span>
-                    <div style="overflow: hidden;">
-                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ file.file_name }}</div>
+                    <div class="analysis-text">
+                        <span class="file-name" title="{{ file.file_name }}">{{ file.file_name }}</span>
                         <small style="color: #A0AEC0;">Frissítve: {{ file.created_at[:10] }}</small>
                     </div>
                 </a>
@@ -172,7 +155,7 @@
         </div>
         {% endif %}
 
-        {# --- 2. SZERKESZTŐI (VIP) TIPPEK --- #}
+        {# --- 2. SZERKESZTŐI VIP TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
@@ -181,7 +164,7 @@
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                             <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                            <div class="manual-card-footer" style="text-align: center;">
+                            <div class="manual-card-footer">
                                 <span class="manual-card-title">{{ slip.tipp_neve }}</span>
                                 <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
                             </div>
@@ -204,13 +187,9 @@
                             <div class="slip-header">
                                 <span class="slip-title">{{ slip.tipp_neve }}</span>
                                 <span class="slip-odds">@ {{ "%.2f"|format(slip.eredo_odds) }}</span>
-                                {% if slip.is_admin_only %}
-                                    <span class="admin-badge">CSAK ADMIN</span>
-                                {% endif %}
+                                {% if slip.is_admin_only %}<span class="admin-badge">CSAK ADMIN</span>{% endif %}
                             </div>
-                            <div class="slip-meta">
-                                Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%
-                            </div>
+                            <div class="slip-meta">Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%</div>
                             <div class="slip-matches">
                                 {% for meccs in slip.meccsek %}
                                 <div class="match">
@@ -235,13 +214,9 @@
                             <div class="slip-header">
                                 <span class="slip-title">{{ slip.tipp_neve }}</span>
                                 <span class="slip-odds">@ {{ "%.2f"|format(slip.eredo_odds) }}</span>
-                                {% if slip.is_admin_only %}
-                                    <span class="admin-badge">CSAK ADMIN</span>
-                                {% endif %}
+                                {% if slip.is_admin_only %}<span class="admin-badge">CSAK ADMIN</span>{% endif %}
                             </div>
-                            <div class="slip-meta">
-                                Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%
-                            </div>
+                            <div class="slip-meta">Megbízhatóság: {{ slip.confidence_percent | default('N/A') }}%</div>
                             <div class="slip-matches">
                                 {% for meccs in slip.meccsek %}
                                 <div class="match">
@@ -262,34 +237,43 @@
     {% else %}
         {# --- ELŐFIZETÉS NÉLKÜLI NÉZET --- #}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
-        <p style="text-align: center; font-size: 1.1em;">Válassz egy csomagot a VIP tartalom (Elemzések, Szerkesztői és Bot tippek) megtekintéséhez!</p>
+        <p style="text-align: center; font-size: 1.1em;">Válassz egy csomagot a zárt tartalmak megtekintéséhez!</p>
         
         <div class="pricing-container">
             <div class="pricing-card" style="border: 1px solid #F6E05E;">
                 <h3 style="color: #F6E05E;">🎫 Próbanap</h3>
                 <p class="price" style="color: #F6E05E;">1.190 Ft<span>/nap</span></p>
+                <ul class="features">
+                    <li>24 órás hozzáférés</li>
+                    <li>Minden VIP tipp</li>
+                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="daily">
                     <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
                 </form>
             </div>
+            
             <div class="pricing-card">
                 <h3>🗓️ Heti Csomag</h3>
                 <p class="price">3.490 Ft<span>/hét</span></p>
                 <ul class="features">
                     <li>7 napos hozzáférés</li>
-                    <li>Minden VIP tipp</li>
-                    <li>Kedvező ár</li>
+                    <li>Szerkesztői és Bot tippek</li>
                 </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="weekly">
                     <button type="submit" class="button">Előfizetek</button>
                 </form>
             </div>
+
             <div class="pricing-card popular">
                 <div style="background: #38A169; color: white; font-size: 0.8em; padding: 5px; border-radius: 5px; margin-bottom: 10px; display: inline-block;">LEGJOBB AJÁNLAT</div>
                 <h3>📅 Havi Csomag</h3>
                 <p class="price">9.999 Ft<span>/hó</span></p>
+                <ul class="features">
+                    <li>30 napos hozzáférés</li>
+                    <li>Teljes statisztikai adatbázis</li>
+                </ul>
                 <form action="/create-checkout-session-web" method="POST">
                     <input type="hidden" name="plan" value="monthly">
                     <button type="submit" class="button" style="background-color: #38A169;">Kérem a Profitot</button>
@@ -300,11 +284,10 @@
 
     <hr style="margin: 40px 0; border: 0; border-top: 1px dashed #4A5568;">
 
-    {# --- INGYENES SZEKCIÓ (Mindenki látja) --- #}
+    {# --- INGYENES SZEKCIÓ --- #}
     <div class="free-section">
         <h2 style="text-align: center; color: #38A169;">🆓 Ingyenes Betekintő</h2>
 
-        {# INGYENES FÁJLOK - Csak az Ingyenes kategória #}
         {% if free_analysis_files %}
         <div class="analysis-container" style="border-left-color: #38A169;">
             <h3 style="margin-top: 0; color: #38A169;"><i class="fas fa-gift"></i> Ingyenes Napi Elemzések</h3>
@@ -312,9 +295,9 @@
                 {% for file in free_analysis_files %}
                 <a href="{{ file.file_url }}" target="_blank" class="analysis-item" style="border-color: #38A169;">
                     <span class="file-icon">📊</span>
-                    <div>
-                        <div style="font-weight: bold;">{{ file.file_name }}</div>
-                        <small>Ingyenes hozzáférés</small>
+                    <div class="analysis-text">
+                        <span class="file-name" title="{{ file.file_name }}">{{ file.file_name }}</span>
+                        <small style="color: #A0AEC0;">Publikus fájl</small>
                     </div>
                 </a>
                 {% endfor %}
@@ -322,7 +305,6 @@
         </div>
         {% endif %}
 
-        {# INGYENES KÉPES SZELVÉNYEK (Csalogató - VIP-es is látja) #}
         {% if active_free_slips %}
             <h3>Mai Ingyenes Szelvények</h3>
             <div class="manual-slips-grid">
@@ -330,7 +312,7 @@
                 {% if slip.image_url %}
                     <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                         <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
-                        <div class="manual-card-footer" style="text-align: center;">
+                        <div class="manual-card-footer">
                             <span class="manual-card-title">{{ slip.tipp_neve }}</span>
                             <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
                         </div>
@@ -345,7 +327,13 @@
 
     {# FELELŐSSÉGVÁLLALÁS #}
     <div class="disclaimer" style="margin-top: 50px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85em; color: #A0AEC0;">
-        <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Csak 18 éven felülieknek.</p>
+        <p><strong>Felelősségteljes szerencsejáték:</strong> A sportfogadás magas kockázattal jár. Kérjük, csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippjeink nem garantálnak nyereséget.</p>
+        <ul style="padding-left: 20px;">
+            <li>Csak szórakozásból játssz, ne a megélhetésért!</li>
+            <li>Soha ne játssz alkoholos befolyásoltság alatt!</li>
+            <li>Ismerd a saját határaidat!</li>
+            <li>Csak 18 éven felülieknek.</li>
+        </ul>
     </div>
 
 <script>
@@ -353,9 +341,8 @@
     if (urlParams.has('payment') && urlParams.get('payment') === 'success') {
         const modal = document.createElement('div');
         modal.className = 'modal-success';
-        modal.innerHTML = '<h2>Sikeres Fizetés!</h2><p>Köszönjük az előfizetésed!</p><button onclick="this.parentElement.remove()">Bezárás</button>';
+        modal.innerHTML = '<h2>Sikeres Fizetés!</h2><p>Köszönjük az előfizetésed!</p><button onclick=\"this.parentElement.remove()\">Bezárás</button>';
         document.body.appendChild(modal);
     }
 </script>
-
 {% endblock %}
