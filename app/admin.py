@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user
 
-# Telegram értesítő funkció beemelése
+# Telegram értesítő funkció beemelése a bot.py-ból
 try:
     from bot import send_telegram_broadcast_task
 except ImportError:
@@ -52,7 +52,7 @@ async def get_upload_page(request: Request, message: str = None, error: str = No
         }
     )
 
-# --- 2. MANUÁLIS SZELVÉNY FELTÖLTÉSE (PONTOS BUCKET ÉS MAPPA ÚTVONALAKKAL) ---
+# --- 2. MANUÁLIS SZELVÉNY FELTÖLTÉSE ---
 @router.post("/admin/upload")
 async def handle_manual_upload(
     request: Request,
@@ -70,12 +70,12 @@ async def handle_manual_upload(
     tz = pytz.timezone('Europe/Budapest')
     
     try:
-        # 1. Fájlnév és útvonal meghatározása
+        # 1. Kép beolvasása és fájlnév generálása
         image_content = await slip_image.read()
-        file_ext = slip_image.filename.split('.')[-1]
+        file_ext = slip_image.filename.split('.')[-1].lower()
         filename = f"{datetime.now(tz).strftime('%Y%m%d_%H%M%S')}.{file_ext}"
         
-        # JAVÍTOTT LOGIKA: A te Supabase linked alapján (slips/vip/... vagy free-slips/free/...)
+        # 2. Útvonal meghatározása a meglévő Supabase struktúrád szerint
         if tip_type == "vip":
             target_bucket = "slips"
             storage_path = f"vip/{filename}"
@@ -83,16 +83,19 @@ async def handle_manual_upload(
             target_bucket = "free-slips"
             storage_path = f"free/{filename}"
         
-        # 2. Feltöltés a Supabase Storage-ba
+        # 3. Tartalomtípus meghatározása (hogy ne text/plain legyen)
+        content_type = slip_image.content_type if slip_image.content_type else f"image/{file_ext}"
+        
+        # 4. Feltöltés a Storage-ba
         supabase.storage.from_(target_bucket).upload(
             path=storage_path,
             file=image_content,
-            file_options={"content-type": slip_image.content_type, "upsert": "true"}
+            file_options={"content-type": content_type, "upsert": "true"}
         )
         
         image_url = supabase.storage.from_(target_bucket).get_public_url(storage_path)
 
-        # 3. Mentés az adatbázisba
+        # 5. Mentés az adatbázisba
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
         data = {
             "tipp_neve": tipp_neve,
@@ -104,7 +107,7 @@ async def handle_manual_upload(
         }
         supabase.table(table_name).insert(data).execute()
 
-        # 4. Telegram Értesítés (Mindenkinek)
+        # 6. Telegram értesítés
         if send_telegram_broadcast_task:
             users_res = supabase.table("felhasznalok").select("chat_id").execute()
             target_ids = [u['chat_id'] for u in users_res.data if u.get('chat_id')]
@@ -120,9 +123,9 @@ async def handle_manual_upload(
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítés!", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
     except Exception as e:
-        print(f"Feltöltési hiba: {e}")
+        print(f"Hiba: {e}")
         return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
 # --- 3. EXCEL/PDF ELEMZÉS FELTÖLTÉSE ---
@@ -143,12 +146,13 @@ async def handle_upload_analysis(
         file_type = 'pdf' if ext == 'pdf' else 'xlsx'
         file_content = await file.read()
         
-        # Az elemzések az 'elemzesek' bucketbe mennek (category/filename útvonalon)
+        content_type = file.content_type if file.content_type else "application/octet-stream"
+        
         storage_path = f"{category}/{file.filename}"
         supabase.storage.from_("elemzesek").upload(
             path=storage_path,
             file=file_content,
-            file_options={"upsert": "true", "content-type": file.content_type}
+            file_options={"upsert": "true", "content-type": content_type}
         )
         
         file_url = supabase.storage.from_("elemzesek").get_public_url(storage_path)
@@ -161,11 +165,11 @@ async def handle_upload_analysis(
             "created_at": datetime.now(tz).isoformat()
         }).execute()
         
-        return RedirectResponse(url="/admin/upload?message=Fájl sikeresen feltöltve!", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Elemzés feltöltve!", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
-# --- 4. TÖRLÉSI FUNKCIÓK ---
+# --- 4. TÖRLÉS ---
 @router.get("/admin/delete-file/{file_id}")
 async def delete_analysis(request: Request, file_id: str):
     if not is_admin(request):
@@ -178,19 +182,6 @@ async def delete_analysis(request: Request, file_id: str):
             storage_path = f"{res.data['category']}/{res.data['file_name']}"
             supabase.storage.from_("elemzesek").remove([storage_path])
             supabase.table("elemzesek").delete().eq("id", file_id).execute()
-        return RedirectResponse(url="/admin/upload?message=Fájl törölve", status_code=303)
-    except Exception as e:
-        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
-
-@router.get("/admin/delete-manual/{slip_id}")
-async def delete_manual_slip(request: Request, slip_id: str):
-    if not is_admin(request):
-        return RedirectResponse(url="/", status_code=303)
-
-    supabase = get_admin_db()
-    try:
-        supabase.table("manual_slips").delete().eq("id", slip_id).execute()
-        supabase.table("free_slips").delete().eq("id", slip_id).execute()
-        return RedirectResponse(url="/admin/upload?message=Szelvény törölve", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Törölve", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
