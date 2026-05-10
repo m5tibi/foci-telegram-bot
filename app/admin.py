@@ -105,6 +105,8 @@ async def handle_upload_analysis(
         print(f"❌ Feltöltési hiba: {e}")
         return RedirectResponse(url="/vip?status=upload_error", status_code=303)
 
+# app/admin.py
+
 @router.get("/admin/upload", response_class=HTMLResponse)
 async def get_upload_page(request: Request):
     user = get_current_user(request)
@@ -113,10 +115,11 @@ async def get_upload_page(request: Request):
     if not user or str(user.get('chat_id')) != admin_id:
         return RedirectResponse(url="/", status_code=303)
         
-    # JAVÍTOTT SOR: Explicit módon megadjuk a context-et
+    # JAVÍTOTT verzió: a request-et külön megnevezve adjuk át
     return templates.TemplateResponse(
+        request=request,
         name="admin_upload.html", 
-        context={"request": request, "user": user}
+        context={"user": user}
     )
     
 @router.get("/delete-analysis/{file_id}")
