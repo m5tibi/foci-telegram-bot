@@ -1,64 +1,45 @@
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-    <meta charset="UTF-8">
-    <title>Admin - Feltöltés</title>
-    <style>
-        body { font-family: sans-serif; background: #f4f4f4; padding: 20px; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h2 { color: #333; }
-        .section { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
-        label { display: block; margin: 10px 0 5px; font-weight: bold; }
-        input, select, textarea { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-        button { background: #28a745; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
-        button:hover { background: #218838; }
-        .file-upload { background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
 
-<div class="container">
-    <h2>Admin Kezelőfelület</h2>
+{% block title %}Admin - Szelvény Feltöltés{% endblock %}
 
-    <div class="section file-upload">
-        <h3>📂 Elemzések & Táblázatok Feltöltése</h3>
-        <form action="/upload-analysis" method="POST" enctype="multipart/form-data">
-            <label>Fájl kiválasztása:</label>
-            <input type="file" name="file" accept=".pdf,.xlsx" required>
+{% block content %}
+<div class="container" style="max-width: 700px; margin: 20px auto; padding: 20px; background: #2d3748; border-radius: 12px; color: white;">
+    <h2 style="border-bottom: 2px solid #4a5568; padding-bottom: 10px;">📝 Manuális Szelvény Feltöltése</h2>
+    
+    <p style="font-size: 0.9em; color: #a0aec0;">Itt tudsz olyan szelvényt feltölteni, amiről van screenshotod.</p>
 
-            <label>Célhely:</label>
-            <select name="category">
-                <option value="vip">VIP Zóna</option>
-                <option value="free">Ingyenes Tippek</option>
+    <form action="/admin/upload" method="post" enctype="multipart/form-data" style="margin-top: 20px;">
+        <div style="margin-bottom: 15px;">
+            <label>Szelvény Típusa:</label>
+            <select name="tip_type" style="width: 100%; padding: 12px; background: #1a202c; border: 1px solid #4a5568; color: white; border-radius: 6px;">
+                <option value="vip">VIP (Szerkesztői)</option>
+                <option value="free">Ingyenes Tipp</option>
             </select>
+        </div>
 
-            <button type="submit" style="background: #007bff;">🚀 Fájl Feltöltése</button>
-        </form>
-    </div>
-
-    <div class="section">
-        <h3>📝 Manuális Szelvény Hozzáadása</h3>
-        <form action="/admin/add-manual-slip" method="POST">
+        <div style="margin-bottom: 15px;">
             <label>Szelvény Neve:</label>
-            <input type="text" name="title" placeholder="Pl: Esti Hoki Mix" required>
-            
+            <input type="text" name="tipp_neve" placeholder="Pl: Esti Hoki Mix" required style="width: 100%; padding: 12px; background: #1a202c; border: 1px solid #4a5568; color: white; border-radius: 6px;">
+        </div>
+
+        <div style="margin-bottom: 15px;">
             <label>Eredő Odds:</label>
-            <input type="text" name="odds" placeholder="Pl: 3.45" required>
-            
-            <label>Események (HTML megengedett):</label>
-            <textarea name="events" rows="5" placeholder="Pl: <b>München - Berlin</b>: Hazai @ 1.80" required></textarea>
-            
-            <label>Típus:</label>
-            <select name="type">
-                <option value="vip">VIP</option>
-                <option value="free">Ingyenes</option>
-            </select>
-            
-            <button type="submit">Hozzáadás</button>
-        </form>
-    </div>
+            <input type="number" step="0.01" name="eredo_odds" placeholder="Pl: 3.45" required style="width: 100%; padding: 12px; background: #1a202c; border: 1px solid #4a5568; color: white; border-radius: 6px;">
+        </div>
 
+        <div style="margin-bottom: 15px;">
+            <label>Melyik napra szól?</label>
+            <input type="date" name="target_date" required style="width: 100%; padding: 12px; background: #1a202c; border: 1px solid #4a5568; color: white; border-radius: 6px;">
+        </div>
+
+        <div style="margin-bottom: 20px; padding: 15px; background: #3e4a5e; border-radius: 6px; border: 1px dashed #718096;">
+            <label style="display: block; margin-bottom: 10px; font-weight: bold;">📸 Szelvény Képe (Screenshot):</label>
+            <input type="file" name="slip_image" accept="image/*" required style="color: white;">
+        </div>
+
+        <button type="submit" style="width: 100%; padding: 15px; background: #38a169; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 1.1rem; cursor: pointer;">
+            🚀 Szelvény Feltöltése és Értesítés
+        </button>
+    </form>
 </div>
-
-</body>
-</html>
+{% endblock %}
