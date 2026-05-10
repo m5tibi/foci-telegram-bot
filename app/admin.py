@@ -107,26 +107,30 @@ async def handle_manual_upload(
         }
         supabase.table(table_name).insert(data).execute()
 
-        # 6. Telegram értesítés
+        # 6. TELEGRAM ÉRTESÍTÉS - JAVÍTOTT MŰKÖDŐ LINKKEL
         if send_telegram_broadcast_task:
             users_res = supabase.table("felhasznalok").select("chat_id").execute()
             target_ids = [u['chat_id'] for u in users_res.data if u.get('chat_id')]
 
             if target_ids:
                 emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
+                
+                # Itt a javítás: a működő render-es linket használjuk
+                full_url = "https://foci-telegram-bot.onrender.com/vip"
+                
                 notif_msg = (
                     f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
                     f"📝 Név: *{tipp_neve}*\n"
                     f"📈 Odds: *{eredo_odds}*\n"
                     f"📅 Dátum: *{target_date}*\n\n"
-                    f"🚀 [Megtekintés az oldalon](https://mondomatutit.hu/vip)"
+                    f"🚀 [Megtekintés az oldalon]({full_url})"
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés!", status_code=303)
+        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítés!", status_code=303)
+        
     except Exception as e:
-        print(f"Hiba: {e}")
-        return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
+        return RedirectResponse(url=f"/admin/upload?error=Hiba: {str(e)}", status_code=303)
 
 # --- 3. EXCEL/PDF ELEMZÉS FELTÖLTÉSE ---
 @router.post("/upload-analysis")
