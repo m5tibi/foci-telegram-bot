@@ -116,11 +116,7 @@ async def get_upload_page(request: Request):
         return RedirectResponse(url="/", status_code=303)
         
     # JAVÍTOTT verzió: a request-et külön megnevezve adjuk át
-    return templates.TemplateResponse(
-        request=request,
-        name="admin_upload.html", 
-        context={"user": user}
-    )
+    return templates.TemplateResponse(request=request, name="admin_upload.html", context={"user": user})
     
 @router.get("/delete-analysis/{file_id}")
 async def delete_analysis(request: Request, file_id: str):
