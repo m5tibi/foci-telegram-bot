@@ -105,6 +105,17 @@ async def handle_upload_analysis(
         print(f"❌ Feltöltési hiba: {e}")
         return RedirectResponse(url="/vip?status=upload_error", status_code=303)
 
+# app/admin.py - Add hozzá ezt a GET útvonalat
+@router.get("/admin/upload", response_class=HTMLResponse)
+async def get_upload_page(request: Request):
+    user = get_current_user(request)
+    # Admin ellenőrzés (a te chat_id-ddal)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+        
+    return templates.TemplateResponse("admin_upload.html", {"request": request, "user": user})
+    
 @router.get("/delete-analysis/{file_id}")
 async def delete_analysis(request: Request, file_id: str):
     # Admin ellenőrzés
