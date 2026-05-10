@@ -1,5 +1,6 @@
 # app/admin.py
 import os
+from datetime import datetime  # <--- EZ HIÁNYZOTT!
 from fastapi import APIRouter, Request, Form, File, UploadFile
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -27,7 +28,7 @@ async def get_upload_page(request: Request):
     files_res = admin_supabase.table("elemzesek").select("*").order("created_at", desc=True).execute()
     files = files_res.data if files_res.data else []
     
-    # Lekérjük a manuális szelvényeket is, ha azokat is látni akarjuk
+    # Lekérjük a manuális szelvényeket is
     manual_res = admin_supabase.table("manual_slips").select("*").order("created_at", desc=True).execute()
     manual_slips = manual_res.data if manual_res.data else []
 
@@ -60,6 +61,7 @@ async def handle_manual_upload(
         # 1. Kép feltöltése a Storage-ba (manual_slips bucket)
         image_content = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1]
+        # Most már működni fog a datetime.now() hívás:
         file_path = f"{tip_type}/{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
         
         admin_supabase.storage.from_("manual_slips").upload(
@@ -150,7 +152,6 @@ async def delete_manual_slip(request: Request, slip_id: str):
 
     admin_supabase = get_admin_db()
     try:
-        # Itt csak a VIP táblából törlünk példaként, bővíthető
         admin_supabase.table("manual_slips").delete().eq("id", slip_id).execute()
         return RedirectResponse(url="/admin/upload?status=delete_success", status_code=303)
     except Exception as e:
