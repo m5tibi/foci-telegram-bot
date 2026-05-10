@@ -273,6 +273,19 @@
                     <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
                 </form>
             </div>
+            <div class="pricing-card">
+                <h3>🗓️ Heti Csomag</h3>
+                <p class="price">3.490 Ft<span>/hét</span></p>
+                <ul class="features">
+                    <li>7 napos hozzáférés</li>
+                    <li>Minden VIP tipp</li>
+                    <li>Kedvező ár</li>
+                </ul>
+                <form action="/create-checkout-session-web" method="POST">
+                    <input type="hidden" name="plan" value="weekly">
+                    <button type="submit" class="button">Előfizetek</button>
+                </form>
+            </div>
             <div class="pricing-card popular">
                 <div style="background: #38A169; color: white; font-size: 0.8em; padding: 5px; border-radius: 5px; margin-bottom: 10px; display: inline-block;">LEGJOBB AJÁNLAT</div>
                 <h3>📅 Havi Csomag</h3>
