@@ -1,104 +1,132 @@
 # app/admin.py
 import os
-import time
-import secrets
-import pytz
-from datetime import datetime
-from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, File, UploadFile
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from .database import get_db, s_get
+from .database import get_db, get_admin_db
 from .auth import get_current_user
-
-# Importáljuk az értesítő funkciót a bot.py-ból
-try:
-    from bot import send_telegram_broadcast_task
-except ImportError:
-    send_telegram_broadcast_task = None
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-ADMIN_CHAT_ID = 1326707238 
+# --- 1. Szelvénykezelés (Meglévő funkciók megőrzése) ---
 
-@router.get("/admin/upload")
-async def admin_upload_page(request: Request, message: str = None, error: str = None):
-    user = get_current_user(request)
-    if not user or str(s_get(user, 'chat_id')) != str(ADMIN_CHAT_ID):
-        return RedirectResponse(url="/vip", status_code=303)
-    
-    return templates.TemplateResponse(
-        request=request, 
-        name="admin_upload.html", 
-        context={
-            "user": user,
-            "message": message,
-            "error": error
-        }
-    )
-
-@router.post("/admin/upload")
-async def admin_upload_process(
-    request: Request, 
-    background_tasks: BackgroundTasks,
-    tip_type: str = Form(...),
-    tipp_neve: str = Form(...),
-    eredo_odds: float = Form(...),
-    target_date: str = Form(...),
-    slip_image: UploadFile = File(...)
+@router.post("/admin/add-manual-slip")
+async def add_manual_slip(
+    request: Request,
+    title: str = Form(...),
+    odds: str = Form(...),
+    events: str = Form(...),
+    type: str = Form("vip") # "vip" vagy "free"
 ):
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     user = get_current_user(request)
-    if not user or str(s_get(user, 'chat_id')) != str(ADMIN_CHAT_ID):
-        return RedirectResponse(url="/vip", status_code=303)
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
 
+    db = get_admin_db()
+    table_name = "manual_slips" if type == "vip" else "free_slips"
+    
+    db.table(table_name).insert({
+        "tipp_neve": title,
+        "eredo_odds": odds,
+        "esemenyek": events,
+        "status": "Folyamatban"
+    }).execute()
+    
+    return RedirectResponse(url="/vip", status_code=303)
+
+@router.post("/admin/update-slip-status")
+async def update_slip_status(
+    request: Request,
+    slip_id: str = Form(...),
+    status: str = Form(...),
+    type: str = Form("vip")
+):
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    user = get_current_user(request)
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    db = get_admin_db()
+    table_name = "manual_slips" if type == "vip" else "free_slips"
+    
+    db.table(table_name).update({"status": status}).eq("id", slip_id).execute()
+    return RedirectResponse(url="/vip", status_code=303)
+
+# --- 2. ÚJ: Fájlfeltöltési logika (Elemzések & Táblázatok) ---
+
+@router.post("/upload-analysis")
+async def handle_upload_analysis(
+    request: Request, 
+    file: UploadFile = File(...), 
+    category: str = Form(...) # 'vip' vagy 'free'
+):
+    # Admin ellenőrzés
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    user = get_current_user(request)
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    admin_supabase = get_admin_db()
+    
     try:
-        supabase = get_db()
+        # 1. Fájl kiterjesztés és típus meghatározása
+        ext = file.filename.split('.')[-1].lower()
+        file_type = 'pdf' if ext == 'pdf' else 'xlsx'
         
-        # 1. Kép feltöltése a Storage-ba
-        contents = await slip_image.read()
-        file_ext = slip_image.filename.split('.')[-1]
-        file_name = f"{int(time.time())}_{secrets.token_hex(4)}.{file_ext}"
-        storage_path = f"{tip_type}/{file_name}"
+        # 2. Fájl tartalmának beolvasása
+        file_content = await file.read()
         
-        supabase.storage.from_("slips").upload(storage_path, contents)
-        image_url = supabase.storage.from_("slips").get_public_url(storage_path)
-
-        # 2. Adatok mentése a megfelelő táblába
-        table_name = "manual_slips" if tip_type == "vip" else "free_slips"
-        data = {
-            "tipp_neve": tipp_neve,
-            "eredo_odds": eredo_odds,
-            "target_date": target_date,
-            "image_url": image_url,
-            "status": "Folyamatban",
-            "created_at": datetime.now(pytz.timezone('Europe/Budapest')).isoformat()
-        }
-        supabase.table(table_name).insert(data).execute()
-
-        # 3. ÉRTESÍTÉSEK KIKÜLDÉSE A TAGOKNAK
-        if send_telegram_broadcast_task:
-            # Csak az aktív előfizetőket keressük le
-            vip_users = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").execute()
-            target_ids = [u['chat_id'] for u in vip_users.data if u.get('chat_id')]
-
-            if target_ids:
-                emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
-                site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
-                
-                # Értesítő üzenet összeállítása
-                notif_msg = (
-                    f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
-                    f"📝 Név: *{tipp_neve}*\n"
-                    f"📈 Odds: *{eredo_odds}*\n"
-                    f"📅 Dátum: *{target_date}*\n\n"
-                    f"🚀 [Megtekintés az oldalon]({site_url}/vip)"
-                )
-                
-                # Kiküldés indítása a háttérben
-                background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
-
-        return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítések elindítva!", status_code=303)
+        # 3. Feltöltés a Supabase Storage-ba (elemzesek bucket)
+        # Az upsert: true felülírja, ha már létezik ilyen nevű fájl
+        storage_path = f"{category}/{file.filename}"
+        admin_supabase.storage.from_("elemzesek").upload(
+            path=storage_path,
+            file=file_content,
+            file_options={"upsert": "true", "content-type": file.content_type}
+        )
+        
+        # 4. Publikus URL lekérése
+        file_url = admin_supabase.storage.from_("elemzesek").get_public_url(storage_path)
+        
+        # 5. Adatbázis bejegyzés létrehozása az elemzesek táblában
+        admin_supabase.table("elemzesek").insert({
+            "file_name": file.filename,
+            "file_url": file_url,
+            "category": category,
+            "file_type": file_type
+        }).execute()
+        
+        print(f"✅ Sikeres feltöltés: {file.filename} ({category})")
+        return RedirectResponse(url="/vip?status=upload_success", status_code=303)
         
     except Exception as e:
-        print(f"Admin feltöltési hiba: {e}")
-        return RedirectResponse(url=f"/admin/upload?error=Hiba: {str(e)}", status_code=303)
+        print(f"❌ Feltöltési hiba: {e}")
+        return RedirectResponse(url="/vip?status=upload_error", status_code=303)
+
+@router.get("/delete-analysis/{file_id}")
+async def delete_analysis(request: Request, file_id: str):
+    # Admin ellenőrzés
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    user = get_current_user(request)
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    admin_supabase = get_admin_db()
+    
+    try:
+        # Adatok lekérése a törléshez a Storage útvonal miatt
+        res = admin_supabase.table("elemzesek").select("*").eq("id", file_id).single().execute()
+        if res.data:
+            # Törlés a Storage-ból
+            storage_path = f"{res.data['category']}/{res.data['file_name']}"
+            admin_supabase.storage.from_("elemzesek").remove([storage_path])
+            
+            # Törlés az adatbázisból
+            admin_supabase.table("elemzesek").delete().eq("id", file_id).execute()
+            
+        return RedirectResponse(url="/vip?status=delete_success", status_code=303)
+    except Exception as e:
+        print(f"❌ Törlési hiba: {e}")
+        return RedirectResponse(url="/vip?status=delete_error", status_code=303)
