@@ -387,6 +387,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
     query = update.callback_query
     message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
     await query.answer()
+    
     try:
         def sync_task_stat():
             sb = get_admin_db_client()
@@ -399,23 +400,25 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 target_date = target_date_obj.strftime('%Y-%m-%d')
                 
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{target_date}%")
-                # Javított dátumszűrés (Postgres kompatibilis)
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", t_start).lte("kezdes", t_end).neq("eredmeny", "Tipp leadva")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", t_start).lte("kezdes", t_end)
                 man_q = sb.table("manual_slips").select("*").eq("target_date", target_date)
                 free_q = sb.table("free_slips").select("*").eq("target_date", target_date)
                 header = f"Előző nap ({target_date})"
+                
             elif period == "all":
                 tuti_q = sb.table("napi_tuti").select("*")
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").neq("eredmeny", "Tipp leadva")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds")
                 man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
                 header = "Összesített (All-Time)"
+                
             else:
                 target_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=month_offset)
                 year_month = target_month_start.strftime('%Y-%m')
                 next_month_start = target_month_start + relativedelta(months=1)
+                
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%")
-                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat()).neq("eredmeny", "Tipp leadva")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat())
                 man_q = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
                 free_q = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
@@ -428,8 +431,10 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         if res_tuti.data:
             for row in res_tuti.data:
                 raw = row.get('tipp_id_k', [])
-                if isinstance(raw, list): bot_ids.update([int(i) for i in raw])
-                elif isinstance(raw, str): bot_ids.update([int(i.strip()) for i in raw.replace('[','').replace(']','').split(',') if i.strip().isdigit()])
+                if isinstance(raw, list): 
+                    bot_ids.update([int(i) for i in raw])
+                elif isinstance(raw, str): 
+                    bot_ids.update([int(i.strip()) for i in raw.replace('[','').replace(']','').split(',') if i.strip().isdigit()])
 
         s = {
             "bot": {"c": 0, "w": 0, "p": 0.0},
@@ -437,33 +442,39 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             "free": {"c": 0, "w": 0, "p": 0.0}
         }
         
+        # Bot tippek feldolgozása (csak lezárt meccsek)
         for m in (res_meccsek.data or []):
             if int(m['id']) in bot_ids:
-                is_win = m['eredmeny'] == "Nyert"
-                s["bot"]["c"] += 1
-                if is_win:
+                status = m.get('eredmeny')
+                if status == "Nyert":
+                    s["bot"]["c"] += 1
                     s["bot"]["w"] += 1
                     s["bot"]["p"] += (float(m.get('odds', 1.0)) - 1)
-                else:
+                elif status == "Veszített":
+                    s["bot"]["c"] += 1
                     s["bot"]["p"] -= 1.0
 
+        # VIP tippek feldolgozása (csak lezárt szelvények)
         for d in (res_man.data or []):
-            if d.get('status') in ['Nyert', 'Veszített']:
+            status = d.get('status')
+            if status == "Nyert":
                 s["vip"]["c"] += 1
-                if d['status'] == 'Nyert':
-                    s["vip"]["w"] += 1
-                    s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
-                else:
-                    s["vip"]["p"] -= 1.0
+                s["vip"]["w"] += 1
+                s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+            elif status == "Veszített":
+                s["vip"]["c"] += 1
+                s["vip"]["p"] -= 1.0
 
+        # Free tippek feldolgozása (csak lezárt szelvények)
         for d in (res_free.data or []):
-            if d.get('status') in ['Nyert', 'Veszített']:
+            status = d.get('status')
+            if status == "Nyert":
                 s["free"]["c"] += 1
-                if d['status'] == 'Nyert':
-                    s["free"]["w"] += 1
-                    s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
-                else:
-                    s["free"]["p"] -= 1.0
+                s["free"]["w"] += 1
+                s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+            elif status == "Veszített":
+                s["free"]["c"] += 1
+                s["free"]["p"] -= 1.0
 
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
         won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
@@ -474,20 +485,22 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg = f"🔥 *Statisztika - {header}*\n\n"
         if ev_tot > 0:
             stat_msg += f"📊 *Összesített*\n"
-            stat_msg += f"  - Kiértékelt: *{ev_tot}*\n"
-            stat_msg += f"  - Nyertes: *{won_tot}*\n"
+            stat_msg += f"  - Kiértékelt: *{ev_tot} db*\n"
+            stat_msg += f"  - Nyertes: *{won_tot} db*\n"
             stat_msg += f"  - Találati: *{win_rate:.2f}%*\n"
             stat_msg += f"  - Profit: *{net_tot:+.2f} egység*\n"
             stat_msg += f"  - ROI: *{roi_tot:.2f}%*\n\n"
+        else:
+            stat_msg += "📭 _Nincs lezárt tipp ebben az időszakban._\n\n"
         
-        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} db, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
-        stat_msg += f"📝 *VIP*: {s['vip']['c']} db, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
-        stat_msg += f"🆓 *Free*: {s['free']['c']} db, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
+        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} lezárt, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
+        stat_msg += f"📝 *VIP*: {s['vip']['c']} lezárt, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
+        stat_msg += f"🆓 *Free*: {s['free']['c']} lezárt, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
         keyboard = []
-        if period != "all" and period != "yesterday":
+        if period not in ["all", "yesterday"]:
             keyboard.append([
-                InlineKeyboardButton("⬅️ Előző", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
+                InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
                 InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
             ])
         
@@ -496,12 +509,15 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
         keyboard.append(row2)
         
-        if month_offset > 0 or period == "all" or period == "yesterday":
+        if month_offset > 0 or period in ["all", "yesterday"]:
             keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        
     except Exception as e:
-        await message_to_edit.edit_text(f"Hiba a statisztikában: {e}")
+        import traceback
+        print(traceback.format_exc())
+        await message_to_edit.edit_text(f"❌ Hiba a statisztika generálása közben: {e}")
 
 @admin_only
 async def button_handler(update: telegram.Update, context: CallbackContext):
