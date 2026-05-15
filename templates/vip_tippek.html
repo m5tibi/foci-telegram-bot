@@ -290,7 +290,7 @@
 
         {% if free_analysis_files %}
         <div class="analysis-container" style="border-left-color: #38A169;">
-            <h3 style="margin-top: 0; color: #38A169;"><i class="fas fa-gift"></i> Ingyenes Napi Elemzések</h3>
+            <h3 style="margin-top: 0; color: #38A169;"><i class="fas fa-gift"></i> Ingyenes Napi Elemzések / Eredmények</h3>
             <div class="analysis-grid">
                 {% for file in free_analysis_files %}
                 <a href="{{ file.file_url }}" target="_blank" class="analysis-item" style="border-color: #38A169;">
@@ -306,7 +306,7 @@
         {% endif %}
 
         {% if active_free_slips %}
-            <h3>Mai Ingyenes Szelvények</h3>
+            <h3>Mai Ingyenes Szelvény(ek)</h3>
             <div class="manual-slips-grid">
             {% for slip in active_free_slips %}
                 {% if slip.image_url %}
