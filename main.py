@@ -1,4 +1,4 @@
-# main.py (V23.04 - Elemzések és táblázatok integrálva)
+# main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
 import telegram
@@ -102,8 +102,8 @@ async def vip_area(request: Request):
         today_str = now_local.strftime("%Y-%m-%d")
         tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # 1. Ingyenes fájlok lekérése (mindenki látja)
-        f_analysis_res = db.table("elemzesek").select("*").eq("category", "free").order("created_at", desc=True).limit(5).execute()
+        # 1. Ingyenes fájlok lekérése (KORLÁTOZÁS NÉLKÜL - Így a május 13-i is látszik!)
+        f_analysis_res = db.table("elemzesek").select("*").eq("category", "free").order("created_at", desc=True).execute()
         free_analysis_files = f_analysis_res.data or []
 
         # 2. Ingyenes manuális szelvények lekérése
@@ -121,6 +121,8 @@ async def vip_area(request: Request):
 
                 if all_ids:
                     query = db.table("meccsek").select("*").in_("id", list(set(all_ids)))
+                    
+                    # KRITIKUS MÓDOSÍTÁS: A lezárt/kiértékelt bot tippeket már nem engedjük át a weboldalra!
                     if not is_admin:
                         query = query.eq("eredmeny", "Folyamatban")
                     else:
@@ -154,8 +156,8 @@ async def vip_area(request: Request):
             m_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
             active_manual = m_res.data or []
 
-            # 5. VIP Fájlok (Csak előfizetőknek)
-            analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).limit(5).execute()
+            # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
+            analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
             analysis_files = analysis_res.data or []
             
         else:
