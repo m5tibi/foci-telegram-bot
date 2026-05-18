@@ -41,7 +41,6 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     user = get_current_user(request)
     if not user: return RedirectResponse(url="/", status_code=303)
 
-    # CSAK az m5tibi77@gmail.com használja a technikai Teszt kulcsot[cite: 5]
     is_technical_test = user['email'] == "m5tibi77@gmail.com"
     active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
     stripe.api_key = active_key
@@ -49,25 +48,29 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
 
     try:
+        # JAVÍTÁS: A havi csomagnál 'subscription', a napi és heti egyszeri csomagnál 'payment' módot használunk!
+        checkout_mode = 'subscription' if plan == 'monthly' else 'payment'
+
         session_params = {
             "payment_method_types": ['card'],
             "line_items": [{'price': price_id, 'quantity': 1}],
-            "mode": 'subscription',
+            "mode": checkout_mode,
             "success_url": f"{RENDER_APP_URL}/vip?payment=success",
             "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
             "metadata": {"user_id": str(user['id']), "plan": plan},
             "billing_address_collection": "required",
-            "tax_id_collection": {"enabled": True},
         }
         
-        if user.get("stripe_customer_id"):
-            session_params["customer"] = user["stripe_customer_id"]
-            # customer_update csak meglévő customer esetén használható[cite: 5]
-            session_params["customer_update"] = {
-                "name": "auto",
-                "address": "auto"
-            }
+        # A tax_id_collection és customer_update szigorúan csak subscription módban működik stabilan, payment módban hibát dobhat
+        if checkout_mode == 'subscription':
+            session_params["tax_id_collection"] = {"enabled": True}
+            if user.get("stripe_customer_id"):
+                session_params["customer"] = user["stripe_customer_id"]
+                session_params["customer_update"] = {"name": "auto", "address": "auto"}
+            else:
+                session_params["customer_email"] = user['email']
         else:
+            # Egyszeri fizetés esetén simán csak átadjuk az e-mailt a kényelmes kitöltéshez
             session_params["customer_email"] = user['email']
 
         checkout_session = stripe.checkout.Session.create(**session_params)
@@ -104,6 +107,7 @@ async def stripe_webhook(request: Request):
         p_name = get_val(metadata, "plan", "monthly")
         
         if u_id:
+            # Kiszámoljuk a napokat
             dur = 31 if p_name == 'monthly' else (7 if p_name == 'weekly' else 1)
             new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
             
@@ -115,7 +119,7 @@ async def stripe_webhook(request: Request):
             
             cust_details = getattr(obj, 'customer_details', {})
             email = get_val(cust_details, 'email', 'Ismeretlen')
-            await send_admin_alert(f"💰 *ÚJ ELŐFIZETÉS!*\n👤 {email}\n📦 {p_name}")
+            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n👤 {email}\n📦 {p_name} ({dur} nap)")
 
     elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
         inv_id = getattr(obj, 'id', None)
@@ -151,7 +155,6 @@ async def create_portal_session(request: Request):
         return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
 
     c_id = user["stripe_customer_id"]
-    # Itt is érvényesítjük a technikai teszt elkülönítést[cite: 5]
     is_technical_test = user['email'] == "m5tibi77@gmail.com"
     active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else STRIPE_SECRET_KEY
     try:
