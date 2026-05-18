@@ -58,6 +58,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "payment_method_types": ['card'],
             "line_items": [{'price': price_id, 'quantity': 1}],
             "mode": checkout_mode,
+            "allow_promotion_codes": True,
             "success_url": f"{RENDER_APP_URL}/vip?payment=success",
             "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
             "metadata": {"user_id": str(user['id']), "plan": plan},
