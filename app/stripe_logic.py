@@ -108,13 +108,12 @@ async def stripe_webhook(request: Request):
         p_name = get_val(metadata, "plan", "monthly")
         
         if u_id:
-            # JAVÍTOTT LEJÁRATI IDŐ SZÁMÍTÁS AZ ÖSSZES CSOMAGRA
+            # LEJÁRATI IDŐ SZÁMÍTÁS ÉS TELEGRAM MEGJELENÍTÉS AZ ÖSSZES CSOMAGRA
             if p_name == 'lifetime':
-                # Örökös tagság esetén egy távoli fix dátumot adunk meg (2050-ig érvényes)
                 new_exp = datetime(2050, 12, 31, 23, 59, 59, tzinfo=pytz.utc).isoformat()
                 dur_text = "Örökös (Lifetime)"
+                plan_display = "🔥 Örökös VIP Tagság"
             else:
-                # Dinamikus nap-hozzárendelés a csomagnév alapján
                 days_map = {
                     'daily': 1,
                     'weekly': 7,
@@ -125,6 +124,15 @@ async def stripe_webhook(request: Request):
                 dur = days_map.get(p_name, 31)
                 new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
                 dur_text = f"{dur} nap"
+                
+                display_names = {
+                    'daily': "🎫 Napi All-In Jegy",
+                    'weekly': "🗓️ Heti All-In Bérlet",
+                    'monthly': "📅 Havi All-In Tagság",
+                    'semi_annual': "🌟 Féléves All-In Bérlet",
+                    'annual': "👑 Éves All-In Tagság"
+                }
+                plan_display = display_names.get(p_name, f"Csomag: {p_name}")
             
             client.table("felhasznalok").update({
                 "subscription_status": "active", 
@@ -134,7 +142,7 @@ async def stripe_webhook(request: Request):
             
             cust_details = getattr(obj, 'customer_details', {})
             email = get_val(cust_details, 'email', 'Ismeretlen')
-            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n👤 {email}\n📦 {p_name} ({dur_text})")
+            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}")
 
     elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
         inv_id = getattr(obj, 'id', None)
@@ -145,7 +153,6 @@ async def stripe_webhook(request: Request):
             
             if res and hasattr(res, 'data') and res.data and get_val(obj, 'billing_reason') != 'subscription_create':
                 processed_invoice_ids.add(inv_id)
-                amount = getattr(obj, 'amount_paid', 0)
                 
                 # Az automatikus havi megújuló számlázás továbbra is fixen 31 napot tesz hozzá
                 dur = 31
