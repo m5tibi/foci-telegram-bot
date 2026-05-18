@@ -51,7 +51,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
 
     try:
-        # JAVÍTÁS: A havi csomagnál 'subscription', a napi és heti egyszeri csomagnál 'payment' módot használunk!
+        # Kizárólag a havi csomagnál 'subscription', az összes többinél 'payment' (egyszeri) mód fut le!
         checkout_mode = 'subscription' if plan == 'monthly' else 'payment'
 
         session_params = {
@@ -64,7 +64,6 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "billing_address_collection": "required",
         }
         
-        # A tax_id_collection és customer_update szigorúan csak subscription módban működik stabilan, payment módban hibát dobhat
         if checkout_mode == 'subscription':
             session_params["tax_id_collection"] = {"enabled": True}
             if user.get("stripe_customer_id"):
@@ -73,7 +72,6 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             else:
                 session_params["customer_email"] = user['email']
         else:
-            # Egyszeri fizetés esetén simán csak átadjuk az e-mailt a kényelmes kitöltéshez
             session_params["customer_email"] = user['email']
 
         checkout_session = stripe.checkout.Session.create(**session_params)
@@ -110,9 +108,23 @@ async def stripe_webhook(request: Request):
         p_name = get_val(metadata, "plan", "monthly")
         
         if u_id:
-            # Kiszámoljuk a napokat
-            dur = 31 if p_name == 'monthly' else (7 if p_name == 'weekly' else 1)
-            new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+            # JAVÍTOTT LEJÁRATI IDŐ SZÁMÍTÁS AZ ÖSSZES CSOMAGRA
+            if p_name == 'lifetime':
+                # Örökös tagság esetén egy távoli fix dátumot adunk meg (2050-ig érvényes)
+                new_exp = datetime(2050, 12, 31, 23, 59, 59, tzinfo=pytz.utc).isoformat()
+                dur_text = "Örökös (Lifetime)"
+            else:
+                # Dinamikus nap-hozzárendelés a csomagnév alapján
+                days_map = {
+                    'daily': 1,
+                    'weekly': 7,
+                    'monthly': 31,
+                    'semi_annual': 182,
+                    'annual': 365
+                }
+                dur = days_map.get(p_name, 31)
+                new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+                dur_text = f"{dur} nap"
             
             client.table("felhasznalok").update({
                 "subscription_status": "active", 
@@ -122,7 +134,7 @@ async def stripe_webhook(request: Request):
             
             cust_details = getattr(obj, 'customer_details', {})
             email = get_val(cust_details, 'email', 'Ismeretlen')
-            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n👤 {email}\n📦 {p_name} ({dur} nap)")
+            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n👤 {email}\n📦 {p_name} ({dur_text})")
 
     elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
         inv_id = getattr(obj, 'id', None)
@@ -134,7 +146,9 @@ async def stripe_webhook(request: Request):
             if res and hasattr(res, 'data') and res.data and get_val(obj, 'billing_reason') != 'subscription_create':
                 processed_invoice_ids.add(inv_id)
                 amount = getattr(obj, 'amount_paid', 0)
-                dur = 31 if amount > 500000 else (7 if amount > 200000 else 1)
+                
+                # Az automatikus havi megújuló számlázás továbbra is fixen 31 napot tesz hozzá
+                dur = 31
                 
                 start_dt = datetime.now(pytz.utc)
                 exp_at = res.data.get('subscription_expires_at')
