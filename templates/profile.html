@@ -4,27 +4,55 @@
 
 {% block content %}
 <style>
-    .pricing-container {
-        display: flex;
-        justify-content: center;
+    .pricing-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 20px;
-        flex-wrap: wrap;
-        margin-top: 20px;
+        margin-top: 25px;
     }
     .pricing-card {
         background: #2D3748;
-        padding: 20px;
-        border-radius: 10px;
+        padding: 25px;
+        border-radius: 12px;
         text-align: center;
-        flex: 1;
-        min-width: 250px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         border: 1px solid #4A5568;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        position: relative;
     }
-    .pricing-card h3 { color: #fff; margin-bottom: 10px; }
-    .price { font-size: 1.5rem; font-weight: bold; color: #38A169; margin-bottom: 15px; }
-    .features { list-style: none; padding: 0; margin-bottom: 20px; color: #E2E8F0; font-size: 0.9em; }
-    .features li { margin-bottom: 5px; }
+    .pricing-card.featured {
+        border: 2px solid #38A169;
+        transform: scale(1.01);
+    }
+    .pricing-card.annual-card {
+        border: 2px solid #3182ce;
+        transform: scale(1.01);
+    }
+    .pricing-card.lifetime-card {
+        border: 2px solid #D69E2E;
+    }
+    .badge {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #38A169;
+        color: white;
+        padding: 4px 12px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        border-radius: 20px;
+        text-transform: uppercase;
+    }
+    .badge.blue { background: #3182ce; }
+    .badge.gold { background: #D69E2E; }
+    .price { font-size: 1.8rem; font-weight: bold; color: #48BB78; margin: 15px 0; }
+    .price span { font-size: 0.9rem; color: #A0AEC0; }
+    .features { list-style: none; padding: 0; margin-bottom: 25px; color: #E2E8F0; font-size: 0.9em; text-align: left; }
+    .features li { margin-bottom: 8px; padding-left: 20px; position: relative; }
+    .features li::before { content: "✓"; position: absolute; left: 0; color: #48BB78; font-weight: bold; }
 </style>
 
     <h1>Profilom</h1>
@@ -41,49 +69,93 @@
 
     {% if not is_subscribed %}
     <hr style="border-color: #4A5568;">
-    <h2 style="text-align: center;">Nincs aktív előfizetésed. Válassz csomagot!</h2>
+    <h2 style="text-align: center; margin-top: 20px;">Nincs aktív előfizetésed. Válassz a megújult csomagok közül!</h2>
     
-    <div class="pricing-container">
-        <div class="pricing-card" style="border: 2px solid #F6E05E;">
-            <h3>🎫 Próbanap</h3>
-            <p class="price">2.490 Ft<span>/nap</span></p>
+    <div class="pricing-grid">
+        <div class="pricing-card">
+            <h3>🎫 Napi All-In Jegy</h3>
+            <p class="price">2.490 Ft <span>/ egyszeri</span></p>
             <ul class="features">
-                <li>24 órás hozzáférés (egyszeri)</li>
-                <li>Kockázatmentes teszt</li>
-                <li>Azonnali VIP tippek</li>
+                <li>24 órás teljes VIP elérés</li>
+                <li>Minden MI Bot tipp és elemzés</li>
+                <li>Ideális egy gyors kockázatmentes tesztre</li>
             </ul>
             <form action="/create-checkout-session-web" method="POST">
                 <input type="hidden" name="plan" value="daily">
-                <button type="submit" class="button" style="background-color: #D69E2E;">Kipróbálom</button>
+                <button type="submit" class="button" style="background: #4A5568;">Kipróbálom</button>
             </form>
         </div>
 
         <div class="pricing-card">
-            <h3>🗓️ Heti Csomag</h3>
-            <p class="price">5.490 Ft<span>/hét</span></p>
+            <h3>🗓️ Heti All-In Bérlet</h3>
+            <p class="price">5.490 Ft <span>/ egyszeri</span></p>
             <ul class="features">
-                <li>7 napos hozzáférés (egyszeri)</li>
-                <li>Minden VIP tipp</li>
-                <li>Kedvezőbb ár</li>
+                <li>7 napos teljes körű VIP elérés</li>
+                <li>Minden prémium tipp és kiemelt elemzés</li>
+                <li>Kövesd végig a teljes kupafordulót</li>
             </ul>
             <form action="/create-checkout-session-web" method="POST">
                 <input type="hidden" name="plan" value="weekly">
-                <button type="submit" class="button">Megnézem</button>
+                <button type="submit" class="button" style="background: #4A5568;">Megveszem</button>
             </form>
         </div>
 
-        <div class="pricing-card" style="border: 2px solid #38A169;">
-            <h3>📅 Havi Csomag</h3>
-            <p class="price">9.999 Ft<span>/hó</span></p>
+        <div class="pricing-card featured">
+            <div class="badge">Legnépszerűbb</div>
+            <h3>📅 Havi All-In Tagság</h3>
+            <p class="price">9.999 Ft <span>/ hó</span></p>
             <ul class="features">
-                <li>30 napos hozzáférés (automatikusan megújuló)</li>
-                <li>Legjobb ár/érték arány</li>
-                <li>Folyamatos profit lehetőség</li>
-                <li>Bármikor lemondható</li>
+                <li>30 napos folyamatos VIP tagság</li>
+                <li>Automatikus havi megújulás</li>
+                <li>Bármikor indoklás nélkül lemondható</li>
             </ul>
             <form action="/create-checkout-session-web" method="POST">
                 <input type="hidden" name="plan" value="monthly">
-                <button type="submit" class="button" style="background-color: #38A169;">Előfizetek</button>
+                <button type="submit" class="button" style="background: #38A169;">Előfizetek</button>
+            </form>
+        </div>
+
+        <div class="pricing-card">
+            <h3>🌟 Féléves All-In Bérlet</h3>
+            <p class="price">39.990 Ft <span>/ egyszeri</span></p>
+            <ul class="features">
+                <li>182 napos fix VIP hozzáférés</li>
+                <li>Nincs rejtett vagy váratlan megújulás</li>
+                <li>Kényelmes, stabil fél éves opció</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="semi_annual">
+                <button type="submit" class="button" style="background: #4A5568;">Megveszem</button>
+            </form>
+        </div>
+
+        <div class="pricing-card annual-card">
+            <div class="badge blue">Legjobb Érték</div>
+            <h3>👑 Éves All-In Tagság</h3>
+            <p class="price">59.990 Ft <span>/ egyszeri</span></p>
+            <ul class="features">
+                <li>365 napos (1 egész év) hozzáférés</li>
+                <li>Havi szintre bontva 50% megtakarítás</li>
+                <li>Profi és elkötelezett sportfogadóknak</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="annual">
+                <button type="submit" class="button" style="background: #3182ce;">Megveszem</button>
+            </form>
+        </div>
+
+        <div class="pricing-card lifetime-card">
+            <div class="badge gold">Limitált ajánlat</div>
+            <h3>🔥 Örökös (Lifetime) VIP</h3>
+            <p class="price">79.990 Ft <span>/ örök</span></p>
+            <ul class="features">
+                <li>Egyszeri díj, élethosszig tartó hozzáférés</li>
+                <li>Soha többé semmilyen megújuló költség</li>
+                <li>Minden jelenlegi és jövőbeli fejlesztés</li>
+            </ul>
+            <form action="/create-checkout-session-web" method="POST">
+                <input type="hidden" name="plan" value="lifetime">
+                <button type="submit" class="button" style="background: #D69E2E;">Örökös tag leszek</button>
             </form>
         </div>
     </div>
