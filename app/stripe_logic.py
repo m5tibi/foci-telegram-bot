@@ -22,8 +22,8 @@ processed_invoice_ids = set()
 
 TEST_PRICE_IDS = {
     "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
-    "weekly": "price_1RyYhxGTueuLQQunU6m71Kbd", 
-    "daily": "price_1TGjOwGTueuLQQun3dzmD3w9"
+    "weekly": "price_1TYNl9GTueuLQQunujGE5ikr", 
+    "daily": "price_1TYNklGTueuLQQunzWs7gjCD"
 }
 
 async def send_admin_alert(message: str):
