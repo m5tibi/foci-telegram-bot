@@ -53,6 +53,34 @@
     .features { list-style: none; padding: 0; margin-bottom: 25px; color: #E2E8F0; font-size: 0.9em; text-align: left; }
     .features li { margin-bottom: 8px; padding-left: 20px; position: relative; }
     .features li::before { content: "✓"; position: absolute; left: 0; color: #48BB78; font-weight: bold; }
+
+    /* --- AKCIÓS BANNER STÍLUS --- */
+    .promo-banner {
+        grid-column: 1 / -1;
+        background: linear-gradient(90deg, #2c3e50, #2980b9);
+        border: 2px dashed #F6E05E;
+        border-radius: 10px;
+        padding: 15px 20px;
+        text-align: center;
+        color: white;
+        margin-top: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .promo-banner h4 { margin: 0 0 5px 0; color: #F6E05E; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
+    .promo-banner p { margin: 0; font-size: 1rem; }
+    .promo-code-box {
+        display: inline-block;
+        background: #1A202C;
+        color: #F6E05E;
+        font-weight: bold;
+        padding: 4px 10px;
+        border-radius: 5px;
+        border: 1px solid #F6E05E;
+        font-family: monospace;
+        font-size: 1.1rem;
+        margin: 0 5px;
+        letter-spacing: 1px;
+    }
 </style>
 
     <h1>Profilom</h1>
@@ -73,11 +101,11 @@
     
     <div class="pricing-grid">
         <div class="pricing-card">
-            <h3>🎫 Napi VIP Jegy</h3>
+            <h3>🎫 Napi All-In Jegy</h3>
             <p class="price">2.490 Ft <span>/ egyszeri</span></p>
             <ul class="features">
                 <li>24 órás teljes VIP elérés</li>
-                <li>Minden prémium tipp és kiemelt elemzéss</li>
+                <li>Minden MI Bot tipp és elemzés</li>
                 <li>Ideális egy gyors kockázatmentes tesztre</li>
             </ul>
             <form action="/create-checkout-session-web" method="POST">
@@ -87,12 +115,12 @@
         </div>
 
         <div class="pricing-card">
-            <h3>🗓️ Heti VIP Bérlet</h3>
+            <h3>🗓️ Heti All-In Bérlet</h3>
             <p class="price">5.490 Ft <span>/ egyszeri</span></p>
             <ul class="features">
                 <li>7 napos teljes körű VIP elérés</li>
                 <li>Minden prémium tipp és kiemelt elemzés</li>
-                <li>Teszteld a tippeket 1 hétig!</li>
+                <li>Kövesd végig a teljes kupafordulót</li>
             </ul>
             <form action="/create-checkout-session-web" method="POST">
                 <input type="hidden" name="plan" value="weekly">
@@ -102,7 +130,7 @@
 
         <div class="pricing-card featured">
             <div class="badge">Legnépszerűbb</div>
-            <h3>📅 Havi VIP Tagság</h3>
+            <h3>📅 Havi All-In Tagság</h3>
             <p class="price">9.999 Ft <span>/ hó</span></p>
             <ul class="features">
                 <li>30 napos folyamatos VIP tagság</li>
@@ -115,8 +143,13 @@
             </form>
         </div>
 
+        <div class="promo-banner">
+            <h4>🔥 LIMITÁLT IDŐS PRÉMIUM AKCIÓ! 🔥</h4>
+            <p>Használd a <span class="promo-code-box">VIP50</span> kuponkódot a fizetési felületen, és vigyél el <strong>50% KEDVEZMÉNNYEL</strong> bármilyen hosszú távú bérletet!</p>
+        </div>
+
         <div class="pricing-card">
-            <h3>🌟 Féléves VIP Bérlet</h3>
+            <h3>🌟 Féléves All-In Bérlet</h3>
             <p class="price">39.990 Ft <span>/ egyszeri</span></p>
             <ul class="features">
                 <li>182 napos fix VIP hozzáférés</li>
@@ -131,7 +164,7 @@
 
         <div class="pricing-card annual-card">
             <div class="badge blue">Legjobb Érték</div>
-            <h3>👑 Éves VIP Tagság</h3>
+            <h3>👑 Éves All-In Tagság</h3>
             <p class="price">59.990 Ft <span>/ egyszeri</span></p>
             <ul class="features">
                 <li>365 napos (1 egész év) hozzáférés</li>
@@ -145,7 +178,7 @@
         </div>
 
         <div class="pricing-card lifetime-card">
-            <div class="badge gold">Kiemelt ajánlat</div>
+            <div class="badge gold">Limitált ajánlat</div>
             <h3>🔥 Örökös (Lifetime) VIP</h3>
             <p class="price">79.990 Ft <span>/ örök</span></p>
             <ul class="features">
