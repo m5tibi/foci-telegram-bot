@@ -62,7 +62,40 @@
         .manual-slip-card { flex: 0 0 100%; width: 100%; max-width: 100%; }
         .analysis-item { min-width: 100%; }
     }
-
+    
+    /* --- AKCIÓS BANNER STÍLUS --- */
+    .promo-banner {
+        grid-column: 1 / -1;
+        background: linear-gradient(90deg, #2c3e50, #2980b9);
+        border: 2px dashed #F6E05E;
+        border-radius: 10px;
+        padding: 15px 20px;
+        text-align: center;
+        color: white;
+        margin-top: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .promo-banner h4 { margin: 0 0 5px 0; color: #F6E05E; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
+    .promo-banner p { margin: 0; font-size: 1rem; }
+    .promo-code-box {
+        display: inline-block;
+        background: #1A202C;
+        color: #F6E05E;
+        font-weight: bold;
+        padding: 4px 10px;
+        border-radius: 5px;
+        border: 1px solid #F6E05E;
+        font-family: monospace;
+        font-size: 1.1rem;
+        margin: 0 5px;
+        letter-spacing: 1px;
+    }
+    
+    @media (max-width: 768px) {
+        .pricing-card.featured, .pricing-card.annual-card { transform: none; }
+        .manual-slip-card { flex: 0 0 100%; width: 100%; max-width: 100%; }
+        .analysis-item { min-width: 100%; }
+    }
     /* --- ELEMZÉS LETÖLTŐ STÍLUSOK (JAVÍTOTT MOBILOS NÉZET) --- */
     .analysis-container {
         background: #2D3748;
