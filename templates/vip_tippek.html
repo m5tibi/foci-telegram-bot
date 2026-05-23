@@ -57,9 +57,29 @@
     .features li { margin-bottom: 8px; padding-left: 20px; position: relative; }
     .features li::before { content: "✓"; position: absolute; left: 0; color: #48BB78; font-weight: bold; }
     
-    @media (max-width: 768px) {
+   @media (max-width: 768px) {
         .pricing-card.featured, .pricing-card.annual-card { transform: none; }
-        .manual-slip-card { flex: 0 0 100%; width: 100%; max-width: 100%; }
+        
+        /* --- MOBILOS KÉPMÉRET BOTRUGALMASÍTÁSA --- */
+        .manual-slips-grid {
+            gap: 10px; /* Kisebb hézag mobilon a szelvények között */
+            padding: 0 5px;
+        }
+        .manual-slip-card { 
+            flex: 0 0 100%; 
+            width: 100%; 
+            max-width: 100% !important; /* Elengedjük a 450px-es limitet mobilon */
+            border-radius: 8px;
+        }
+        .manual-slip-card img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px 8px 0 0;
+        }
+        .manual-card-footer {
+            padding: 8px; /* Kisebb szöveges rész, hogy a kép domináljon */
+        }
+        
         .analysis-item { min-width: 100%; }
     }
     
