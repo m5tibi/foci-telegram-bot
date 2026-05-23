@@ -59,28 +59,47 @@
     
    @media (max-width: 768px) {
         .pricing-card.featured, .pricing-card.annual-card { transform: none; }
-        
-        /* --- MOBILOS KÉPMÉRET BOTRUGALMASÍTÁSA --- */
-        .manual-slips-grid {
-            gap: 10px; /* Kisebb hézag mobilon a szelvények között */
-            padding: 0 5px;
-        }
-        .manual-slip-card { 
-            flex: 0 0 100%; 
-            width: 100%; 
-            max-width: 100% !important; /* Elengedjük a 450px-es limitet mobilon */
-            border-radius: 8px;
-        }
-        .manual-slip-card img {
-            width: 100%;
-            height: auto;
-            border-radius: 8px 8px 0 0;
-        }
-        .manual-card-footer {
-            padding: 8px; /* Kisebb szöveges rész, hogy a kép domináljon */
-        }
-        
         .analysis-item { min-width: 100%; }
+
+        /* --- BRUTÁLIS MOBILOS KÉP NAGYÍTÁS (SZÉLTŐL SZÉLIG) --- */
+        .manual-slips-section {
+            padding: 0 !important;
+            margin: 20px 0 !important;
+        }
+        
+        .manual-slips-grid {
+            gap: 15px !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        
+        .manual-slip-card { 
+            flex: 0 0 100% !important; 
+            width: 100% !important; 
+            max-width: 100% !important;
+            border-radius: 0px !important; /* Mobilon elengedjük a lekerekítést a faltól-falig hatásért */
+            border-left: none !important;
+            border-right: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #1A202C !important; /* Sötétebb háttér, hogy a kép még jobban kiemelkedjen */
+        }
+        
+        .manual-slip-card img {
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            display: block !important;
+            object-fit: contain !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+        }
+        
+        .manual-card-footer {
+            padding: 12px 10px !important;
+            background: #2D3748 !important;
+        }
     }
     
     /* --- AKCIÓS BANNER STÍLUS --- */
