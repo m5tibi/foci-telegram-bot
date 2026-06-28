@@ -354,28 +354,76 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
     except Exception as e: await query.message.edit_text(f"Hiba: {e}")
-# --- ADMIN BROADCAST FUNKCIÓK (HIÁNYZOTT!) ---
+# --- ADMIN BROADCAST FUNKCIÓK ---
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("📢 Írd meg az üzenetet, amit MINDENKINEK ki szeretnél küldeni (vagy /cancel):")
+    await update.callback_query.message.reply_text(
+        "📢 Írd meg az üzenetet, amit *MINDENKINEK* ki szeretnél küldeni.\n\n"
+        "_Markdown formázás támogatott (pl. *félkövér*, _dőlt_)_\n\n"
+        "Megszakításhoz: /cancel",
+        parse_mode='Markdown'
+    )
     return AWAITING_BROADCAST
 
 async def admin_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
     msg = update.message.text
-    # Itt küldheted ki az üzenetet a felhasználóknak
-    await update.message.reply_text(f"✅ Üzenet rögzítve a kiküldéshez: {msg}")
+
+    def fetch_all_users():
+        db = get_db_client()
+        res = db.table("felhasznalok").select("chat_id").not_.is_("chat_id", "null").execute()
+        return [u['chat_id'] for u in res.data if u.get('chat_id')]
+
+    try:
+        user_ids = await asyncio.to_thread(fetch_all_users)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hiba a felhasználók lekérésekor: {e}")
+        return ConversationHandler.END
+
+    if not user_ids:
+        await update.message.reply_text("⚠️ Nem található egyetlen összekapcsolt felhasználó sem.")
+        return ConversationHandler.END
+
+    await update.message.reply_text(f"🚀 Körüzenet indítása {len(user_ids)} felhasználónak...")
+    await send_smart_broadcast(context, user_ids, msg, "📢 Általános Körüzenet")
     return ConversationHandler.END
 
 @admin_only
 async def admin_vip_broadcast_start(update: telegram.Update, context: CallbackContext):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("💎 Írd meg a VIP üzenetet (vagy /cancel):")
+    await update.callback_query.message.reply_text(
+        "💎 Írd meg az üzenetet, amit *csak az aktív VIP előfizetőknek* szeretnél küldeni.\n\n"
+        "_Markdown formázás támogatott (pl. *félkövér*, _dőlt_)_\n\n"
+        "Megszakításhoz: /cancel",
+        parse_mode='Markdown'
+    )
     return AWAITING_VIP_BROADCAST
 
 async def admin_vip_broadcast_message_handler(update: telegram.Update, context: CallbackContext):
     msg = update.message.text
-    await update.message.reply_text(f"✅ VIP üzenet rögzítve: {msg}")
+
+    def fetch_vip_users():
+        db = get_db_client()
+        now_iso = datetime.now(pytz.utc).isoformat()
+        res = db.table("felhasznalok").select("chat_id") \
+            .eq("subscription_status", "active") \
+            .gt("subscription_expires_at", now_iso) \
+            .not_.is_("chat_id", "null") \
+            .execute()
+        return [u['chat_id'] for u in res.data if u.get('chat_id')]
+
+    try:
+        vip_ids = await asyncio.to_thread(fetch_vip_users)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hiba a VIP felhasználók lekérésekor: {e}")
+        return ConversationHandler.END
+
+    if not vip_ids:
+        await update.message.reply_text("⚠️ Nincs aktív VIP előfizető Telegram-összekötéssel.")
+        return ConversationHandler.END
+
+    await update.message.reply_text(f"🚀 VIP körüzenet indítása {len(vip_ids)} előfizetőnek...")
+    await send_smart_broadcast(context, vip_ids, msg, "💎 VIP Körüzenet")
     return ConversationHandler.END
 
 async def cancel_conversation(update: telegram.Update, context: CallbackContext):
