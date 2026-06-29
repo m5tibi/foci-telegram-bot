@@ -183,9 +183,13 @@
         }
         .stats-inner {
             max-width: 860px; margin: 0 auto;
-            display: flex; justify-content: space-around;
-            flex-wrap: wrap; gap: 14px 28px;
-            align-items: flex-start;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px 28px;
+        }
+        @media (max-width: 560px) {
+        .stats-inner {
+        grid-template-columns: repeat(2, 1fr);
         }
         .stat { 
             text-align: center;
