@@ -107,17 +107,24 @@ async def handle_manual_upload(
         }
         supabase.table(table_name).insert(data).execute()
 
-        # 6. TELEGRAM ÉRTESÍTÉS - JAVÍTOTT MŰKÖDŐ LINKKEL
+        # 6. TELEGRAM ÉRTESÍTÉS
         if send_telegram_broadcast_task:
-            users_res = supabase.table("felhasznalok").select("chat_id").execute()
+            now_iso = datetime.now(pytz.utc).isoformat()
+
+            # VIP szelvénynél csak aktív előfizetőknek, free esetén mindenki kap aki összekapcsolta
+            if tip_type == "vip":
+                users_res = supabase.table("felhasznalok").select("chat_id") \
+                    .eq("subscription_status", "active") \
+                    .gt("subscription_expires_at", now_iso) \
+                    .execute()
+            else:
+                users_res = supabase.table("felhasznalok").select("chat_id").execute()
+
             target_ids = [u['chat_id'] for u in users_res.data if u.get('chat_id')]
 
             if target_ids:
                 emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
-                
-                # Itt a javítás: a működő render-es linket használjuk
-                full_url = "https://foci-telegram-bot.onrender.com/vip"
-                
+                full_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 notif_msg = (
                     f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
                     f"📝 Név: *{tipp_neve}*\n"
@@ -135,7 +142,8 @@ async def handle_manual_upload(
 # --- 3. EXCEL/PDF ELEMZÉS FELTÖLTÉSE ---
 @router.post("/upload-analysis")
 async def handle_upload_analysis(
-    request: Request, 
+    request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...), 
     category: str = Form(...)
 ):
@@ -168,8 +176,34 @@ async def handle_upload_analysis(
             "file_type": file_type,
             "created_at": datetime.now(tz).isoformat()
         }).execute()
-        
-        return RedirectResponse(url="/admin/upload?message=Elemzés feltöltve!", status_code=303)
+
+        # TELEGRAM ÉRTESÍTÉS
+        if send_telegram_broadcast_task:
+            now_iso = datetime.now(pytz.utc).isoformat()
+
+            # VIP tartalomnál csak aktív előfizetőknek, free esetén mindenki kap aki összekapcsolta
+            if category == 'vip':
+                users_res = supabase.table("felhasznalok").select("chat_id") \
+                    .eq("subscription_status", "active") \
+                    .gt("subscription_expires_at", now_iso) \
+                    .execute()
+            else:
+                users_res = supabase.table("felhasznalok").select("chat_id").execute()
+
+            target_ids = [u['chat_id'] for u in users_res.data if u.get('chat_id')]
+
+            if target_ids:
+                file_emoji = "📊" if file_type == 'xlsx' else "📄"
+                cat_label = "VIP" if category == 'vip' else "Ingyenes"
+                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                notif_msg = (
+                    f"{file_emoji} *Új {cat_label} elemzés érkezett!*\n\n"
+                    f"📁 Fájl: *{file.filename}*\n\n"
+                    f"🚀 [Megtekintés a weboldalon]({vip_url})"
+                )
+                background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
+
+        return RedirectResponse(url="/admin/upload?message=Elemzés feltöltve és értesítések kiküldve!", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
