@@ -14,6 +14,13 @@ try:
 except ImportError:
     send_telegram_broadcast_task = None
 
+# Email értesítők
+try:
+    from .email_utils import notify_upload, notify_marketing
+except Exception:
+    notify_upload = None
+    notify_marketing = None
+
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
@@ -134,6 +141,25 @@ async def handle_manual_upload(
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
+        # 7. EMAIL ÉRTESÍTÉS
+        if notify_upload:
+            now_iso = datetime.now(pytz.utc).isoformat()
+            if tip_type == "vip":
+                email_res = supabase.table("felhasznalok").select("email") \
+                    .eq("subscription_status", "active") \
+                    .gt("subscription_expires_at", now_iso) \
+                    .execute()
+            else:
+                email_res = supabase.table("felhasznalok").select("email").execute()
+
+            to_emails = [u['email'] for u in email_res.data if u.get('email')]
+            if to_emails:
+                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                label = "VIP szelvény" if tip_type == "vip" else "ingyenes szelvény"
+                background_tasks.add_task(
+                    notify_upload, to_emails, label, tipp_neve, vip_url
+                )
+
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítés!", status_code=303)
         
     except Exception as e:
@@ -203,11 +229,149 @@ async def handle_upload_analysis(
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
+        # EMAIL ÉRTESÍTÉS
+        if notify_upload:
+            now_iso = datetime.now(pytz.utc).isoformat()
+            if category == 'vip':
+                email_res = supabase.table("felhasznalok").select("email") \
+                    .eq("subscription_status", "active") \
+                    .gt("subscription_expires_at", now_iso) \
+                    .execute()
+            else:
+                email_res = supabase.table("felhasznalok").select("email").execute()
+
+            to_emails = [u['email'] for u in email_res.data if u.get('email')]
+            if to_emails:
+                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                file_label = "📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)"
+                if category != 'vip':
+                    file_label = file_label.replace("VIP", "ingyenes")
+                background_tasks.add_task(
+                    notify_upload, to_emails, file_label, file.filename, vip_url
+                )
+
         return RedirectResponse(url="/admin/upload?message=Elemzés feltöltve és értesítések kiküldve!", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/admin/upload?error={str(e)}", status_code=303)
 
-# --- 4. TÖRLÉS ---
+# --- 4. MARKETING EMAIL KÜLDŐ ---
+MARKETING_EMAIL_FORM = """
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Email – Admin</title>
+    <style>
+        body {{ font-family: system-ui, sans-serif; background: #09090F; color: #E4E4EE; margin: 0; padding: 24px; }}
+        .card {{ max-width: 680px; margin: 0 auto; background: #18181F; border: 1px solid rgba(212,175,55,.3); border-radius: 12px; padding: 32px; }}
+        h1 {{ color: #D4AF37; font-size: 1.4rem; margin: 0 0 24px; }}
+        label {{ display: block; font-size: .82rem; font-weight: 600; color: #78788A; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 6px; margin-top: 18px; }}
+        input, textarea, select {{ width: 100%; padding: 11px 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: #09090F; color: #E4E4EE; font-size: 1rem; font-family: inherit; box-sizing: border-box; }}
+        textarea {{ min-height: 160px; resize: vertical; }}
+        input:focus, textarea:focus, select:focus {{ outline: none; border-color: rgba(212,175,55,.4); }}
+        .hint {{ font-size: .78rem; color: #555568; margin-top: 5px; }}
+        .btn {{ display: block; width: 100%; margin-top: 28px; padding: 14px; background: linear-gradient(135deg, #D4AF37, #F2D060); color: #08080E; font-weight: 800; font-size: 1rem; border: none; border-radius: 8px; cursor: pointer; }}
+        .btn:hover {{ opacity: .9; }}
+        .msg {{ padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: .9rem; }}
+        .msg.ok  {{ background: rgba(56,161,105,.15); border: 1px solid rgba(56,161,105,.3); color: #68D391; }}
+        .msg.err {{ background: rgba(255,100,100,.1); border: 1px solid rgba(255,100,100,.25); color: #FC8181; }}
+        a.back {{ color: #D4AF37; font-size: .85rem; display: inline-block; margin-bottom: 18px; }}
+    </style>
+</head>
+<body>
+<div class="card">
+    <a href="/admin/upload" class="back">← Vissza az admin felületre</a>
+    <h1>📧 Marketing Email Küldés</h1>
+    {message_block}
+    <form method="post" action="/admin/marketing-email">
+        <label>Célcsoport</label>
+        <select name="target">
+            <option value="all">Minden regisztrált felhasználó</option>
+            <option value="vip">Csak aktív VIP előfizetők</option>
+        </select>
+
+        <label>Tárgy (Subject)</label>
+        <input type="text" name="subject" placeholder="pl. Hétvégi akció – 20% kedvezmény!" required>
+
+        <label>Üzenet törzse (HTML is megadható)</label>
+        <textarea name="body" placeholder="Szia!&#10;&#10;Írd ide az email szövegét..." required></textarea>
+        <p class="hint">HTML formázás támogatott: &lt;strong&gt;, &lt;br&gt;, &lt;a href=...&gt; stb.</p>
+
+        <label>CTA gomb szövege (opcionális)</label>
+        <input type="text" name="cta_text" placeholder="pl. Előfizetés most!">
+
+        <label>CTA gomb linkje (opcionális)</label>
+        <input type="url" name="cta_url" placeholder="https://mondomatutit.hu">
+
+        <button type="submit" class="btn">Email küldése →</button>
+    </form>
+</div>
+</body>
+</html>
+"""
+
+@router.get("/admin/marketing-email", response_class=HTMLResponse)
+async def get_marketing_email(request: Request, message: str = None, error: str = None):
+    if not is_admin(request):
+        return RedirectResponse(url="/", status_code=303)
+    msg_block = ""
+    if message:
+        msg_block = f'<div class="msg ok">✅ {message}</div>'
+    if error:
+        msg_block = f'<div class="msg err">❌ {error}</div>'
+    return HTMLResponse(MARKETING_EMAIL_FORM.format(message_block=msg_block))
+
+
+@router.post("/admin/marketing-email")
+async def post_marketing_email(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    target: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    cta_text: str = Form(""),
+    cta_url: str = Form(""),
+):
+    if not is_admin(request):
+        return RedirectResponse(url="/", status_code=303)
+    if not notify_marketing:
+        return RedirectResponse(url="/admin/marketing-email?error=Email modul nem elérhető (RESEND_API_KEY hiányzik?)", status_code=303)
+
+    supabase = get_admin_db()
+    try:
+        now_iso = datetime.now(pytz.utc).isoformat()
+        if target == "vip":
+            res = supabase.table("felhasznalok").select("email") \
+                .eq("subscription_status", "active") \
+                .gt("subscription_expires_at", now_iso) \
+                .execute()
+        else:
+            res = supabase.table("felhasznalok").select("email").execute()
+
+        to_emails = [u['email'] for u in res.data if u.get('email')]
+        if not to_emails:
+            return RedirectResponse(url="/admin/marketing-email?error=Nem található email cím a célcsoportban", status_code=303)
+
+        background_tasks.add_task(
+            notify_marketing,
+            to_emails,
+            subject,
+            body.replace("\n", "<br>"),
+            cta_text or None,
+            cta_url or None,
+        )
+
+        target_label = "VIP előfizető" if target == "vip" else "regisztrált felhasználó"
+        return RedirectResponse(
+            url=f"/admin/marketing-email?message=Email küldés folyamatban – {len(to_emails)} {target_label} részére",
+            status_code=303
+        )
+    except Exception as e:
+        return RedirectResponse(url=f"/admin/marketing-email?error={str(e)}", status_code=303)
+
+
+# --- 5. TÖRLÉS ---
 @router.get("/admin/delete-file/{file_id}")
 async def delete_analysis(request: Request, file_id: str):
     if not is_admin(request):
