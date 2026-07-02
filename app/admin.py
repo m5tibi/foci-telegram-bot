@@ -229,11 +229,13 @@ async def handle_upload_analysis(
 
             if target_ids:
                 file_emoji = "📊" if file_type == 'xlsx' else "📄"
-                notif_label = description if description else ("VIP" if category == 'vip' else "Ingyenes")
+                header = "👑 *Új VIP feltöltés!*" if category == 'vip' else "📂 *Új ingyenes feltöltés!*"
+                desc_line = f"📝 {description}\n" if description else ""
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 notif_msg = (
-                    f"{file_emoji} *{notif_label}*\n\n"
-                    f"📁 Fájl: *{file.filename}*\n\n"
+                    f"{header}\n\n"
+                    f"{desc_line}"
+                    f"{file_emoji} Fájl: *{file.filename}*\n\n"
                     f"🚀 [Megtekintés a weboldalon]({vip_url})"
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
