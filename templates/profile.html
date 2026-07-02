@@ -93,6 +93,29 @@
                 <span style="color: #F44336; font-weight: bold;">Inaktív ❌</span>
             {% endif %}
         </p>
+        <p><strong>Email értesítők:</strong>
+            {% if user.get('email_unsubscribed') %}
+                <span style="color: #F44336; font-weight: bold;">Kikapcsolva ❌</span>
+            {% else %}
+                <span style="color: #4CAF50; font-weight: bold;">Bekapcsolva ✅</span>
+            {% endif %}
+        </p>
+        <form action="/profile/email-toggle" method="post" style="margin-top: 10px;">
+            {% if user.get('email_unsubscribed') %}
+                <button type="submit"
+                        style="background: #38A169; color: white; border: none;
+                               padding: 8px 18px; border-radius: 6px; cursor: pointer;
+                               font-weight: bold;">
+                    📧 Újra feliratkozom az email értesítőkre
+                </button>
+            {% else %}
+                <button type="submit"
+                        style="background: #4A5568; color: #A0AEC0; border: none;
+                               padding: 8px 18px; border-radius: 6px; cursor: pointer;">
+                    Leiratkozás az email értesítőkről
+                </button>
+            {% endif %}
+        </form>
     </div>
 
     {% if not is_subscribed %}
