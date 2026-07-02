@@ -83,7 +83,10 @@ async def unsubscribe(token: str = None):
     if not token:
         return page("Érvénytelen link", "Hiányzó token.", "#FC8181")
 
+    print(f"[UNSUB] Token érkezett, hossz: {len(token)}")
     email = verify_unsub_token(token)
+    print(f"[UNSUB] Dekódolt email: {email!r}")
+
     if not email:
         return page("Lejárt vagy érvénytelen link",
                     "Kérjük, kattints a legutóbbi emailben lévő leiratkozó linkre.",
@@ -91,8 +94,9 @@ async def unsubscribe(token: str = None):
 
     try:
         db = get_admin_db()
-        db.table("felhasznalok").update({"email_unsubscribed": True}) \
+        result = db.table("felhasznalok").update({"email_unsubscribed": True}) \
             .eq("email", email).execute()
+        print(f"[UNSUB] DB eredmény: {result.data}")
     except Exception as e:
         print(f"[UNSUB] DB hiba: {e}")
         return page("Hiba történt", "Kérjük, próbáld újra később.", "#FC8181")
@@ -119,7 +123,10 @@ async def resubscribe(token: str = None):
     if not token:
         return HTMLResponse("Érvénytelen link.", status_code=400)
 
+    print(f"[RESUB] Token érkezett, hossz: {len(token)}")
     email = verify_unsub_token(token)
+    print(f"[RESUB] Dekódolt email: {email!r}")
+
     if not email:
         return HTMLResponse("Lejárt vagy érvénytelen link. "
                             "Jelentkezz be és a profil oldalon is kezelheted az email beállításaidat.",
@@ -127,10 +134,12 @@ async def resubscribe(token: str = None):
 
     try:
         db = get_admin_db()
-        db.table("felhasznalok").update({"email_unsubscribed": False}) \
+        result = db.table("felhasznalok").update({"email_unsubscribed": False}) \
             .eq("email", email).execute()
+        print(f"[RESUB] DB eredmény: {result.data}")
     except Exception as e:
         print(f"[RESUB] DB hiba: {e}")
+        return HTMLResponse(f"Hiba: {e}", status_code=500)
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="hu"><head><meta charset="UTF-8">
