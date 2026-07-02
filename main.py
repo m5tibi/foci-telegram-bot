@@ -54,6 +54,49 @@ def calculate_roi(records):
 
 # --- 5. Útvonalak ---
 
+@api.get("/unsubscribe", response_class=HTMLResponse)
+async def unsubscribe(token: str = None):
+    """Egyetlen kattintásos email leiratkozás."""
+    from app.email_utils import verify_unsub_token
+
+    def page(heading: str, msg: str, color: str = "#9AE6B4") -> HTMLResponse:
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="hu"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Leiratkozás – Mondom a Tutit!</title></head>
+<body style="margin:0;background:#09090F;font-family:'Helvetica Neue',Arial,sans-serif;
+             display:flex;align-items:center;justify-content:center;min-height:100vh;">
+<div style="max-width:460px;padding:40px 32px;background:#18181F;
+            border:1px solid rgba(212,175,55,.3);border-radius:16px;text-align:center;">
+  <p style="font-size:22px;font-weight:900;color:#D4AF37;margin:0 0 18px;">
+    ⚽ Mondom a Tutit!</p>
+  <h1 style="font-size:20px;color:{color};margin:0 0 12px;">{heading}</h1>
+  <p style="color:#A0A0C0;font-size:15px;margin:0 0 28px;">{msg}</p>
+  <a href="{SITE_URL}" style="display:inline-block;background:#D4AF37;color:#08080E;
+     font-weight:800;padding:12px 28px;border-radius:50px;text-decoration:none;">
+    Vissza a weboldalra</a>
+</div></body></html>""")
+
+    if not token:
+        return page("Érvénytelen link", "Hiányzó token.", "#FC8181")
+
+    email = verify_unsub_token(token)
+    if not email:
+        return page("Lejárt vagy érvénytelen link",
+                    "Kérjük, kattints a legutóbbi emailben lévő leiratkozó linkre.", "#FC8181")
+
+    try:
+        db = get_db()
+        db.table("felhasznalok").update({"email_unsubscribed": True}).eq("email", email).execute()
+    except Exception as e:
+        print(f"[UNSUB] DB hiba: {e}")
+        return page("Hiba történt", "Kérjük, próbáld újra később.", "#FC8181")
+
+    return page("Sikeresen leiratkoztál!",
+                "Többé nem küldünk email értesítőt erre a címre. "
+                "A weboldalon és Telegram csatornánkon továbbra is elérheted a tippeinket.")
+
+
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Főoldal: ha be van jelentkezve, a VIP-re megy, különben a loginra."""
