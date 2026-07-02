@@ -22,5 +22,6 @@ pandas
 openpyxl
 python-telegram-bot
 stripe
+resend
 
 # Build frissítés kényszerítése: 2026.04.28
