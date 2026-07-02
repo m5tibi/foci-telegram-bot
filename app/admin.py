@@ -179,7 +179,8 @@ async def handle_upload_analysis(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...), 
-    category: str = Form(...)
+    category: str = Form(...),
+    description: str = Form("")
 ):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
@@ -228,10 +229,10 @@ async def handle_upload_analysis(
 
             if target_ids:
                 file_emoji = "📊" if file_type == 'xlsx' else "📄"
-                cat_label = "VIP" if category == 'vip' else "Ingyenes"
+                notif_label = description if description else ("VIP" if category == 'vip' else "Ingyenes")
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 notif_msg = (
-                    f"{file_emoji} *Új {cat_label} elemzés érkezett!*\n\n"
+                    f"{file_emoji} *{notif_label}*\n\n"
                     f"📁 Fájl: *{file.filename}*\n\n"
                     f"🚀 [Megtekintés a weboldalon]({vip_url})"
                 )
@@ -248,9 +249,9 @@ async def handle_upload_analysis(
             to_emails = _active_emails(email_res.data)
             if to_emails:
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
-                file_label = "📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)"
+                email_label = description if description else ("📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)")
                 background_tasks.add_task(
-                    notify_upload, to_emails, file_label, file.filename, vip_url
+                    notify_upload, to_emails, email_label, file.filename, vip_url
                 )
 
         return RedirectResponse(url="/admin/upload?message=Elemzés feltöltve és értesítések kiküldve!", status_code=303)
