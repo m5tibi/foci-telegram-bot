@@ -1,138 +1,132 @@
 {% extends "base.html" %}
 
-{% block title %}Marketing Email – Admin{% endblock %}
+{% block title %}Admin Vezérlőpult{% endblock %}
 
 {% block content %}
 <div class="container" style="max-width: 800px; margin: 20px auto; color: white;">
-
+    
     <h1 style="text-align: center; margin-bottom: 20px;">Admin Vezérlőpult</h1>
 
     <!-- Navigáció -->
     <div style="display: flex; gap: 10px; margin-bottom: 28px;">
-        <a href="/admin/upload"
+        <span style="flex: 1; text-align: center; padding: 12px;
+                  background: #4299e1; color: white;
+                  border-radius: 8px; font-weight: bold;
+                  border: 1px solid #3182ce; cursor: default;">
+            📂 Feltöltés
+        </span>
+        <a href="/admin/marketing-email"
            style="flex: 1; text-align: center; padding: 12px;
                   background: #2d3748; color: #a0aec0;
                   border-radius: 8px; text-decoration: none;
                   font-weight: bold; border: 1px solid #4a5568;
                   transition: background 0.2s;">
-            📂 Feltöltés
-        </a>
-        <a href="/admin/marketing-email"
-           style="flex: 1; text-align: center; padding: 12px;
-                  background: #553c9a; color: white;
-                  border-radius: 8px; text-decoration: none;
-                  font-weight: bold; border: 1px solid #6b46c1;">
             📧 Marketing Email
         </a>
     </div>
 
-    <!-- Üzenetek -->
-    {% if message %}
-    <div style="background: #2A433A; border: 1px solid #38A169; border-radius: 8px;
-                padding: 14px 18px; margin-bottom: 22px; color: #9AE6B4;">
-        ✅ {{ message }}
-    </div>
-    {% endif %}
-    {% if error %}
-    <div style="background: #4A2222; border: 1px solid #C53030; border-radius: 8px;
-                padding: 14px 18px; margin-bottom: 22px; color: #FEB2B2;">
-        ❌ {{ error }}
-    </div>
-    {% endif %}
-
-    <!-- Email küldő form -->
-    <div style="background: #2d3748; padding: 25px; border-radius: 12px;
-                margin-bottom: 30px; border-left: 5px solid #6b46c1;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-        <h2 style="margin-top: 0; color: #b794f4;">📧 Marketing Email Küldés</h2>
-        <p style="color: #a0aec0; font-size: 0.9em;">
-            Email értesítő küldése a felhasználóknak. A küldés a háttérben történik.
-        </p>
-
-        <form action="/admin/marketing-email" method="post" style="margin-top: 15px;">
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #4299e1; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #4299e1;">📂 Elemzések & Táblázatok Feltöltése</h2>
+        <p style="color: #a0aec0; font-size: 0.9em;">Használd ezt az Excel (.xlsx) vagy PDF fájlok publikálásához.</p>
+        
+        <form action="/upload-analysis" method="POST" enctype="multipart/form-data" style="margin-top: 15px;">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Fájl kiválasztása:</label>
+                <input type="file" name="file" accept=".pdf,.xlsx" required style="width: 100%; padding: 10px; background: #1a202c; border-radius: 6px; border: 1px solid #4a5568; color: white;">
+            </div>
 
             <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px;">Célcsoport:</label>
-                <select name="target"
-                        style="width: 100%; padding: 10px; background: #1a202c;
-                               color: white; border-radius: 6px; border: 1px solid #4a5568;">
-                    <option value="all">Minden regisztrált felhasználó</option>
-                    <option value="vip">Csak aktív VIP előfizetők</option>
+                <label style="display: block; margin-bottom: 5px;">Célhely:</label>
+                <select name="category" style="width: 100%; padding: 10px; background: #1a202c; color: white; border-radius: 6px; border: 1px solid #4a5568;">
+                    <option value="vip">VIP Zóna</option>
+                    <option value="free">Ingyenes Tippek</option>
                 </select>
             </div>
 
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px;">Tárgy (Subject):</label>
-                <input type="text" name="subject"
-                       placeholder="pl. Hétvégi akció – 20% kedvezmény!"
-                       required
-                       style="width: 100%; padding: 10px; background: #1a202c;
-                              color: white; border-radius: 6px; border: 1px solid #4a5568;
-                              box-sizing: border-box;">
-            </div>
-
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px;">Üzenet törzse:</label>
-                <textarea name="body"
-                          rows="7"
-                          placeholder="Szia!&#10;&#10;Írd ide az email szövegét...&#10;&#10;HTML formázás is megadható: &lt;strong&gt;félkövér&lt;/strong&gt;, &lt;br&gt; sortörés."
-                          required
-                          style="width: 100%; padding: 10px; background: #1a202c;
-                                 color: white; border-radius: 6px; border: 1px solid #4a5568;
-                                 box-sizing: border-box; resize: vertical; font-family: inherit;"></textarea>
-                <p style="color: #718096; font-size: 0.8em; margin-top: 5px;">
-                    HTML támogatott: &lt;strong&gt;, &lt;em&gt;, &lt;br&gt;, &lt;a href="..."&gt;, &lt;ul&gt;&lt;li&gt; stb.
-                </p>
-            </div>
-
-            <div style="background: #1e2a3a; border-radius: 8px; padding: 15px;
-                        border: 1px dashed #4a5568; margin-bottom: 20px;">
-                <p style="margin: 0 0 12px; font-size: 0.85em; color: #a0aec0;">
-                    🔘 CTA gomb (opcionális) — megjelenik az email alján
-                </p>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px; font-size: 0.9em;">
-                        Gomb szövege:
-                    </label>
-                    <input type="text" name="cta_text"
-                           placeholder="pl. Előfizetés most!"
-                           style="width: 100%; padding: 10px; background: #1a202c;
-                                  color: white; border-radius: 6px; border: 1px solid #4a5568;
-                                  box-sizing: border-box;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-size: 0.9em;">
-                        Gomb linkje:
-                    </label>
-                    <input type="url" name="cta_url"
-                           placeholder="https://mondomatutit.hu"
-                           style="width: 100%; padding: 10px; background: #1a202c;
-                                  color: white; border-radius: 6px; border: 1px solid #4a5568;
-                                  box-sizing: border-box;">
-                </div>
-            </div>
-
-            <button type="submit"
-                    style="width: 100%; padding: 12px; background: #6b46c1;
-                           color: white; border: none; border-radius: 6px;
-                           font-weight: bold; font-size: 1rem;
-                           cursor: pointer; transition: background 0.2s;"
-                    onmouseover="this.style.background='#553c9a'"
-                    onmouseout="this.style.background='#6b46c1'">
-                📧 Email küldése
+            <button type="submit" style="width: 100%; padding: 12px; background: #4299e1; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                🚀 Fájl Feltöltése
             </button>
         </form>
     </div>
 
-    <!-- Infó kártya -->
-    <div style="background: #2d3748; padding: 20px; border-radius: 12px;
-                border: 1px solid #4a5568; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-        <h3 style="margin-top: 0; color: #cbd5e0; font-size: 1rem;">ℹ️ Automatikus értesítők</h3>
-        <p style="color: #a0aec0; font-size: 0.88em; margin: 0; line-height: 1.7;">
-            Feltöltéskor (szelvény vagy Excel/PDF) az email értesítők <strong style="color: #9AE6B4;">automatikusan</strong> elmennek —
-            VIP tartalomnál az aktív előfizetőknek, ingyenes tartalomnál mindenkinek.<br>
-            Ezt az oldalt csak <strong>manuális</strong> marketing emailekhez (akciók, hírek) kell használni.
-        </p>
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #38a169; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #38a169;">📝 Manuális Szelvény Feltöltése</h2>
+        <p style="color: #a0aec0; font-size: 0.9em;">Használd ezt, ha egy megrakott szelvény képét (screenshot) akarod megosztani.</p>
+
+        <form action="/admin/upload" method="post" enctype="multipart/form-data" style="margin-top: 15px;">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Tipp Típusa:</label>
+                <select name="tip_type" style="width: 100%; padding: 10px; background: #1a202c; color: white; border-radius: 6px; border: 1px solid #4a5568;">
+                    <option value="vip">VIP (Szerkesztői)</option>
+                    <option value="free">Ingyenes Tipp</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Szelvény Neve:</label>
+                <input type="text" name="tipp_neve" placeholder="Pl: Esti Hoki Mix" required style="width: 100%; padding: 10px; background: #1a202c; color: white; border-radius: 6px; border: 1px solid #4a5568;">
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Eredő Odds:</label>
+                <input type="number" step="0.01" name="eredo_odds" placeholder="Pl: 3.45" required style="width: 100%; padding: 10px; background: #1a202c; color: white; border-radius: 6px; border: 1px solid #4a5568;">
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Dátum:</label>
+                <input type="date" name="target_date" required style="width: 100%; padding: 10px; background: #1a202c; color: white; border-radius: 6px; border: 1px solid #4a5568;">
+            </div>
+
+            <div style="margin-bottom: 20px; padding: 15px; background: #3e4a5e; border-radius: 6px; border: 1px dashed #718096;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">📸 Szelvény Képe:</label>
+                <input type="file" name="slip_image" accept="image/*" required style="color: white;">
+            </div>
+
+            <button type="submit" style="width: 100%; padding: 12px; background: #38a169; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                ✅ Szelvény Beküldése és Értesítés
+            </button>
+        </form>
+    </div>
+
+    <div style="background: #2d3748; padding: 25px; border-radius: 12px; border: 1px solid #4a5568; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <h2 style="margin-top: 0; color: #cbd5e0;">📂 Feltöltött fájlok kezelése</h2>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9rem;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #4a5568; text-align: left; color: #a0aec0;">
+                        <th style="padding: 10px;">Fájlnév</th>
+                        <th style="padding: 10px;">Kategória</th>
+                        <th style="padding: 10px;">Dátum</th>
+                        <th style="padding: 10px; text-align: right;">Művelet</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr style="border-bottom: 1px solid #4a5568;">
+                        <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ file.file_name }}
+                        </td>
+                        <td style="padding: 10px;">
+                            <span style="padding: 3px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; background: {{ '#3182ce' if file.category == 'vip' else '#718096' }}; color: white;">
+                                {{ file.category.upper() }}
+                            </span>
+                        </td>
+                        <td style="padding: 10px; color: #a0aec0;">{{ file.created_at[:10] }}</td>
+                        <td style="padding: 10px; text-align: right;">
+                            <a href="/admin/delete-file/{{ file.id }}" 
+                               onclick="return confirm('Biztosan törlöd ezt a fájlt? A művelet nem vonható vissza!')"
+                               style="color: #e53e3e; text-decoration: none; font-weight: bold; padding: 5px 10px; border: 1px solid #e53e3e; border-radius: 4px; transition: all 0.2s;">
+                               Törlés
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if not files %}
+            <p style="text-align: center; color: #a0aec0; margin-top: 20px; font-style: italic;">Még nincs feltöltött elemzés vagy táblázat.</p>
+        {% endif %}
     </div>
 
 </div>
