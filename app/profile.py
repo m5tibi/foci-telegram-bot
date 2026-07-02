@@ -73,3 +73,20 @@ async def profile_page(request: Request):
             "is_subscribed": is_actually_active 
         }
     )
+
+
+@router.post("/profile/email-toggle")
+async def email_toggle(request: Request):
+    """Email értesítők be/kikapcsolása a profil oldalon."""
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
+    try:
+        admin_client = get_admin_db()
+        current = user.get("email_unsubscribed", False)
+        admin_client.table("felhasznalok") \
+            .update({"email_unsubscribed": not current}) \
+            .eq("id", user["id"]).execute()
+    except Exception as e:
+        print(f"[EMAIL TOGGLE] Hiba: {e}")
+    return RedirectResponse(url="/profile", status_code=303)
