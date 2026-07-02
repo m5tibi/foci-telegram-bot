@@ -141,23 +141,18 @@ async def handle_manual_upload(
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
-        # 7. EMAIL ÉRTESÍTÉS
-        if notify_upload:
+        # 7. EMAIL ÉRTESÍTÉS – csak VIP tartalomnál
+        if notify_upload and tip_type == "vip":
             now_iso = datetime.now(pytz.utc).isoformat()
-            if tip_type == "vip":
-                email_res = supabase.table("felhasznalok").select("email") \
-                    .eq("subscription_status", "active") \
-                    .gt("subscription_expires_at", now_iso) \
-                    .execute()
-            else:
-                email_res = supabase.table("felhasznalok").select("email").execute()
-
+            email_res = supabase.table("felhasznalok").select("email") \
+                .eq("subscription_status", "active") \
+                .gt("subscription_expires_at", now_iso) \
+                .execute()
             to_emails = [u['email'] for u in email_res.data if u.get('email')]
             if to_emails:
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
-                label = "VIP szelvény" if tip_type == "vip" else "ingyenes szelvény"
                 background_tasks.add_task(
-                    notify_upload, to_emails, label, tipp_neve, vip_url
+                    notify_upload, to_emails, "VIP szelvény", tipp_neve, vip_url
                 )
 
         return RedirectResponse(url="/admin/upload?message=Sikeres feltöltés és értesítés!", status_code=303)
@@ -229,23 +224,17 @@ async def handle_upload_analysis(
                 )
                 background_tasks.add_task(send_telegram_broadcast_task, target_ids, notif_msg)
 
-        # EMAIL ÉRTESÍTÉS
-        if notify_upload:
+        # EMAIL ÉRTESÍTÉS – csak VIP tartalomnál
+        if notify_upload and category == 'vip':
             now_iso = datetime.now(pytz.utc).isoformat()
-            if category == 'vip':
-                email_res = supabase.table("felhasznalok").select("email") \
-                    .eq("subscription_status", "active") \
-                    .gt("subscription_expires_at", now_iso) \
-                    .execute()
-            else:
-                email_res = supabase.table("felhasznalok").select("email").execute()
-
+            email_res = supabase.table("felhasznalok").select("email") \
+                .eq("subscription_status", "active") \
+                .gt("subscription_expires_at", now_iso) \
+                .execute()
             to_emails = [u['email'] for u in email_res.data if u.get('email')]
             if to_emails:
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 file_label = "📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)"
-                if category != 'vip':
-                    file_label = file_label.replace("VIP", "ingyenes")
                 background_tasks.add_task(
                     notify_upload, to_emails, file_label, file.filename, vip_url
                 )
@@ -260,10 +249,33 @@ async def handle_upload_analysis(
 async def get_marketing_email(request: Request, message: str = None, error: str = None):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
+    supabase = get_admin_db()
+    now_iso = datetime.now(pytz.utc).isoformat()
+    users_res = supabase.table("felhasznalok") \
+        .select("email, subscription_status, subscription_expires_at, created_at") \
+        .execute()
+    users = []
+    for u in (users_res.data or []):
+        if not u.get("email"):
+            continue
+        is_vip = (
+            u.get("subscription_status") == "active" and
+            (u.get("subscription_expires_at") or "") > now_iso
+        )
+        users.append({
+            "email": u["email"],
+            "status": "VIP" if is_vip else "Ingyenes",
+            "joined": (u.get("created_at") or "")[:10],
+        })
     return templates.TemplateResponse(
         request=request,
         name="admin_email.html",
-        context={"user": get_current_user(request), "message": message, "error": error}
+        context={
+            "user": get_current_user(request),
+            "message": message,
+            "error": error,
+            "users": users,
+        }
     )
 
 
@@ -288,18 +300,24 @@ async def post_marketing_email(
     supabase = get_admin_db()
     try:
         now_iso = datetime.now(pytz.utc).isoformat()
-        if target == "vip":
+
+        if target == "custom":
+            # Egyéni kiválasztás – form adatokból olvassuk ki
+            form_data = await request.form()
+            to_emails = list(form_data.getlist("recipients"))
+        elif target == "vip":
             res = supabase.table("felhasznalok").select("email") \
                 .eq("subscription_status", "active") \
                 .gt("subscription_expires_at", now_iso) \
                 .execute()
+            to_emails = [u['email'] for u in res.data if u.get('email')]
         else:
             res = supabase.table("felhasznalok").select("email").execute()
+            to_emails = [u['email'] for u in res.data if u.get('email')]
 
-        to_emails = [u['email'] for u in res.data if u.get('email')]
         if not to_emails:
             return RedirectResponse(
-                url="/admin/marketing-email?error=Nem található email cím a célcsoportban",
+                url="/admin/marketing-email?error=Nem található / nincs kiválasztva email cím",
                 status_code=303
             )
 
@@ -312,9 +330,8 @@ async def post_marketing_email(
             cta_url or None,
         )
 
-        target_label = "VIP előfizető" if target == "vip" else "regisztrált felhasználó"
         return RedirectResponse(
-            url=f"/admin/marketing-email?message=Email küldés folyamatban – {len(to_emails)} {target_label} részére",
+            url=f"/admin/marketing-email?message=Email küldés folyamatban – {len(to_emails)} címzett részére",
             status_code=303
         )
     except Exception as e:
