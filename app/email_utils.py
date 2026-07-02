@@ -4,7 +4,7 @@ Email értesítők – Resend API-n keresztül.
 
 Beállítás (egyszer kell elvégezni):
   1. Regisztrálj: https://resend.com  (ingyenes: 3000 email/hó, 100/nap)
-  2. Domains → Add Domain → mondomatutit.hu (DNS rekordokat hozzáadod a domainszolgáltatónál)
+  2. Domains → Add Domain → mondomatutit.hu
   3. API Keys → Create API Key → másold ki
   4. Render-en Environment Variables:
        RESEND_API_KEY  = re_xxxxxxxxxxxxxxx
@@ -13,15 +13,36 @@ Beállítás (egyszer kell elvégezni):
 
 import os
 import resend
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "info@mondomatutit.hu")
-SITE_URL   = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+FROM_EMAIL  = os.environ.get("FROM_EMAIL", "info@mondomatutit.hu")
+SITE_URL    = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+SECRET_KEY  = os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123")
+
+_signer = URLSafeTimedSerializer(SECRET_KEY)
+
+
+# ── LEIRATKOZÓ TOKEN ──────────────────────────────────────────────────────────
+
+def make_unsub_token(email: str) -> str:
+    """Aláírt, email-specifikus leiratkozó token."""
+    return _signer.dumps(email, salt="email-unsub")
+
+
+def verify_unsub_token(token: str) -> str | None:
+    """Token ellenőrzése – visszaadja az emailt, vagy None-t hiba esetén."""
+    try:
+        return _signer.loads(token, salt="email-unsub", max_age=60 * 60 * 24 * 365)
+    except (BadSignature, SignatureExpired):
+        return None
 
 
 # ── HTML SABLON ───────────────────────────────────────────────────────────────
 
-def build_html(title: str, body_html: str, cta_text: str = None, cta_url: str = None) -> str:
+def build_html(title: str, body_html: str,
+               cta_text: str = None, cta_url: str = None,
+               unsub_url: str = None) -> str:
     cta = ""
     if cta_text and cta_url:
         cta = f"""
@@ -33,6 +54,14 @@ def build_html(title: str, body_html: str, cta_text: str = None, cta_url: str = 
                 {cta_text}
             </a>
         </td></tr>"""
+
+    unsub_line = ""
+    if unsub_url:
+        unsub_line = f"""<br>
+          <a href="{unsub_url}"
+             style="color:#333350;text-decoration:underline;font-size:11px;">
+            Leiratkozás az email értesítőkről
+          </a>"""
 
     return f"""<!DOCTYPE html>
 <html lang="hu">
@@ -83,10 +112,8 @@ def build_html(title: str, body_html: str, cta_text: str = None, cta_url: str = 
           © Mondom a Tutit! &nbsp;|&nbsp;
           <a href="{SITE_URL}" style="color:#D4AF37;text-decoration:none;">
             mondomatutit.hu</a><br>
-          A sportfogadás kockázattal jár – mindig játssz felelősségteljesen!<br>
-          Leiratkozás:
-          <a href="mailto:{FROM_EMAIL}?subject=Leiratkozas"
-             style="color:#D4AF37;text-decoration:none;">{FROM_EMAIL}</a>
+          A sportfogadás kockázattal jár – mindig játssz felelősségteljesen!
+          {unsub_line}
         </p>
       </td></tr>
 
@@ -97,10 +124,11 @@ def build_html(title: str, body_html: str, cta_text: str = None, cta_url: str = 
 </html>"""
 
 
-# ── KÜLDÉS ────────────────────────────────────────────────────────────────────
+# ── KÜLDÉS (egyéni leiratkozó linkkel) ───────────────────────────────────────
 
-def send_bulk_email(to_emails: list, subject: str, html: str) -> dict:
-    """Tömeges email küldés Resend Batch API-n (max 100/kérés)."""
+def _send(to_emails: list, subject: str, title: str, body_html: str,
+          cta_text: str = None, cta_url: str = None) -> dict:
+    """Tömeges küldés – minden emailbe egyedi leiratkozó link kerül."""
     if not resend.api_key:
         print("[EMAIL] Hiba: RESEND_API_KEY nincs beállítva")
         return {"sent": 0, "errors": ["RESEND_API_KEY hiányzik"]}
@@ -112,11 +140,16 @@ def send_bulk_email(to_emails: list, subject: str, html: str) -> dict:
 
     for i in range(0, len(to_emails), 100):
         batch = to_emails[i:i + 100]
-        params = [
-            {"from": from_field, "to": email,
-             "subject": subject, "html": html}
-            for email in batch
-        ]
+        params = []
+        for email in batch:
+            unsub_url = f"{SITE_URL}/unsubscribe?token={make_unsub_token(email)}"
+            html = build_html(title, body_html, cta_text, cta_url, unsub_url)
+            params.append({
+                "from": from_field,
+                "to": email,
+                "subject": subject,
+                "html": html,
+            })
         try:
             resend.Batch.send(params)
             sent += len(batch)
@@ -133,7 +166,9 @@ def send_bulk_email(to_emails: list, subject: str, html: str) -> dict:
 def notify_upload(to_emails: list, content_label: str,
                   file_name: str, vip_url: str) -> dict:
     """Feltöltési értesítő (szelvény vagy elemzés)."""
-    html = build_html(
+    return _send(
+        to_emails,
+        subject=f"⚽ Új {content_label} – Mondom a Tutit!",
         title=f"Új {content_label} érkezett!",
         body_html=f"""
             <p>Szia!</p>
@@ -147,12 +182,9 @@ def notify_upload(to_emails: list, content_label: str,
         cta_text="Megtekintés a weboldalon →",
         cta_url=vip_url,
     )
-    return send_bulk_email(to_emails, f"⚽ Új {content_label} – Mondom a Tutit!", html)
 
 
 def notify_marketing(to_emails: list, subject: str, body_html: str,
                      cta_text: str = None, cta_url: str = None) -> dict:
     """Marketing / akciós email."""
-    html = build_html(title=subject, body_html=body_html,
-                      cta_text=cta_text, cta_url=cta_url)
-    return send_bulk_email(to_emails, subject, html)
+    return _send(to_emails, subject, subject, body_html, cta_text, cta_url)
