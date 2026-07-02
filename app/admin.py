@@ -26,6 +26,13 @@ templates = Jinja2Templates(directory="templates")
 
 ADMIN_CHAT_ID = "1326707238"
 
+# --- ADMIN FŐOLDAL → FELTÖLTÉS ---
+@router.get("/admin")
+async def admin_root(request: Request):
+    if not is_admin(request):
+        return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/admin/upload", status_code=302)
+
 # --- ADMIN ELLENŐRZŐ SEGÉDFÜGGVÉNY ---
 def is_admin(request: Request):
     user = get_current_user(request)
