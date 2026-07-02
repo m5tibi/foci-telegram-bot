@@ -26,6 +26,11 @@ templates = Jinja2Templates(directory="templates")
 
 ADMIN_CHAT_ID = "1326707238"
 
+def _active_emails(data: list) -> list:
+    """Kiszűri a leiratkozott és email nélküli felhasználókat."""
+    return [u['email'] for u in data
+            if u.get('email') and not u.get('email_unsubscribed', False)]
+
 # --- ADMIN FŐOLDAL → FELTÖLTÉS ---
 @router.get("/admin")
 async def admin_root(request: Request):
@@ -151,11 +156,12 @@ async def handle_manual_upload(
         # 7. EMAIL ÉRTESÍTÉS – csak VIP tartalomnál
         if notify_upload and tip_type == "vip":
             now_iso = datetime.now(pytz.utc).isoformat()
-            email_res = supabase.table("felhasznalok").select("email") \
+            email_res = supabase.table("felhasznalok") \
+                .select("email, email_unsubscribed") \
                 .eq("subscription_status", "active") \
                 .gt("subscription_expires_at", now_iso) \
                 .execute()
-            to_emails = [u['email'] for u in email_res.data if u.get('email')]
+            to_emails = _active_emails(email_res.data)
             if to_emails:
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 background_tasks.add_task(
@@ -234,11 +240,12 @@ async def handle_upload_analysis(
         # EMAIL ÉRTESÍTÉS – csak VIP tartalomnál
         if notify_upload and category == 'vip':
             now_iso = datetime.now(pytz.utc).isoformat()
-            email_res = supabase.table("felhasznalok").select("email") \
+            email_res = supabase.table("felhasznalok") \
+                .select("email, email_unsubscribed") \
                 .eq("subscription_status", "active") \
                 .gt("subscription_expires_at", now_iso) \
                 .execute()
-            to_emails = [u['email'] for u in email_res.data if u.get('email')]
+            to_emails = _active_emails(email_res.data)
             if to_emails:
                 vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
                 file_label = "📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)"
@@ -313,14 +320,17 @@ async def post_marketing_email(
             form_data = await request.form()
             to_emails = list(form_data.getlist("recipients"))
         elif target == "vip":
-            res = supabase.table("felhasznalok").select("email") \
+            res = supabase.table("felhasznalok") \
+                .select("email, email_unsubscribed") \
                 .eq("subscription_status", "active") \
                 .gt("subscription_expires_at", now_iso) \
                 .execute()
-            to_emails = [u['email'] for u in res.data if u.get('email')]
+            to_emails = _active_emails(res.data)
         else:
-            res = supabase.table("felhasznalok").select("email").execute()
-            to_emails = [u['email'] for u in res.data if u.get('email')]
+            res = supabase.table("felhasznalok") \
+                .select("email, email_unsubscribed") \
+                .execute()
+            to_emails = _active_emails(res.data)
 
         if not to_emails:
             return RedirectResponse(
