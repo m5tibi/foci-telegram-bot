@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application, PicklePersistence
 
 # --- 1. Modulok importálása ---
-from app.database import get_db, s_get
+from app.database import get_db, get_admin_db, s_get
 from app.auth import router as auth_router, get_current_user
 from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
@@ -90,7 +90,7 @@ async def unsubscribe(token: str = None):
                     "#FC8181")
 
     try:
-        db = get_db()
+        db = get_admin_db()
         db.table("felhasznalok").update({"email_unsubscribed": True}) \
             .eq("email", email).execute()
     except Exception as e:
@@ -126,7 +126,7 @@ async def resubscribe(token: str = None):
                             status_code=400)
 
     try:
-        db = get_db()
+        db = get_admin_db()
         db.table("felhasznalok").update({"email_unsubscribed": False}) \
             .eq("email", email).execute()
     except Exception as e:
