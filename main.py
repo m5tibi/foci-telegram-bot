@@ -21,6 +21,7 @@ from bot import add_handlers, get_tip_details
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
+SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 
 # --- 2. Middleware ---
 api.add_middleware(
