@@ -20,6 +20,36 @@ ADMIN_CHAT_ID = 1326707238
 
 processed_invoice_ids = set()
 
+# ── SEGÉDFÜGGVÉNYEK ───────────────────────────────────────────────────────────
+
+def _ts(timestamp) -> str:
+    """Unix timestamp → olvasható magyar dátum."""
+    if not timestamp:
+        return "?"
+    try:
+        return datetime.fromtimestamp(int(timestamp), tz=pytz.utc).strftime('%Y. %m. %d. %H:%M UTC')
+    except Exception:
+        return "?"
+
+FEEDBACK_HU = {
+    "unused":           "Nem használta eleget",
+    "too_expensive":    "Túl drága",
+    "missing_features": "Hiányzó funkciók",
+    "switched_service": "Más szolgáltatásra váltott",
+    "customer_service": "Ügyfélszolgálati probléma",
+    "too_complex":      "Túl bonyolult",
+    "low_quality":      "Alacsony minőség",
+    "other":            "Egyéb",
+}
+
+def _feedback(obj) -> str:
+    """Stripe cancellation_details → magyar szöveg."""
+    details = getattr(obj, 'cancellation_details', None)
+    if not details:
+        return "Nem adott visszajelzést"
+    feedback = getattr(details, 'feedback', None)
+    return FEEDBACK_HU.get(feedback, "Nem adott visszajelzést") if feedback else "Nem adott visszajelzést"
+
 TEST_PRICE_IDS = {
     "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
     "weekly": "price_1TYNl9GTueuLQQunujGE5ikr", 
@@ -196,10 +226,13 @@ async def stripe_webhook(request: Request):
 
                 if cancel_at_end:
                     period_end = getattr(obj, 'current_period_end', None)
-                    end_str = datetime.fromtimestamp(period_end, tz=pytz.utc).strftime('%Y.%m.%d') if period_end else '?'
+                    canceled_at = getattr(obj, 'canceled_at', None)
                     await send_admin_alert(
-                        f"⚠️ *LEMONDÁS JELÖLVE*\n👤 {res.data.get('email')}\n"
-                        f"📅 Hozzáférés vége: {end_str}"
+                        f"⚠️ *LEMONDÁS JELÖLVE*\n"
+                        f"👤 {res.data.get('email')}\n"
+                        f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
+                        f"📅 Hozzáférés vége: {_ts(period_end)}\n"
+                        f"💬 Ok: {_feedback(obj)}"
                     )
 
     elif event.type == 'customer.subscription.deleted':
@@ -213,8 +246,15 @@ async def stripe_webhook(request: Request):
                     "subscription_status": "inactive",
                     "subscription_cancelled": True,
                 }).eq("id", res.data['id']).execute()
+
+                canceled_at = getattr(obj, 'canceled_at', None)
+                ended_at    = getattr(obj, 'ended_at', None)
                 await send_admin_alert(
-                    f"❌ *ELŐFIZETÉS MEGSZŰNT*\n👤 {res.data.get('email')}"
+                    f"❌ *ELŐFIZETÉS MEGSZŰNT*\n"
+                    f"👤 {res.data.get('email')}\n"
+                    f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
+                    f"📅 Hozzáférés vége: {_ts(ended_at)}\n"
+                    f"💬 Ok: {_feedback(obj)}"
                 )
 
     elif event.type == 'invoice.payment_failed':
