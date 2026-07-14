@@ -1,24 +1,27 @@
 # app/email_utils.py
 """
-Email értesítők – Resend API-n keresztül.
+Email értesítők – cPanel SMTP-n keresztül.
 
-Beállítás (egyszer kell elvégezni):
-  1. Regisztrálj: https://resend.com  (ingyenes: 3000 email/hó, 100/nap)
-  2. Domains → Add Domain → mondomatutit.hu
-  3. API Keys → Create API Key → másold ki
-  4. Render-en Environment Variables:
-       RESEND_API_KEY  = re_xxxxxxxxxxxxxxx
-       FROM_EMAIL      = info@mondomatutit.hu
+Render Environment Variables:
+    SMTP_HOST  = mail.mondomatutit.hu
+    SMTP_PORT  = 465
+    SMTP_USER  = info@mondomatutit.hu
+    SMTP_PASS  = (email fiók jelszava)
 """
 
 import os
-import resend
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
-resend.api_key = os.environ.get("RESEND_API_KEY", "")
-FROM_EMAIL  = os.environ.get("FROM_EMAIL", "info@mondomatutit.hu")
-SITE_URL    = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
-SECRET_KEY  = os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123")
+SMTP_HOST  = os.environ.get("SMTP_HOST",  "mail.mondomatutit.hu")
+SMTP_PORT  = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_USER  = os.environ.get("SMTP_USER",  "info@mondomatutit.hu")
+SMTP_PASS  = os.environ.get("SMTP_PASS",  "")
+FROM_EMAIL = os.environ.get("FROM_EMAIL",  SMTP_USER)
+SITE_URL   = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123")
 
 _signer = URLSafeTimedSerializer(SECRET_KEY)
 
@@ -26,12 +29,10 @@ _signer = URLSafeTimedSerializer(SECRET_KEY)
 # ── LEIRATKOZÓ TOKEN ──────────────────────────────────────────────────────────
 
 def make_unsub_token(email: str) -> str:
-    """Aláírt, email-specifikus leiratkozó token."""
     return _signer.dumps(email, salt="email-unsub")
 
 
 def verify_unsub_token(token: str) -> str | None:
-    """Token ellenőrzése – visszaadja az emailt, vagy None-t hiba esetén."""
     try:
         return _signer.loads(token, salt="email-unsub", max_age=60 * 60 * 24 * 365)
     except (BadSignature, SignatureExpired):
@@ -77,16 +78,12 @@ def build_html(title: str, body_html: str,
   <tr><td align="center">
     <table width="600" cellpadding="0" cellspacing="0"
            style="max-width:600px;width:100%;">
-
-      <!-- Fejléc -->
       <tr><td style="background:#111118;border-radius:12px 12px 0 0;
                      padding:24px 32px;
                      border:1px solid rgba(212,175,55,.28);border-bottom:none;">
         <span style="font-size:20px;font-weight:900;color:#D4AF37;
                      letter-spacing:1px;">⚽ Mondom a Tutit!</span>
       </td></tr>
-
-      <!-- Tartalom -->
       <tr><td style="background:#18181F;padding:32px;
                      border:1px solid rgba(212,175,55,.28);
                      border-top:none;border-bottom:none;">
@@ -101,8 +98,6 @@ def build_html(title: str, body_html: str,
           {cta}
         </table>
       </td></tr>
-
-      <!-- Lábléc -->
       <tr><td style="background:#111118;border-radius:0 0 12px 12px;
                      padding:20px 32px;
                      border:1px solid rgba(212,175,55,.28);
@@ -116,7 +111,6 @@ def build_html(title: str, body_html: str,
           {unsub_line}
         </p>
       </td></tr>
-
     </table>
   </td></tr>
 </table>
@@ -124,38 +118,43 @@ def build_html(title: str, body_html: str,
 </html>"""
 
 
-# ── KÜLDÉS (egyéni leiratkozó linkkel) ───────────────────────────────────────
+# ── KÜLDÉS (cPanel SMTP SSL) ──────────────────────────────────────────────────
 
 def _send(to_emails: list, subject: str, title: str, body_html: str,
           cta_text: str = None, cta_url: str = None) -> dict:
-    """Tömeges küldés – minden emailbe egyedi leiratkozó link kerül."""
-    if not resend.api_key:
-        print("[EMAIL] Hiba: RESEND_API_KEY nincs beállítva")
-        return {"sent": 0, "errors": ["RESEND_API_KEY hiányzik"]}
+    """Tömeges küldés cPanel SMTP-n – minden emailbe egyedi leiratkozó link."""
+    if not SMTP_PASS:
+        print("[EMAIL] Hiba: SMTP_PASS nincs beállítva")
+        return {"sent": 0, "errors": ["SMTP_PASS hiányzik"]}
     if not to_emails:
         return {"sent": 0, "errors": []}
 
     from_field = f"Mondom a Tutit! <{FROM_EMAIL}>"
     sent, errors = 0, []
 
-    for i in range(0, len(to_emails), 100):
-        batch = to_emails[i:i + 100]
-        params = []
-        for email in batch:
-            unsub_url = f"{SITE_URL}/unsubscribe?token={make_unsub_token(email)}"
-            html = build_html(title, body_html, cta_text, cta_url, unsub_url)
-            params.append({
-                "from": from_field,
-                "to": email,
-                "subject": subject,
-                "html": html,
-            })
-        try:
-            resend.Batch.send(params)
-            sent += len(batch)
-        except Exception as e:
-            errors.append(f"Batch {i // 100 + 1}: {e}")
-            print(f"[EMAIL] Küldési hiba: {e}")
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            for email in to_emails:
+                try:
+                    unsub_url = f"{SITE_URL}/unsubscribe?token={make_unsub_token(email)}"
+                    html = build_html(title, body_html, cta_text, cta_url, unsub_url)
+
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From']    = from_field
+                    msg['To']      = email
+                    msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+                    server.sendmail(FROM_EMAIL, [email], msg.as_string())
+                    sent += 1
+                except Exception as e:
+                    errors.append(f"{email}: {e}")
+                    print(f"[EMAIL] Küldési hiba ({email}): {e}")
+
+    except Exception as e:
+        print(f"[EMAIL] SMTP kapcsolódási hiba: {e}")
+        errors.append(f"SMTP hiba: {e}")
 
     print(f"[EMAIL] Kiküldve: {sent}, hibák: {len(errors)}")
     return {"sent": sent, "errors": errors}
@@ -168,7 +167,7 @@ def notify_upload(to_emails: list, content_label: str,
     """Feltöltési értesítő (szelvény vagy elemzés)."""
     return _send(
         to_emails,
-        subject=f"⚽ Új {content_label} – Mondom a Tutit!",
+        subject=f"Új {content_label} – Mondom a Tutit!",
         title=f"Új {content_label} érkezett!",
         body_html=f"""
             <p>Szia!</p>
