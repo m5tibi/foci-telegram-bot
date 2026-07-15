@@ -11,6 +11,8 @@ Render Environment Variables:
 
 import os
 import smtplib
+import imaplib
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -118,6 +120,31 @@ def build_html(title: str, body_html: str,
 </html>"""
 
 
+# ── SENT MAPPA MENTÉS (IMAP) ─────────────────────────────────────────────────
+
+def _save_to_sent(subject: str, html: str, sent_count: int) -> None:
+    """Küldés után elmenti az emailt a cPanel Webmail Sent mappájába."""
+    try:
+        # Összesítő levél a Sent mappába
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From']    = f"Mondom a Tutit! <{FROM_EMAIL}>"
+        msg['To']      = f"{sent_count} címzett"
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+        with imaplib.IMAP4_SSL(SMTP_HOST, 993) as imap:
+            imap.login(SMTP_USER, SMTP_PASS)
+            # cPanel/Dovecot Sent mappa neve általában "Sent"
+            imap.append(
+                "Sent",
+                "\\Seen",
+                imaplib.Time2Internaldate(time.time()),
+                msg.as_bytes()
+            )
+    except Exception as e:
+        print(f"[EMAIL] IMAP Sent mentési hiba: {e}")
+
+
 # ── KÜLDÉS (cPanel SMTP SSL) ──────────────────────────────────────────────────
 
 def _send(to_emails: list, subject: str, title: str, body_html: str,
@@ -141,9 +168,10 @@ def _send(to_emails: list, subject: str, title: str, body_html: str,
                     html = build_html(title, body_html, cta_text, cta_url, unsub_url)
 
                     msg = MIMEMultipart('alternative')
-                    msg['Subject'] = subject
-                    msg['From']    = from_field
-                    msg['To']      = email
+                    msg['Subject']  = subject
+                    msg['From']     = from_field
+                    msg['To']       = email
+                    msg['Reply-To'] = FROM_EMAIL
                     msg.attach(MIMEText(html, 'html', 'utf-8'))
 
                     server.sendmail(FROM_EMAIL, [email], msg.as_string())
@@ -157,6 +185,12 @@ def _send(to_emails: list, subject: str, title: str, body_html: str,
         errors.append(f"SMTP hiba: {e}")
 
     print(f"[EMAIL] Kiküldve: {sent}, hibák: {len(errors)}")
+
+    # Elmenti a Sent mappába (egy összesítő másolat)
+    if sent > 0:
+        sample_html = build_html(title, body_html, cta_text, cta_url, unsub_url=None)
+        _save_to_sent(subject, sample_html, sent)
+
     return {"sent": sent, "errors": errors}
 
 
