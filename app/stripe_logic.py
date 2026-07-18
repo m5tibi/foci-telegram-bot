@@ -213,7 +213,10 @@ async def stripe_webhook(request: Request):
             if res and res.data:
                 updates = {}
                 cancel_at_end = getattr(obj, 'cancel_at_period_end', False)
-                updates['subscription_cancelled'] = cancel_at_end
+                canceled_at   = getattr(obj, 'canceled_at', None)
+                # Lemondottnak számít ha cancel_at_period_end=True VAGY canceled_at be van állítva
+                is_cancelled = cancel_at_end or (canceled_at is not None)
+                updates['subscription_cancelled'] = is_cancelled
 
                 status = getattr(obj, 'status', None)
                 if status in ('canceled', 'unpaid', 'past_due', 'incomplete_expired'):
@@ -224,8 +227,8 @@ async def stripe_webhook(request: Request):
                 client.table("felhasznalok").update(updates) \
                     .eq("id", res.data['id']).execute()
 
-                if cancel_at_end:
-                    period_end = getattr(obj, 'current_period_end', None)
+                if is_cancelled:
+                    period_end = getattr(obj, 'current_period_end', None) or getattr(obj, 'cancel_at', None)
                     canceled_at = getattr(obj, 'canceled_at', None)
                     await send_admin_alert(
                         f"⚠️ *LEMONDÁS JELÖLVE*\n"
