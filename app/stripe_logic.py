@@ -227,9 +227,16 @@ async def stripe_webhook(request: Request):
                 client.table("felhasznalok").update(updates) \
                     .eq("id", res.data['id']).execute()
 
-                if is_cancelled:
+                # Értesítőt csak akkor küldünk, ha a canceled_at MOST változott
+                # (azaz szerepel a previous_attributes-ban) — nem ha csak a feedback frissült
+                prev = dict(getattr(event.data, 'previous_attributes', None) or {})
+                is_new_cancellation = (
+                    'canceled_at' in prev or
+                    ('cancel_at_period_end' in prev and cancel_at_end)
+                )
+
+                if is_cancelled and is_new_cancellation:
                     period_end = getattr(obj, 'current_period_end', None) or getattr(obj, 'cancel_at', None)
-                    canceled_at = getattr(obj, 'canceled_at', None)
                     await send_admin_alert(
                         f"⚠️ *LEMONDÁS JELÖLVE*\n"
                         f"👤 {res.data.get('email')}\n"
