@@ -1,5 +1,7 @@
 # app/admin.py
 import os
+import re
+import unicodedata
 import pytz
 from datetime import datetime
 from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks
@@ -30,6 +32,18 @@ def _active_emails(data: list) -> list:
     """Kiszűri a leiratkozott és email nélküli felhasználókat."""
     return [u['email'] for u in data
             if u.get('email') and not u.get('email_unsubscribed', False)]
+
+
+def sanitize_filename(filename: str) -> str:
+    """Ékezetes és speciális karaktereket cseréli le, hogy Supabase Storage elfogadja."""
+    # NFD dekompozíció → ASCII karakterek megtartása (é→e, á→a stb.)
+    normalized = unicodedata.normalize('NFD', filename)
+    ascii_name = normalized.encode('ascii', 'ignore').decode('ascii')
+    # Csak alfanumerikus, pont, kötőjel, aláhúzás maradhat
+    safe = re.sub(r'[^\w\-.]', '_', ascii_name)
+    # Több egymást követő aláhúzás → egy
+    safe = re.sub(r'_+', '_', safe)
+    return safe
 
 # --- ADMIN FŐOLDAL → FELTÖLTÉS ---
 @router.get("/admin")
@@ -192,20 +206,21 @@ async def handle_upload_analysis(
         ext = file.filename.split('.')[-1].lower()
         file_type = 'pdf' if ext == 'pdf' else 'xlsx'
         file_content = await file.read()
-        
+        safe_name = sanitize_filename(file.filename)  # ékezetek eltávolítása
+
         content_type = file.content_type if file.content_type else "application/octet-stream"
-        
-        storage_path = f"{category}/{file.filename}"
+
+        storage_path = f"{category}/{safe_name}"
         supabase.storage.from_("elemzesek").upload(
             path=storage_path,
             file=file_content,
             file_options={"upsert": "true", "content-type": content_type}
         )
-        
+
         file_url = supabase.storage.from_("elemzesek").get_public_url(storage_path)
-        
+
         supabase.table("elemzesek").insert({
-            "file_name": file.filename,
+            "file_name": safe_name,
             "file_url": file_url,
             "category": category,
             "file_type": file_type,
