@@ -134,152 +134,156 @@ async def stripe_webhook(request: Request):
         try: return o.get(key, default)
         except: return getattr(o, key, default)
 
-    if event.type == 'checkout.session.completed':
-        u_id = get_val(metadata, "user_id")
-        p_name = get_val(metadata, "plan", "monthly")
+    try:
+        if event.type == 'checkout.session.completed':
+            u_id = get_val(metadata, "user_id")
+            p_name = get_val(metadata, "plan", "monthly")
         
-        if u_id:
-            # LEJÁRATI IDŐ SZÁMÍTÁS ÉS TELEGRAM MEGJELENÍTÉS AZ ÖSSZES CSOMAGRA
-            if p_name == 'lifetime':
-                new_exp = datetime(2050, 12, 31, 23, 59, 59, tzinfo=pytz.utc).isoformat()
-                dur_text = "Örökös (Lifetime)"
-                plan_display = "🔥 Örökös VIP Tagság"
-            else:
-                days_map = {
-                    'daily': 1,
-                    'weekly': 7,
-                    'monthly': 31,
-                    'semi_annual': 182,
-                    'annual': 365
-                }
-                dur = days_map.get(p_name, 31)
-                new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
-                dur_text = f"{dur} nap"
+            if u_id:
+                # LEJÁRATI IDŐ SZÁMÍTÁS ÉS TELEGRAM MEGJELENÍTÉS AZ ÖSSZES CSOMAGRA
+                if p_name == 'lifetime':
+                    new_exp = datetime(2050, 12, 31, 23, 59, 59, tzinfo=pytz.utc).isoformat()
+                    dur_text = "Örökös (Lifetime)"
+                    plan_display = "🔥 Örökös VIP Tagság"
+                else:
+                    days_map = {
+                        'daily': 1,
+                        'weekly': 7,
+                        'monthly': 31,
+                        'semi_annual': 182,
+                        'annual': 365
+                    }
+                    dur = days_map.get(p_name, 31)
+                    new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+                    dur_text = f"{dur} nap"
                 
-                display_names = {
-                    'daily': "🎫 Napi All-In Jegy",
-                    'weekly': "🗓️ Heti All-In Bérlet",
-                    'monthly': "📅 Havi All-In Tagság",
-                    'semi_annual': "🌟 Féléves All-In Bérlet",
-                    'annual': "👑 Éves All-In Tagság"
-                }
-                plan_display = display_names.get(p_name, f"Csomag: {p_name}")
+                    display_names = {
+                        'daily': "🎫 Napi All-In Jegy",
+                        'weekly': "🗓️ Heti All-In Bérlet",
+                        'monthly': "📅 Havi All-In Tagság",
+                        'semi_annual': "🌟 Féléves All-In Bérlet",
+                        'annual': "👑 Éves All-In Tagság"
+                    }
+                    plan_display = display_names.get(p_name, f"Csomag: {p_name}")
             
-            client.table("felhasznalok").update({
-                "subscription_status": "active", 
-                "subscription_expires_at": new_exp, 
-                "stripe_customer_id": getattr(obj, 'customer', None)
-            }).eq("id", u_id).execute()
-            
-            cust_details = getattr(obj, 'customer_details', {})
-            email = get_val(cust_details, 'email', 'Ismeretlen')
-            await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}")
-
-    elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
-        inv_id = getattr(obj, 'id', None)
-        c_id = getattr(obj, 'customer', None)
-        
-        if inv_id and inv_id not in processed_invoice_ids:
-            res = client.table("felhasznalok").select("*").eq("stripe_customer_id", c_id).maybe_single().execute()
-            
-            if res and hasattr(res, 'data') and res.data and get_val(obj, 'billing_reason') != 'subscription_create':
-                processed_invoice_ids.add(inv_id)
-                
-                # Az automatikus havi megújuló számlázás továbbra is fixen 31 napot tesz hozzá
-                dur = 31
-                
-                start_dt = datetime.now(pytz.utc)
-                exp_at = res.data.get('subscription_expires_at')
-                if exp_at:
-                    try:
-                        old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
-                        if old_exp > start_dt: start_dt = old_exp
-                    except: pass
-                
-                new_exp = (start_dt + timedelta(days=dur)).isoformat()
                 client.table("felhasznalok").update({
-                    "subscription_expires_at": new_exp,
-                    "subscription_status": "active",
-                    "subscription_cancelled": False,
-                }).eq("id", res.data['id']).execute()
-                await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {res.data.get('email')}\n📅 +{dur} nap")
+                    "subscription_status": "active", 
+                    "subscription_expires_at": new_exp, 
+                    "stripe_customer_id": getattr(obj, 'customer', None)
+                }).eq("id", u_id).execute()
+            
+                cust_details = getattr(obj, 'customer_details', {})
+                email = get_val(cust_details, 'email', 'Ismeretlen')
+                await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}")
 
-    elif event.type == 'customer.subscription.updated':
-        # Lemondás jelölés vagy státuszváltozás (pl. past_due)
-        c_id = getattr(obj, 'customer', None)
-        if c_id:
-            res = client.table("felhasznalok").select("*") \
-                .eq("stripe_customer_id", c_id).maybe_single().execute()
-            if res and res.data:
-                updates = {}
-                cancel_at_end = getattr(obj, 'cancel_at_period_end', False)
-                canceled_at   = getattr(obj, 'canceled_at', None)
-                # Lemondottnak számít ha cancel_at_period_end=True VAGY canceled_at be van állítva
-                is_cancelled = cancel_at_end or (canceled_at is not None)
-                updates['subscription_cancelled'] = is_cancelled
+        elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
+            inv_id = getattr(obj, 'id', None)
+            c_id = getattr(obj, 'customer', None)
+        
+            if inv_id and inv_id not in processed_invoice_ids:
+                res = client.table("felhasznalok").select("*").eq("stripe_customer_id", c_id).maybe_single().execute()
+            
+                if res and hasattr(res, 'data') and res.data and get_val(obj, 'billing_reason') != 'subscription_create':
+                    processed_invoice_ids.add(inv_id)
+                
+                    # Az automatikus havi megújuló számlázás továbbra is fixen 31 napot tesz hozzá
+                    dur = 31
+                
+                    start_dt = datetime.now(pytz.utc)
+                    exp_at = res.data.get('subscription_expires_at')
+                    if exp_at:
+                        try:
+                            old_exp = datetime.fromisoformat(exp_at.replace('Z', '+00:00'))
+                            if old_exp > start_dt: start_dt = old_exp
+                        except: pass
+                
+                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
+                    client.table("felhasznalok").update({
+                        "subscription_expires_at": new_exp,
+                        "subscription_status": "active",
+                        "subscription_cancelled": False,
+                    }).eq("id", res.data['id']).execute()
+                    await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {res.data.get('email')}\n📅 +{dur} nap")
 
-                status = getattr(obj, 'status', None)
-                if status in ('canceled', 'unpaid', 'past_due', 'incomplete_expired'):
-                    updates['subscription_status'] = 'inactive'
-                elif status == 'active':
-                    updates['subscription_status'] = 'active'
+        elif event.type == 'customer.subscription.updated':
+            # Lemondás jelölés vagy státuszváltozás (pl. past_due)
+            c_id = getattr(obj, 'customer', None)
+            if c_id:
+                res = client.table("felhasznalok").select("*") \
+                    .eq("stripe_customer_id", c_id).maybe_single().execute()
+                if res and res.data:
+                    updates = {}
+                    cancel_at_end = getattr(obj, 'cancel_at_period_end', False)
+                    canceled_at   = getattr(obj, 'canceled_at', None)
+                    # Lemondottnak számít ha cancel_at_period_end=True VAGY canceled_at be van állítva
+                    is_cancelled = cancel_at_end or (canceled_at is not None)
+                    updates['subscription_cancelled'] = is_cancelled
 
-                client.table("felhasznalok").update(updates) \
-                    .eq("id", res.data['id']).execute()
+                    status = getattr(obj, 'status', None)
+                    if status in ('canceled', 'unpaid', 'past_due', 'incomplete_expired'):
+                        updates['subscription_status'] = 'inactive'
+                    elif status == 'active':
+                        updates['subscription_status'] = 'active'
 
-                # Értesítőt csak akkor küldünk, ha a canceled_at MOST változott
-                # (azaz szerepel a previous_attributes-ban) — nem ha csak a feedback frissült
-                prev = dict(getattr(event.data, 'previous_attributes', None) or {})
-                is_new_cancellation = (
-                    'canceled_at' in prev or
-                    ('cancel_at_period_end' in prev and cancel_at_end)
-                )
+                    client.table("felhasznalok").update(updates) \
+                        .eq("id", res.data['id']).execute()
 
-                if is_cancelled and is_new_cancellation:
-                    period_end = getattr(obj, 'current_period_end', None) or getattr(obj, 'cancel_at', None)
+                    # Értesítőt csak akkor küldünk, ha a canceled_at MOST változott
+                    # (azaz szerepel a previous_attributes-ban) — nem ha csak a feedback frissült
+                    prev_attrs = getattr(event.data, 'previous_attributes', None)
+                    is_new_cancellation = (
+                        (prev_attrs is not None and hasattr(prev_attrs, 'canceled_at')) or
+                        (prev_attrs is not None and hasattr(prev_attrs, 'cancel_at_period_end') and cancel_at_end)
+                    )
+
+                    if is_cancelled and is_new_cancellation:
+                        period_end = getattr(obj, 'current_period_end', None) or getattr(obj, 'cancel_at', None)
+                        await send_admin_alert(
+                            f"⚠️ *LEMONDÁS JELÖLVE*\n"
+                            f"👤 {res.data.get('email')}\n"
+                            f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
+                            f"📅 Hozzáférés vége: {_ts(period_end)}\n"
+                            f"💬 Ok: {_feedback(obj)}"
+                        )
+
+        elif event.type == 'customer.subscription.deleted':
+            # Az előfizetés ténylegesen megszűnt (lejárt lemondás után, vagy azonnal törölve)
+            c_id = getattr(obj, 'customer', None)
+            if c_id:
+                res = client.table("felhasznalok").select("*") \
+                    .eq("stripe_customer_id", c_id).maybe_single().execute()
+                if res and res.data:
+                    client.table("felhasznalok").update({
+                        "subscription_status": "inactive",
+                        "subscription_cancelled": True,
+                    }).eq("id", res.data['id']).execute()
+
+                    canceled_at = getattr(obj, 'canceled_at', None)
+                    ended_at    = getattr(obj, 'ended_at', None)
                     await send_admin_alert(
-                        f"⚠️ *LEMONDÁS JELÖLVE*\n"
+                        f"❌ *ELŐFIZETÉS MEGSZŰNT*\n"
                         f"👤 {res.data.get('email')}\n"
                         f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
-                        f"📅 Hozzáférés vége: {_ts(period_end)}\n"
+                        f"📅 Hozzáférés vége: {_ts(ended_at)}\n"
                         f"💬 Ok: {_feedback(obj)}"
                     )
 
-    elif event.type == 'customer.subscription.deleted':
-        # Az előfizetés ténylegesen megszűnt (lejárt lemondás után, vagy azonnal törölve)
-        c_id = getattr(obj, 'customer', None)
-        if c_id:
-            res = client.table("felhasznalok").select("*") \
-                .eq("stripe_customer_id", c_id).maybe_single().execute()
-            if res and res.data:
-                client.table("felhasznalok").update({
-                    "subscription_status": "inactive",
-                    "subscription_cancelled": True,
-                }).eq("id", res.data['id']).execute()
+        elif event.type == 'invoice.payment_failed':
+            # Sikertelen megújuló fizetés – admin értesítés
+            c_id = getattr(obj, 'customer', None)
+            if c_id:
+                res = client.table("felhasznalok").select("email") \
+                    .eq("stripe_customer_id", c_id).maybe_single().execute()
+                if res and res.data:
+                    amount = getattr(obj, 'amount_due', 0)
+                    await send_admin_alert(
+                        f"💳 *SIKERTELEN FIZETÉS*\n👤 {res.data.get('email')}\n"
+                        f"💰 Összeg: {amount // 100} Ft"
+                    )
 
-                canceled_at = getattr(obj, 'canceled_at', None)
-                ended_at    = getattr(obj, 'ended_at', None)
-                await send_admin_alert(
-                    f"❌ *ELŐFIZETÉS MEGSZŰNT*\n"
-                    f"👤 {res.data.get('email')}\n"
-                    f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
-                    f"📅 Hozzáférés vége: {_ts(ended_at)}\n"
-                    f"💬 Ok: {_feedback(obj)}"
-                )
 
-    elif event.type == 'invoice.payment_failed':
-        # Sikertelen megújuló fizetés – admin értesítés
-        c_id = getattr(obj, 'customer', None)
-        if c_id:
-            res = client.table("felhasznalok").select("email") \
-                .eq("stripe_customer_id", c_id).maybe_single().execute()
-            if res and res.data:
-                amount = getattr(obj, 'amount_due', 0)
-                await send_admin_alert(
-                    f"💳 *SIKERTELEN FIZETÉS*\n👤 {res.data.get('email')}\n"
-                    f"💰 Összeg: {amount // 100} Ft"
-                )
-
+    except Exception as e:
+        print(f"[WEBHOOK] Feldolgozási hiba ({event.type}): {e}")
     return JSONResponse({"status": "success"})
 
 @router.get("/create-portal-session")
