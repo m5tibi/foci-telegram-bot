@@ -40,9 +40,16 @@ def fetch_match_list() -> dict:
 def build_prompt(matches: list, tipped_matches: list) -> str:
     """Felépíti a Foci_egységes alapú automatizált promptot."""
 
-    match_text = "\n".join([
-        f"- {m['match']} | {m.get('sportLabel', m.get('sport',''))} | Kezdés: {m['commence']} | "
-        f"Piac: {m['market']} | Odds: {m['odds']}"
+        def fmt_odds(odds_list):
+        if not odds_list: return "n/a"
+        return ", ".join([
+            f"{o.get('market','?')}/{o.get('name','?')}: {o.get('odds','?')} ({o.get('bookmaker','?')})"
+            for o in odds_list[:6]
+        ])
+
+    match_text = "
+".join([
+        f"- {m['match']} | {m.get('sport','')} | Kezdés: {m.get('commence','?')} | Odds: {fmt_odds(m.get('odds', []))}"
         for m in matches
     ]) or "Nincs elérhető meccs."
 
