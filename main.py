@@ -289,8 +289,9 @@ async def admin_ai_generate(request: Request):
         return HTMLResponse("Nincs jogosultságod.", status_code=403)
 
     from claude_ai_generator import generate_tips
+    from fastapi.concurrency import run_in_threadpool
     try:
-        result = generate_tips()
+        result = await run_in_threadpool(generate_tips)
         saved  = result.get("saved", 0)
         tips   = result.get("tips", {})
         singles = tips.get("singles", [])
