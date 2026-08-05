@@ -41,7 +41,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
     """Felépíti a Foci_egységes alapú automatizált promptot."""
 
     match_text = "\n".join([
-        f"- {m['match']} | {m['sportLabel']} | Kezdés: {m['commence']} | "
+        f"- {m['match']} | {m.get('sportLabel', m.get('sport',''))} | Kezdés: {m['commence']} | "
         f"Piac: {m['market']} | Odds: {m['odds']}"
         for m in matches
     ]) or "Nincs elérhető meccs."
