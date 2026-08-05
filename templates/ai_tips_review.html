@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}AI Tippek Jóváhagyása{% endblock %}
+{% block content %}
+<div class="container" style="max-width:860px;margin:20px auto;color:white">
+
+  <h1 style="text-align:center;margin-bottom:6px">🤖 AI Generált Tippek</h1>
+  <p style="text-align:center;color:#a0aec0;margin-bottom:24px">Jóváhagyás után automatikusan kimennek az értesítők</p>
+
+  {% if message %}
+  <div style="background:#1a3a2a;border:1px solid #38a169;border-radius:8px;padding:14px;margin-bottom:20px;color:#9AE6B4">
+    ✅ {{ message }}
+  </div>
+  {% endif %}
+  {% if error %}
+  <div style="background:#3a1a1a;border:1px solid #e53e3e;border-radius:8px;padding:14px;margin-bottom:20px;color:#FC8181">
+    ❌ {{ error }}
+  </div>
+  {% endif %}
+
+  {% if not pending %}
+  <div style="background:#2d3748;border-radius:12px;padding:40px;text-align:center;color:#a0aec0">
+    Nincs jóváhagyásra váró AI tipp.
+  </div>
+  {% endif %}
+
+  {% for tip in pending %}
+  <div style="background:#1e2a3a;border-radius:12px;padding:22px;margin-bottom:18px;
+              border-left:5px solid {{ '#D4AF37' if tip.tip_type == 'kombi' else ('#00c853' if tip.tip_type == 'free' else '#4299e1') }}">
+
+    <!-- Fejléc -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div>
+        {% if tip.tip_type == 'free' %}
+          <span style="background:#00c853;color:#000;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">🆓 FREE</span>
+        {% elif tip.tip_type == 'kombi' %}
+          <span style="background:#D4AF37;color:#000;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">🎰 KOMBI</span>
+        {% else %}
+          <span style="background:#4299e1;color:#fff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">⚽ SINGLE – Tier {{ tip.ai_tier or 1 }}</span>
+        {% endif %}
+        {% if tip.ai_confidence %}
+          <span style="margin-left:8px;color:#a0aec0;font-size:12px">{{ tip.ai_confidence }}</span>
+        {% endif %}
+      </div>
+      <span style="color:#718096;font-size:12px">{{ tip.created_at[:16] if tip.created_at else '' }}</span>
+    </div>
+
+    <!-- Tipp neve -->
+    <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px">
+      {{ tip.tipp_neve }}
+    </div>
+
+    <!-- Odds -->
+    <div style="color:#D4AF37;font-size:15px;margin-bottom:10px">
+      Odds: <strong>{{ tip.eredo_odds }}</strong>
+    </div>
+
+    <!-- AI indoklás -->
+    {% if tip.ai_note %}
+    <div style="background:#0d1b2a;border-radius:8px;padding:12px;color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:14px;white-space:pre-wrap">{{ tip.ai_note }}</div>
+    {% endif %}
+
+    <!-- Gombok -->
+    <div style="display:flex;gap:10px">
+      <form method="POST" action="/admin/ai-tips/approve/{{ tip.id }}" style="margin:0">
+        <input type="hidden" name="tip_type" value="{{ tip.tip_type or 'vip' }}">
+        <input type="hidden" name="tipp_neve" value="{{ tip.tipp_neve }}">
+        <input type="hidden" name="eredo_odds" value="{{ tip.eredo_odds }}">
+        <button type="submit"
+          style="background:#38a169;color:white;border:none;padding:10px 22px;border-radius:8px;
+                 font-weight:700;cursor:pointer;font-size:14px">
+          ✅ Jóváhagyás + Értesítők küldése
+        </button>
+      </form>
+      <form method="POST" action="/admin/ai-tips/reject/{{ tip.id }}" style="margin:0"
+            onsubmit="return confirm('Biztosan törlöd ezt a tippet?')">
+        <button type="submit"
+          style="background:#e53e3e;color:white;border:none;padding:10px 18px;border-radius:8px;
+                 font-weight:700;cursor:pointer;font-size:14px">
+          🗑️ Elvetés
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div style="margin-top:20px;text-align:center">
+    <a href="/admin/upload" style="color:#a0aec0;text-decoration:none">← Vissza az adminhoz</a>
+  </div>
+</div>
+{% endblock %}
