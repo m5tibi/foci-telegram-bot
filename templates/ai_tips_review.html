@@ -6,6 +6,18 @@
   <h1 style="text-align:center;margin-bottom:6px">🤖 AI Generált Tippek</h1>
   <p style="text-align:center;color:#a0aec0;margin-bottom:24px">Jóváhagyás után automatikusan kimennek az értesítők</p>
 
+  {% if pending %}
+  <form method="POST" action="/admin/ai-tips/approve-all" style="text-align:center;margin-bottom:20px">
+    <button type="submit"
+      style="background:#D4AF37;color:#08080E;font-weight:800;font-size:16px;
+             padding:14px 36px;border-radius:10px;border:none;cursor:pointer;
+             box-shadow:0 4px 15px rgba(212,175,55,0.3)"
+      onclick="return confirm('Összes AI tipp jóváhagyása és értesítők kiküldése?')">
+      ✅ Összes jóváhagyása és értesítők kiküldése ({{ pending|length }} tipp)
+    </button>
+  </form>
+  {% endif %}
+
   {% if message %}
   <div style="background:#1a3a2a;border:1px solid #38a169;border-radius:8px;padding:14px;margin-bottom:20px;color:#9AE6B4">
     ✅ {{ message }}
