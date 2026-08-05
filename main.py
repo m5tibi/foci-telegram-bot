@@ -466,6 +466,107 @@ async def admin_ai_reject(request: Request, tip_id: int, tip_type: str = Form("v
         return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
 
 
+
+
+@api.post("/admin/ai-tips/approve-all")
+async def admin_ai_approve_all(request: Request, background_tasks: BackgroundTasks):
+    """Összes jóváhagyásra váró AI tipp egyszerre jóváhagyása – egy értesítővel."""
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    from app.database import get_admin_db
+    from bot import send_telegram_broadcast_task
+    try:
+        from app.email_utils import notify_upload
+    except Exception:
+        notify_upload = None
+
+    db = get_admin_db()
+    import pytz
+    from datetime import datetime
+
+    vip_tips, free_tips_list = [], []
+
+    for table in ["manual_slips", "free_slips"]:
+        try:
+            res = db.table(table).select("*") \
+                .eq("status", "Jóváhagyásra vár") \
+                .eq("ai_generated", True) \
+                .execute()
+            for tip in (res.data or []):
+                if table == "free_slips":
+                    free_tips_list.append(tip)
+                else:
+                    vip_tips.append(tip)
+                # Státusz frissítése
+                db.table(table).update({"status": "Folyamatban"}).eq("id", tip["id"]).execute()
+        except Exception as e:
+            print(f"[approve-all] {table} hiba: {e}")
+
+    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+    now_iso  = datetime.now(pytz.utc).isoformat()
+    today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
+    total    = len(vip_tips) + len(free_tips_list)
+
+    if total == 0:
+        return RedirectResponse(url="/admin/ai-tips?error=Nincs jóváhagyásra váró tipp.", status_code=303)
+
+    # VIP Telegram értesítő (egy üzenetben)
+    if vip_tips and send_telegram_broadcast_task:
+        subs_res = db.table("felhasznalok").select("chat_id") \
+            .eq("subscription_status", "active") \
+            .gt("subscription_expires_at", now_iso).execute()
+        target_ids = [u["chat_id"] for u in (subs_res.data or []) if u.get("chat_id")]
+        if target_ids:
+            lines = "\n".join([
+                f"{'🎰' if t.get('tip_type')=='kombi' else '⚽'} {t['tipp_neve']}"
+                for t in vip_tips
+            ])
+            msg = (
+                f"🔥 *VIP* *ÚJ AI TIPPEK JÓVÁHAGYVA!*\n\n"
+                f"{lines}\n\n"
+                f"📅 {today}\n"
+                f"🚀 [Megtekintés]({site_url}/vip)"
+            )
+            background_tasks.add_task(send_telegram_broadcast_task, target_ids, msg)
+
+    # VIP Email értesítő (egy emailben)
+    if vip_tips and notify_upload:
+        email_res = db.table("felhasznalok") \
+            .select("email, email_unsubscribed") \
+            .eq("subscription_status", "active") \
+            .gt("subscription_expires_at", now_iso).execute()
+        to_emails = [
+            u["email"] for u in (email_res.data or [])
+            if u.get("email") and not u.get("email_unsubscribed")
+        ]
+        if to_emails:
+            names = ", ".join([t["tipp_neve"] for t in vip_tips])
+            background_tasks.add_task(notify_upload, to_emails, "VIP szelvény", names, site_url + "/vip")
+
+    # Free Telegram értesítő (egy üzenetben, mindenkinek)
+    if free_tips_list and send_telegram_broadcast_task:
+        all_subs = db.table("felhasznalok").select("chat_id").execute()
+        all_ids  = [u["chat_id"] for u in (all_subs.data or []) if u.get("chat_id")]
+        if all_ids:
+            lines = "\n".join([
+                f"⚽ {t['tipp_neve']}" for t in free_tips_list
+            ])
+            msg = (
+                f"✅ *INGYENES* *ÚJ AI TIPP JÓVÁHAGYVA!*\n\n"
+                f"{lines}\n\n"
+                f"🚀 [Megtekintés]({site_url}/vip)"
+            )
+            background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
+
+    return RedirectResponse(
+        url=f"/admin/ai-tips?message={total} tipp jóváhagyva, értesítők elküldve!",
+        status_code=303
+    )
+
+
 # --- 6. Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
