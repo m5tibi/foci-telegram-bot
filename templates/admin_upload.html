@@ -25,6 +25,51 @@
         </a>
     </div>
 
+
+    <!-- Claude AI Tipp Generálás -->
+    <div style="background:#1a2535;padding:25px;border-radius:12px;margin-bottom:30px;border-left:5px solid #D4AF37;box-shadow:0 4px 6px rgba(0,0,0,0.3)">
+        <h2 style="margin-top:0;color:#D4AF37">🤖 Claude AI Tipp Generálás</h2>
+        <p style="color:#a0aec0;font-size:0.9em">
+            Automatikusan generál single, kombi és free tippeket a 90perc.hu meccslistája alapján.<br>
+            <strong style="color:#f59e0b">⚠️ Először futtasd a 90perc.hu-n a „Frissítés most" gombot!</strong>
+        </p>
+        <div id="ai-result" style="display:none;margin:14px 0;padding:14px;background:#0d1b2a;border-radius:8px;color:#9AE6B4;font-size:0.9em"></div>
+        <button
+            id="ai-gen-btn"
+            onclick="runAiGenerate()"
+            style="background:#D4AF37;color:#08080E;font-weight:800;padding:13px 28px;
+                   border-radius:8px;border:none;cursor:pointer;font-size:15px;
+                   transition:opacity 0.2s">
+            ⚡ AI tippek generálása most
+        </button>
+        <span id="ai-spinner" style="display:none;margin-left:12px;color:#a0aec0">⏳ Generálás folyamatban (~30-60 mp)...</span>
+    </div>
+
+    <script>
+    async function runAiGenerate() {
+        const btn = document.getElementById('ai-gen-btn');
+        const spinner = document.getElementById('ai-spinner');
+        const result = document.getElementById('ai-result');
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        spinner.style.display = 'inline';
+        result.style.display = 'none';
+        try {
+            const r = await fetch('/admin/ai-generate', { method: 'POST' });
+            const html = await r.text();
+            result.innerHTML = html;
+            result.style.display = 'block';
+        } catch(e) {
+            result.innerHTML = '❌ Hiba: ' + e.message;
+            result.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            spinner.style.display = 'none';
+        }
+    }
+    </script>
+
     <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #4299e1; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
         <h2 style="margin-top: 0; color: #4299e1;">📂 Elemzések & Táblázatok Feltöltése</h2>
         <p style="color: #a0aec0; font-size: 0.9em;">Használd ezt az Excel (.xlsx) vagy PDF fájlok publikálásához.</p>
