@@ -276,6 +276,63 @@ async def vip_area(request: Request):
         "roi": roi_value, "daily_status_message": msg
     })
 
+
+
+# ── Claude AI tipp generálás ──────────────────────────────────────────────────
+
+@api.post("/admin/ai-generate")
+async def admin_ai_generate(request: Request):
+    """Admin: Claude AI tipp generálás a 90perc.hu meccslistájából."""
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get('chat_id')) != admin_id:
+        return HTMLResponse("Nincs jogosultságod.", status_code=403)
+
+    from claude_ai_generator import generate_tips
+    try:
+        result = generate_tips()
+        saved  = result.get("saved", 0)
+        tips   = result.get("tips", {})
+        singles = tips.get("singles", [])
+        combos  = tips.get("combos", [])
+        free_tip = tips.get("free_tip")
+        summary  = tips.get("summary", "")
+
+        singles_html = "".join([
+            f'<li>⚽ {t["match"]} – {t["pick"]} @ {t["odds"]} (Tier {t.get("tier",1)}, {t.get("confidence","")})</li>'
+            for t in singles
+        ])
+        combos_html = "".join([
+            f'<li>🎰 Kombi {i+1}: {", ".join([l["pick"] for l in c["legs"]])} → össz odds {c["total_odds"]}</li>'
+            for i, c in enumerate(combos)
+        ])
+        free_html = (
+            f'<li>🆓 {free_tip["match"]} – {free_tip["pick"]} @ {free_tip["odds"]}</li>'
+            if free_tip else "<li>Nem generált free tippet</li>"
+        )
+
+        html = f"""<!DOCTYPE html>
+<html lang="hu"><head><meta charset="UTF-8">
+<title>AI generálás kész</title>
+<style>body{{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;background:#09090F;color:#ccc}}
+h2{{color:#D4AF37}}ul{{line-height:2}}a{{color:#D4AF37}}</style></head>
+<body>
+<h2>✅ Claude AI tipp generálás kész!</h2>
+<p style="color:#9AE6B4">{summary}</p>
+<h3>Single tippek ({len(singles)} db)</h3><ul>{singles_html}</ul>
+<h3>Kombi szelvények ({len(combos)} db)</h3><ul>{combos_html}</ul>
+<h3>Free tipp</h3><ul>{free_html}</ul>
+<p>Supabase-be mentve: <b>{saved}</b> tétel – jóváhagyásra várnak.</p>
+<a href="/admin/upload">← Vissza az adminhoz</a>
+</body></html>"""
+        return HTMLResponse(html)
+
+    except Exception as e:
+        return HTMLResponse(
+            f'<h3 style="color:red">❌ Hiba: {e}</h3><a href="/admin/upload">← Vissza</a>',
+            status_code=500
+        )
+
 # --- 6. Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
