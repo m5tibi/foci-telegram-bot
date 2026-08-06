@@ -85,6 +85,7 @@
       </form>
       <form method="POST" action="/admin/ai-tips/reject/{{ tip.id }}" style="margin:0"
             onsubmit="return confirm('Biztosan törlöd ezt a tippet?')">
+        <input type="hidden" name="tip_type" value="{{ tip.tip_type or 'vip' }}">
         <button type="submit"
           style="background:#e53e3e;color:white;border:none;padding:10px 18px;border-radius:8px;
                  font-weight:700;cursor:pointer;font-size:14px">
