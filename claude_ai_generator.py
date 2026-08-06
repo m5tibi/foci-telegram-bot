@@ -227,6 +227,14 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Free tipp mentése a free_slips táblába
     free_tip = tips.get("free_tip")
+    # Érvénytelen free tipp kiszűrése (N/A, 0 odds, hiányzó adatok)
+    if free_tip and (
+        not free_tip.get("match") or
+        free_tip.get("match") in ("N/A", "null", "", None) or
+        float(free_tip.get("odds", 0) or 0) < 1.30
+    ):
+        print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
+        free_tip = None
     if free_tip:
         row = {
             "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}",
