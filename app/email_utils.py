@@ -221,3 +221,68 @@ def notify_marketing(to_emails: list, subject: str, body_html: str,
                      cta_text: str = None, cta_url: str = None) -> dict:
     """Marketing / akciós email."""
     return _send(to_emails, subject, subject, body_html, cta_text, cta_url)
+
+def notify_ai_tips(to_emails: list, vip_tips: list, free_tips: list, vip_url: str) -> dict:
+    """AI-generált tippek értesítője – szépen formázva."""
+    if not vip_tips and not free_tips:
+        return {"sent": 0, "errors": []}
+
+    tip_rows = ""
+    for t in vip_tips:
+        name = t.get("tipp_neve", "").replace("[AI] ", "").replace("[AI FREE] ", "")
+        icon = "🎰" if t.get("tip_type") == "kombi" else "⚽"
+        odds = t.get("eredo_odds", "")
+        note = t.get("ai_note", "").split("\nLábak:")[0].strip()
+        tip_rows += f"""
+        <tr><td style="padding:12px 0;border-bottom:1px solid rgba(212,175,55,.1);">
+            <div style="font-size:13px;font-weight:700;color:#D4AF37;margin-bottom:4px">
+                {icon} {name}
+            </div>
+            {'<div style="font-size:12px;color:#A0A0C0;line-height:1.5;margin-top:4px">' + note + '</div>' if note else ''}
+            <div style="font-size:12px;color:#68D391;margin-top:4px;font-weight:700">Odds: {odds}</div>
+        </td></tr>"""
+
+    free_rows = ""
+    for t in free_tips:
+        name = t.get("tipp_neve", "").replace("[AI FREE] ", "").replace("[AI] ", "")
+        odds = t.get("eredo_odds", "")
+        note = t.get("ai_note", "").split("\nLábak:")[0].strip()
+        free_rows += f"""
+        <tr><td style="padding:12px 0;border-bottom:1px solid rgba(56,161,105,.2);">
+            <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:4px">🆓 INGYENES TIPP</div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:4px">{name}</div>
+            {'<div style="font-size:12px;color:#A0A0C0;line-height:1.5;margin-top:4px">' + note + '</div>' if note else ''}
+            <div style="font-size:12px;color:#68D391;margin-top:4px;font-weight:700">Odds: {odds}</div>
+        </td></tr>"""
+
+    sections = ""
+    if vip_tips:
+        sections += f"""
+        <p style="font-size:13px;font-weight:700;color:#D4AF37;margin:16px 0 8px">
+            💎 VIP tippek ({len(vip_tips)} db)
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">{tip_rows}</table>"""
+
+    if free_tips:
+        sections += f"""
+        <p style="font-size:13px;font-weight:700;color:#38A169;margin:20px 0 8px">
+            🆓 Ingyenes tipp ({len(free_tips)} db)
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">{free_rows}</table>"""
+
+    total = len(vip_tips) + len(free_tips)
+    return _send(
+        to_emails,
+        subject=f"Új AI tippek ({total} db) – Mondom a Tutit!",
+        title="Új AI tippek érkeztek!",
+        body_html=f"""
+            <p>Szia!</p>
+            <p>Az alábbi AI-generált tippek jóváhagyásra kerültek:</p>
+            {sections}
+            <p style="margin-top:20px;color:#A0A0C0;font-size:13px;">
+                Kattints az alábbi gombra a részletek megtekintéséhez:
+            </p>
+        """,
+        cta_text="Megtekintés a weboldalon →",
+        cta_url=vip_url,
+    )
