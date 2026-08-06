@@ -6,7 +6,7 @@ import os
 import json
 import requests
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 CLAUDE_API_KEY     = os.environ.get("ANTHROPIC_API_KEY")
@@ -236,8 +236,6 @@ def save_to_supabase(tips: dict) -> dict:
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
     if free_tip:
-        from datetime import datetime, timedelta
-        import pytz
         tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
         row = {
             "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}",
