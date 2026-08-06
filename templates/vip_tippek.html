@@ -68,18 +68,24 @@
         }
         
         .manual-slips-grid {
-            gap: 12px !important;
+            gap: 15px !important;
             padding: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
-            display: flex !important;
-            flex-direction: column !important;
         }
         .manual-slip-card {
-            max-width: 100% !important;
             box-sizing: border-box !important;
             overflow: hidden !important;
             word-break: break-word !important;
+        }
+        @media (max-width: 600px) {
+            .manual-slips-grid {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            .manual-slip-card {
+                max-width: 100% !important;
+            }
         }
         
         .manual-slip-card { 
@@ -262,7 +268,7 @@
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
-                <div class="manual-slips-grid" style="display:flex;flex-direction:column;gap:12px;max-width:100%">
+                <div class="manual-slips-grid">
                 {% for slip in active_manual_slips %}
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
@@ -488,7 +494,7 @@
 
         {% if active_free_slips %}
             <h3>Mai Ingyenes Szelvény(ek)</h3>
-            <div class="manual-slips-grid" style="display:flex;flex-direction:column;gap:12px;max-width:100%">
+            <div class="manual-slips-grid">
             {% for slip in active_free_slips %}
                 {% if slip.image_url %}
                     <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
