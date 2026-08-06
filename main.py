@@ -603,6 +603,24 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
 
     return RedirectResponse(url=f"/admin/ai-tips?message={total} tipp értesítői elküldve!", status_code=303)
 
+
+
+@api.post("/admin/ai-check-results")
+async def admin_ai_check_results(request: Request, background_tasks: BackgroundTasks):
+    """AI tippek eredmény kiértékelése The-Odds-API alapján."""
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+    from fastapi.concurrency import run_in_threadpool
+    from ai_eredmeny_ellenorzo import main as check_main
+    try:
+        await run_in_threadpool(check_main)
+        return RedirectResponse(url="/admin/ai-tips?message=Kiértékelés lefutott!", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
+
+
 # --- 6. Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
