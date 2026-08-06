@@ -201,7 +201,12 @@ def save_to_supabase(tips: dict) -> dict:
             "ai_note": t.get("note", ""),
             "ai_tier": t.get("tier", 1),
             "ai_confidence": t.get("confidence", ""),
-            "tip_type": "single"
+            "tip_type": "single",
+            "ai_match": t.get("match", ""),
+            "ai_pick": t.get("pick", ""),
+            "ai_market": t.get("market", ""),
+            "ai_commence": t.get("commence", ""),
+            "result_status": "Folyamatban"
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
@@ -220,7 +225,9 @@ def save_to_supabase(tips: dict) -> dict:
             "ai_note": c.get("note", "") + f"\n\nLábak:\n{legs_str}",
             "ai_tier": 3,
             "ai_confidence": "kombi",
-            "tip_type": "kombi"
+            "tip_type": "kombi",
+            "ai_legs": json.dumps(c.get("legs", []), ensure_ascii=False),
+            "result_status": "Folyamatban"
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
@@ -249,7 +256,12 @@ def save_to_supabase(tips: dict) -> dict:
             "target_date": tomorrow,
             "ai_generated": True,
             "ai_note": free_tip.get("note", ""),
-            "tip_type": "free"
+            "tip_type": "free",
+            "ai_match": free_tip.get("match", ""),
+            "ai_pick": free_tip.get("pick", ""),
+            "ai_market": free_tip.get("market", ""),
+            "ai_commence": free_tip.get("commence", ""),
+            "result_status": "Folyamatban"
         }
         r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
