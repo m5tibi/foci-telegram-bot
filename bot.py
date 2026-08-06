@@ -541,7 +541,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         else:
             stat_msg += "📭 _Nincs lezárt tipp ebben az időszakban._\n\n"
         
-        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} lezárt, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
         stat_msg += f"📝 *VIP*: {s['vip']['c']} lezárt, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} lezárt, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
