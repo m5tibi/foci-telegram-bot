@@ -236,10 +236,14 @@ def save_to_supabase(tips: dict) -> dict:
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
     if free_tip:
+        from datetime import datetime, timedelta
+        import pytz
+        tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
         row = {
             "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}",
             "eredo_odds": free_tip["odds"],
             "status": "Jóváhagyásra vár",
+            "target_date": tomorrow,
             "ai_generated": True,
             "ai_note": free_tip.get("note", ""),
             "tip_type": "free"
