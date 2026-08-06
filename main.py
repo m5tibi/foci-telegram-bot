@@ -566,8 +566,12 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
             .eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute()
         ids = [u["chat_id"] for u in (subs.data or []) if u.get("chat_id")]
         if ids:
-            lines = "\n".join([f"{'🎰' if t.get('tip_type')=='kombi' else '⚽'} {t['tipp_neve']}" for t in vip_tips])
-            msg = f"🔥 *VIP ÚJ AI TIPPEK!*\n\n{lines}\n\n📅 {today}\n🚀 [Megtekintés]({site_url}/vip)"
+            def fmt_vip(t):
+                name = t["tipp_neve"].replace("[AI] ", "").replace("[AI FREE] ", "")
+                icon = "🎰" if t.get("tip_type") == "kombi" else "⚽"
+                return f"{icon} {name}"
+            lines = "\n".join([fmt_vip(t) for t in vip_tips])
+            msg = f"🔥 *VIP – Új AI tippek!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, ids, msg)
 
     # VIP Email
@@ -584,8 +588,11 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         all_subs = db.table("felhasznalok").select("chat_id").execute()
         all_ids  = [u["chat_id"] for u in (all_subs.data or []) if u.get("chat_id")]
         if all_ids:
-            lines = "\n".join([f"⚽ {t['tipp_neve']}" for t in free_tips_list])
-            msg = f"✅ *INGYENES TIPP!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
+            def fmt_free(t):
+                name = t["tipp_neve"].replace("[AI FREE] ", "").replace("[AI] ", "")
+                return f"⚽ {name}"
+            lines = "\n".join([fmt_free(t) for t in free_tips_list])
+            msg = f"✅ *Ingyenes tipp!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
 
     # Megjelölés küldöttként
