@@ -191,7 +191,7 @@ def save_to_supabase(tips: dict) -> dict:
     # Single tippek mentése
     for t in tips.get("singles", []):
         row = {
-            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']} ({now})",
+            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''} ({now})",
             "eredo_odds": t["odds"],
             "status": "Jóváhagyásra vár",
             "ai_generated": True,
@@ -237,8 +237,10 @@ def save_to_supabase(tips: dict) -> dict:
         free_tip = None
     if free_tip:
         tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
+        commence = free_tip.get("commence", "")
+        commence_str = f" 🕐 {commence}" if commence else ""
         row = {
-            "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}",
+            "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
             "eredo_odds": free_tip["odds"],
             "status": "Jóváhagyásra vár",
             "target_date": tomorrow,
