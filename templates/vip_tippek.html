@@ -68,10 +68,18 @@
         }
         
         .manual-slips-grid {
-            gap: 15px !important;
+            gap: 12px !important;
             padding: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        .manual-slip-card {
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            word-break: break-word !important;
         }
         
         .manual-slip-card { 
@@ -254,7 +262,7 @@
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Szerkesztői Szelvények</h3>
-                <div class="manual-slips-grid">
+                <div class="manual-slips-grid" style="display:flex;flex-direction:column;gap:12px;max-width:100%">
                 {% for slip in active_manual_slips %}
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
@@ -265,7 +273,7 @@
                             </div>
                         </a>
                     {% else %}
-                        <div class="manual-slip-card" style="padding:16px;background:#1a2535;border-radius:12px;border:1px solid #2d4a6a">
+                        <div class="manual-slip-card" style="padding:14px;background:#1a2535;border-radius:12px;border:1px solid #2d4a6a;max-width:100%;box-sizing:border-box;overflow:hidden;word-break:break-word">
                             <div style="font-size:11px;font-weight:700;color:#D4AF37;margin-bottom:8px">
                                 {% if slip.tip_type == 'kombi' %}🎰 KOMBI{% elif slip.tip_type == 'free' %}🆓 FREE{% else %}⚽ VIP TIPP{% endif %}
                                 {% if slip.ai_tier %} · Tier {{ slip.ai_tier }}{% endif %}
@@ -480,7 +488,7 @@
 
         {% if active_free_slips %}
             <h3>Mai Ingyenes Szelvény(ek)</h3>
-            <div class="manual-slips-grid">
+            <div class="manual-slips-grid" style="display:flex;flex-direction:column;gap:12px;max-width:100%">
             {% for slip in active_free_slips %}
                 {% if slip.image_url %}
                     <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
@@ -491,7 +499,7 @@
                         </div>
                     </a>
                 {% else %}
-                    <div class="manual-slip-card" style="padding:20px;background:#0d2a1a;border-radius:12px;border:2px solid #38A169">
+                    <div class="manual-slip-card" style="padding:14px;background:#0d2a1a;border-radius:12px;border:2px solid #38A169;max-width:100%;box-sizing:border-box;overflow:hidden;word-break:break-word">
                         <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:10px">🆓 INGYENES NAPI TIPP</div>
                         <div style="font-weight:700;color:#e2e8f0;font-size:15px;margin-bottom:10px">
                             {{ slip.tipp_neve | replace("[AI FREE] ", "") | replace("[AI] ", "") }}
