@@ -83,7 +83,18 @@
 
     <!-- AI indoklás -->
     {% if tip.ai_note %}
-    <div style="background:#0d1b2a;border-radius:8px;padding:12px;color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:14px;white-space:pre-wrap">{{ tip.ai_note }}</div>
+      {% set parts = tip.ai_note.split('\nLábak:\n') %}
+      <div style="background:#0d1b2a;border-radius:8px;padding:12px;color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:10px">{{ parts[0] }}</div>
+      {% if parts|length > 1 %}
+      <div style="background:#0a1520;border:1px solid #2a4a6a;border-radius:8px;padding:12px;margin-bottom:14px">
+        <div style="color:#90caf9;font-size:11px;font-weight:700;margin-bottom:8px">📋 LÁBAK</div>
+        {% for leg in parts[1].split('\n') %}
+          {% if leg.strip() %}
+          <div style="color:#e2e8f0;font-size:13px;padding:4px 0;border-bottom:1px solid #1a3a5a">{{ leg.strip() }}</div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
     {% endif %}
 
     <!-- Gombok -->
