@@ -120,8 +120,8 @@ Más piacot válassz, más szöget keress, még ha ugyanarra a meccsre tippelez 
   "combos": [
     {{
       "legs": [
-        {{"match": "Csapat A vs Csapat B", "pick": "Over 1.5", "odds": 1.28}},
-        {{"match": "Csapat C vs Csapat D", "pick": "Csapat C győzelem", "odds": 1.45}}
+        {{"match": "Csapat A vs Csapat B", "pick": "Over 1.5", "odds": 1.28, "commence": "08.06 19:00"}},
+        {{"match": "Csapat C vs Csapat D", "pick": "Csapat C győzelem", "odds": 1.45, "commence": "08.06 21:00"}}
       ],
       "total_odds": 1.86,
       "note": "Rövid indoklás magyarul."
