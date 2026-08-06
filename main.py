@@ -497,8 +497,8 @@ async def admin_ai_approve_all(request: Request, background_tasks: BackgroundTas
             if u.get("email") and not u.get("email_unsubscribed")
         ]
         if to_emails:
-            names = ", ".join([t["tipp_neve"] for t in vip_tips])
-            background_tasks.add_task(notify_upload, to_emails, "VIP szelvény", names, site_url + "/vip")
+            from app.email_utils import notify_ai_tips
+            background_tasks.add_task(notify_ai_tips, to_emails, vip_tips, free_tips_list, site_url + "/vip")
 
     # Free Telegram értesítő (egy üzenetben, mindenkinek)
     if free_tips_list and send_telegram_broadcast_task:
@@ -580,8 +580,8 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
             .eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute()
         to_emails = [u["email"] for u in (emails_res.data or []) if u.get("email") and not u.get("email_unsubscribed")]
         if to_emails:
-            names = ", ".join([t["tipp_neve"] for t in vip_tips])
-            background_tasks.add_task(notify_upload, to_emails, "VIP szelvény", names, site_url + "/vip")
+            from app.email_utils import notify_ai_tips
+            background_tasks.add_task(notify_ai_tips, to_emails, vip_tips, free_tips_list, site_url + "/vip")
 
     # Free Telegram (mindenki)
     if free_tips_list and send_telegram_broadcast_task:
