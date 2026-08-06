@@ -550,7 +550,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         res = db.table(table).select("*") \
             .eq("status", "Folyamatban") \
             .eq("ai_generated", True) \
-            .eq("sent", False) \
+            .eq("status", "Folyamatban") \
             .execute()
         for tip in (res.data or []):
             if table == "free_slips": free_tips_list.append(tip)
@@ -595,11 +595,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
             msg = f"✅ *Ingyenes tipp!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
 
-    # Megjelölés küldöttként
-    for table, tips in [("manual_slips", vip_tips), ("free_slips", free_tips_list)]:
-        for tip in tips:
-            try: db.table(table).update({"sent": True}).eq("id", tip["id"]).execute()
-            except: pass
+    # Tippek maradnak "Folyamatban" státuszban – a result_status jelzi majd a végeredményt
 
     return RedirectResponse(url=f"/admin/ai-tips?message={total} tipp értesítői elküldve!", status_code=303)
 
