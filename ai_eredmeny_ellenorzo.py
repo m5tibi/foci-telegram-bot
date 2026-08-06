@@ -235,9 +235,11 @@ def main():
                     "Fél_visszajár": "Fél-visszajár",
                 }
                 new_status = status_map.get(result, result)
+                # status-ba is beírjuk hogy a bot stat parancs megtalálja
+                db_status = "Nyert" if "Nyert" in new_status else "Veszített" if "Veszített" in new_status else "Visszajár"
                 sb_update(table, row["id"], {
                     "result_status": new_status,
-                    "status": "Lezárva",
+                    "status": db_status,
                 })
                 row["result_status"] = new_status
                 updated.append(row)
