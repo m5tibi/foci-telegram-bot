@@ -194,7 +194,7 @@ def save_to_supabase(tips: dict) -> dict:
     # Single tippek mentése
     for t in tips.get("singles", []):
         row = {
-            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''} ({now})",
+            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
             "eredo_odds": t["odds"],
             "status": "Jóváhagyásra vár",
             "ai_generated": True,
@@ -211,13 +211,13 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Kombi szelvények mentése
     for i, c in enumerate(tips.get("combos", []), 1):
-        legs_str = " + ".join([f"{l['match']}: {l['pick']} @{l['odds']}" for l in c["legs"]])
+        legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}" for l in c["legs"]])
         row = {
-            "tipp_neve": f"[AI] Kombi {i} – össz odds {c['total_odds']} ({now})",
+            "tipp_neve": f"[AI] Kombi {i} – össz odds {c['total_odds']}",
             "eredo_odds": c["total_odds"],
             "status": "Jóváhagyásra vár",
             "ai_generated": True,
-            "ai_note": c.get("note", "") + f"\n\nLábak: {legs_str}",
+            "ai_note": c.get("note", "") + f"\n\nLábak:\n{legs_str}",
             "ai_tier": 3,
             "ai_confidence": "kombi",
             "tip_type": "kombi"
