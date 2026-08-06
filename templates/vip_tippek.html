@@ -490,6 +490,22 @@
                             <span class="manual-card-date">Lejárat: {{ slip.target_date }}</span>
                         </div>
                     </a>
+                {% else %}
+                    <div class="manual-slip-card" style="padding:20px;background:#0d2a1a;border-radius:12px;border:2px solid #38A169">
+                        <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:10px">🆓 INGYENES NAPI TIPP</div>
+                        <div style="font-weight:700;color:#e2e8f0;font-size:15px;margin-bottom:10px">
+                            {{ slip.tipp_neve | replace("[AI FREE] ", "") | replace("[AI] ", "") }}
+                        </div>
+                        {% if slip.ai_note %}
+                        <div style="color:#a0aec0;font-size:13px;line-height:1.6">
+                            {{ slip.ai_note.split("\nLábak:")[0] }}
+                        </div>
+                        {% endif %}
+                        <div style="margin-top:10px;font-size:12px;color:#68D391;font-weight:700">Odds: {{ slip.eredo_odds }}</div>
+                        {% if slip.target_date %}
+                        <div style="font-size:11px;color:#718096;margin-top:4px">Lejárat: {{ slip.target_date }}</div>
+                        {% endif %}
+                    </div>
                 {% endif %}
             {% endfor %}
             </div>
