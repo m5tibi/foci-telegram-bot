@@ -21,7 +21,7 @@ BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 # ── 1. Meccsek lekérése a 90perc.hu-ról ──────────────────────────────────────
 
 def fetch_match_list() -> dict:
-    """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt meccseket."""
+    """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt pick-eket."""
     try:
         r = requests.get(
             f"{PERC90_URL}/api/match-list",
@@ -32,7 +32,7 @@ def fetch_match_list() -> dict:
         return r.json()
     except Exception as e:
         print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
-        return {"matches": [], "tippedMatches": []}
+        return {"matches": [], "tippedMatches": [], "tippedPicks": []}
 
 
 # ── 2. Claude API hívás ───────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
         for m in matches
     ]) or "Nincs elérhető meccs."
 
-    skip_text = "; ".join(tipped_matches) if tipped_matches else "Nincs kizárt meccs."
+    skip_text = "; ".join(tipped_matches) if tipped_matches else "Nincs."
 
     return f"""Te egy 25+ éves tapasztalattal rendelkező professzionális sportfogadási elemző vagy, \
 aki a labdarúgásra specializálódott. Dolgoztál fogadóirodának árazóként és professzionális \
@@ -63,8 +63,11 @@ A megközelítésed hideg, fegyelmezett és adatvezérelt. Ismered a magyar foga
 ## MECCSEK LISTÁJA (valós odds adatokkal):
 {match_text}
 
-## KIZÁRT MECCSEK (ezekre már van tipp a 90perc.hu rendszerén, NE TIPPELJ RÁJUK):
+## MÁR TIPPELT PICK-EK A TESTVÉROLDALON (ezeket a konkrét piac+pick kombinációkat NE ismételd):
 {skip_text}
+
+FONTOS: Ugyanarra a meccsre tippelhetsz, de MÁS PIACOT vagy ELTÉRŐ KIMENETELT válassz!
+Pl. ha a testvéroldalon "Boca Juniors győzelem 1X2" van, te tippelhetsz "Over 1.5" vagy "Hendikep +0.5"-t ugyanarra a meccsre.
 
 ## FELADATOD:
 
@@ -268,13 +271,15 @@ def generate_tips() -> dict:
     data = fetch_match_list()
     matches = data.get("matches", [])
     tipped = data.get("tippedMatches", [])
-    print(f"[claude_gen] {len(matches)} meccs, {len(tipped)} már tippelt kizárva")
+    # Tippelt pick-ek összegyűjtése (match | piac | pick formátumban)
+    tipped_picks = data.get("tippedPicks", tipped)  # fallback: meccs szintű kizárás
+    print(f"[claude_gen] {len(matches)} meccs, {len(tipped)} már tippelt meccs")
 
     if not matches:
         return {"error": "Nincs elérhető meccs a 90perc.hu szerverről"}
 
     # 2. Claude hívás
-    prompt = build_prompt(matches, tipped)
+    prompt = build_prompt(matches, tipped_picks)
     print("[claude_gen] Claude API hívás...")
     tips = call_claude(prompt)
     print(f"[claude_gen] {len(tips.get('singles', []))} single, {len(tips.get('combos', []))} kombi generálva")
