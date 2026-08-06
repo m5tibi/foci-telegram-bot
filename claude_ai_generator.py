@@ -211,7 +211,7 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Kombi szelvények mentése
     for i, c in enumerate(tips.get("combos", []), 1):
-        legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}" for l in c["legs"]])
+        legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}{' 🕐 '+l['commence'] if l.get('commence') else ''}" for l in c["legs"]])
         row = {
             "tipp_neve": f"[AI] Kombi {i} – össz odds {c['total_odds']}",
             "eredo_odds": c["total_odds"],
