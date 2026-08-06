@@ -25,11 +25,16 @@
         .cta-button:hover { background-color: var(--secondary-color); transform: translateY(-3px); }
         .slips-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
             margin-top: 40px;
-            justify-items: center;
+            justify-items: stretch;
             align-items: start;
+        }
+        @media (max-width: 600px) {
+            .slips-grid {
+                grid-template-columns: 1fr;
+            }
         }
         .slip-card {
             background-color: var(--white);
@@ -199,7 +204,7 @@
 
                             const card = document.createElement('div');
                             card.className = 'slip-card';
-                            card.style.cssText = 'padding:20px;background:#0d2a1a;border:2px solid #38A169;text-align:left;cursor:default;';
+                            card.style.cssText = 'padding:16px;background:#0d2a1a;border:2px solid #38A169;text-align:left;cursor:default;width:100%;box-sizing:border-box;max-width:100%;word-break:break-word;';
 
                             card.innerHTML = `
                                 <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:10px">🆓 INGYENES NAPI TIPP</div>
