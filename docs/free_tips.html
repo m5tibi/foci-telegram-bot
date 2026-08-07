@@ -158,9 +158,9 @@
                 const { data, error } = await sbClient
                     .from('free_slips')
                     .select('*')
-                    .gte('target_date', today)
-                    .or('status.eq.Folyamatban,status.eq.Kiküldve')
-                    .order('target_date', { ascending: true });
+                    .gte('created_at', (() => { const d = new Date(); d.setDate(d.getDate()-3); return d.toISOString(); })())
+                    .not('status', 'in', '("Nyert","Veszített","Visszajár")')
+                    .order('created_at', { ascending: false });
 
                 if (error) throw error;
 
