@@ -159,7 +159,7 @@
                     .from('free_slips')
                     .select('*')
                     .gte('target_date', today)
-                    .eq('status', 'Folyamatban')
+                    .or('status.eq.Folyamatban,status.eq.Kiküldve')
                     .order('target_date', { ascending: true });
 
                 if (error) throw error;
