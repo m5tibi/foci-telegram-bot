@@ -290,7 +290,7 @@
             <div class="manual-slips-section">
                 <h3>Napi Tippek</h3>
                 {% set ns = namespace(last_date='') %}
-                {% for slip in active_manual_slips | sort(attribute='target_date') %}
+                {% for slip in active_manual_slips | sort(attribute='ai_commence') | sort(attribute='target_date') %}
                 {% set tip_date = slip.target_date or slip.created_at[:10] %}
                 {% if tip_date != ns.last_date %}
                     {% if ns.last_date != '' %}</div>{% endif %}
@@ -522,7 +522,7 @@
         {% if active_free_slips %}
             <h3>Ingyenes Szelvény(ek)</h3>
                 {% set nf = namespace(last_date='') %}
-                {% for slip in active_free_slips | sort(attribute='target_date') %}
+                {% for slip in active_free_slips | sort(attribute='ai_commence') | sort(attribute='target_date') %}
                 {% set tip_date = slip.target_date or slip.created_at[:10] %}
                 {% if tip_date != nf.last_date %}
                     {% if nf.last_date != '' %}</div>{% endif %}
