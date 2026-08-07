@@ -82,16 +82,16 @@ def fetch_completed_matches():
                 is_completed = g.get("completed")
                 # Ha completed=false de van scores és régebbi mint 1 óra → elfogadjuk lezártként
                 if not is_completed and has_scores:
-                    last_update = g.get("last_update")
-                    if last_update:
-                        from datetime import timezone
-                        try:
-                            lu = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
-                            age_hours = (datetime.now(timezone.utc) - lu).total_seconds() / 3600
-                            if age_hours >= 1:
+                    from datetime import timezone
+                    try:
+                        commence = g.get("commence_time", "")
+                        if commence:
+                            ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                            since_kickoff = (datetime.now(timezone.utc) - ct).total_seconds() / 3600
+                            if since_kickoff >= 2:
                                 is_completed = True
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
                 if not is_completed or not has_scores:
                     continue
                 home = g.get("home_team", "")
@@ -112,6 +112,25 @@ def fetch_completed_matches():
 
 # ── Eredmény kiértékelés ──────────────────────────────────────────────────────
 
+def settle_quarter(value: float, line: float) -> str:
+    """Ázsiai negyed-vonal kiértékelés (pl. Over 3.25 = fele Over 3.0, fele Over 3.5)"""
+    if line % 0.5 == 0:
+        # Egész vagy fél vonal: egyszerű összehasonlítás
+        if value > line: return "Nyert"
+        if value == line: return "Visszajár"
+        return "Veszített"
+    # Negyed vonal: két részre osztjuk
+    low = line - 0.25
+    high = line + 0.25
+    r_low = settle_quarter(value, low)
+    r_high = settle_quarter(value, high)
+    if r_low == r_high: return r_low
+    if r_low == "Nyert" and r_high == "Visszajár": return "Fél_nyert"
+    if r_low == "Visszajár" and r_high == "Veszített": return "Fél_veszített"
+    if r_low == "Nyert" and r_high == "Veszített": return "Nyert"  # ritka eset
+    return "Veszített"
+
+
 def evaluate_pick(pick: str, market: str, h: int, a: int) -> str:
     """Meghatározza hogy nyert-e a tipp. Visszatér: 'Nyert' / 'Veszített' / 'Ismeretlen'"""
     pick_l = pick.lower().strip()
@@ -120,14 +139,19 @@ def evaluate_pick(pick: str, market: str, h: int, a: int) -> str:
     # Over/Under gólok
     if "over" in pick_l:
         try:
-            line = float(''.join(c for c in pick_l.replace(",", ".") if c.isdigit() or c == '.'))
-            return "Nyert" if total > line else "Veszített"
+            nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
+            line = float(nums[0]) if nums else 0
+            result = settle_quarter(total, line)
+            return "Nyert" if result == "Nyert" else "Visszajár" if result == "Visszajár" else "Fél_nyert" if result == "Fél_nyert" else "Fél_veszített" if result == "Fél_veszített" else "Veszített"
         except: pass
 
     if "under" in pick_l:
         try:
-            line = float(''.join(c for c in pick_l.replace(",", ".") if c.isdigit() or c == '.'))
-            return "Nyert" if total < line else "Veszített"
+            nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
+            line = float(nums[0]) if nums else 0
+            result = settle_quarter(total, line)
+            # Under: megfordítjuk
+            return "Nyert" if result == "Veszített" else "Veszített" if result == "Nyert" else "Visszajár" if result == "Visszajár" else "Fél_veszített" if result == "Fél_nyert" else "Fél_nyert"
         except: pass
 
     # BTTS
@@ -262,7 +286,7 @@ def main():
                 status_map = {
                     "Nyert": "Nyert", "Veszített": "Veszített",
                     "Visszajár": "Visszajár", "Fél_nyert": "Fél-nyert",
-                    "Fél_visszajár": "Fél-visszajár",
+                    "Fél_veszített": "Fél-veszített", "Fél_visszajár": "Fél-visszajár",
                 }
                 new_status = status_map.get(result, result)
                 # status-ba is beírjuk hogy a bot stat parancs megtalálja
