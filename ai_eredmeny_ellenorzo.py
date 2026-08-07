@@ -78,7 +78,21 @@ def fetch_completed_matches():
             if not r.ok:
                 continue
             for g in r.json():
-                if not g.get("completed"):
+                has_scores = bool(g.get("scores"))
+                is_completed = g.get("completed")
+                # Ha completed=false de van scores és régebbi mint 1 óra → elfogadjuk lezártként
+                if not is_completed and has_scores:
+                    last_update = g.get("last_update")
+                    if last_update:
+                        from datetime import timezone
+                        try:
+                            lu = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
+                            age_hours = (datetime.now(timezone.utc) - lu).total_seconds() / 3600
+                            if age_hours >= 1:
+                                is_completed = True
+                        except Exception:
+                            pass
+                if not is_completed or not has_scores:
                     continue
                 home = g.get("home_team", "")
                 away = g.get("away_team", "")
@@ -210,7 +224,23 @@ def main():
     updated = []
 
     for table in ["manual_slips", "free_slips"]:
-        rows = sb_get(table, {"ai_generated": "true", "result_status": "Folyamatban"})
+        # Lekérjük a Folyamatban + NULL result_status-ú slipeket
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+        r_all = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=headers,
+            params={
+                "select": "*",
+                "ai_generated": "eq.true",
+                "or": "(result_status.eq.Folyamatban,result_status.is.null)",
+                "status": "not.in.(Nyert,Veszített,Visszajár)"
+            },
+            timeout=15
+        )
+        rows = r_all.json() if r_all.ok else []
         print(f"[ai_eval] {table}: {len(rows)} folyamatban lévő AI tipp")
 
         for row in rows:
