@@ -312,8 +312,8 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
     try:
         def sync_fetch_manual():
             db = get_db_client()
-            pending_manual = db.table("manual_slips").select("*").eq("status", "Folyamatban").execute().data or []
-            pending_free = db.table("free_slips").select("*").eq("status", "Folyamatban").execute().data or []
+            pending_manual = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
+            pending_free = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
             return pending_manual, pending_free
             
         pending_manual, pending_free = await asyncio.to_thread(sync_fetch_manual)
@@ -549,7 +549,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         else:
             stat_msg += "📭 _Nincs lezárt tipp ebben az időszakban._\n\n"
         
-        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} lezárt, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
         stat_msg += f"📝 *VIP*: {s['vip']['c']} lezárt, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} lezárt, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
