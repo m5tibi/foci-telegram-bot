@@ -17,14 +17,24 @@ ADMIN_CHAT_ID  = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 
 SPORT_KEYS = [
-    "soccer_fifa_world_cup", "soccer_uefa_champs_league", "soccer_epl",
+    "soccer_fifa_world_cup", "soccer_uefa_champs_league",
+    "soccer_uefa_europa_league", "soccer_uefa_europa_conference_league",
+    "soccer_uefa_nations_league", "soccer_conmebol_copa_libertadores",
+    "soccer_conmebol_copa_sudamericana", "soccer_epl", "soccer_efl_champ",
+    "soccer_england_league1", "soccer_england_league2",
     "soccer_germany_bundesliga", "soccer_germany_bundesliga2",
-    "soccer_spain_la_liga", "soccer_italy_serie_a", "soccer_france_ligue_one",
-    "soccer_netherlands_eredivisie", "soccer_denmark_superliga",
+    "soccer_spain_la_liga", "soccer_spain_segunda_division",
+    "soccer_italy_serie_a", "soccer_italy_serie_b",
+    "soccer_france_ligue_one", "soccer_france_ligue_two",
+    "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
+    "soccer_belgium_first_div", "soccer_turkey_super_league",
+    "soccer_greece_super_league", "soccer_switzerland_superleague",
+    "soccer_austria_bundesliga", "soccer_denmark_superliga",
     "soccer_norway_eliteserien", "soccer_sweden_allsvenskan",
-    "soccer_poland_ekstraklasa", "soccer_austria_bundesliga",
+    "soccer_poland_ekstraklasa", "soccer_scotland_premiership",
     "soccer_brazil_campeonato", "soccer_argentina_primera_division",
-    "soccer_mexico_ligamx", "soccer_scotland_premiership",
+    "soccer_usa_mls", "soccer_mexico_ligamx",
+    "soccer_japan_j_league", "soccer_australia_aleague",
 ]
 
 
