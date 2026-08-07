@@ -350,7 +350,15 @@ async def handle_manual_slip_action(update: telegram.Update, context: CallbackCo
         def sync_update_manual():
             if not SUPABASE_SERVICE_KEY: raise Exception("Service key not configured")
             supabase_admin = get_admin_db_client()
-            supabase_admin.table(table_name).update({"status": result}).eq("id", slip_id).execute()
+            from datetime import datetime, date
+            import pytz
+            today = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
+            # Ellenőrizzük van-e már target_date
+            existing = supabase_admin.table(table_name).select("target_date").eq("id", slip_id).execute()
+            update_data = {"status": result}
+            if existing.data and not existing.data[0].get("target_date"):
+                update_data["target_date"] = today
+            supabase_admin.table(table_name).update(update_data).eq("id", slip_id).execute()
         await asyncio.to_thread(sync_update_manual)
         await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
     except Exception as e: await query.message.edit_text(f"Hiba: {e}")
@@ -541,6 +549,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         else:
             stat_msg += "📭 _Nincs lezárt tipp ebben az időszakban._\n\n"
         
+        stat_msg += f"🤖 *Bot (Napi Tuti)*: {s['bot']['c']} lezárt, {s['bot']['w']} nyert, Profit: {s['bot']['p']:+.2f}\n"
         stat_msg += f"📝 *VIP*: {s['vip']['c']} lezárt, {s['vip']['w']} nyert, Profit: {s['vip']['p']:+.2f}\n"
         stat_msg += f"🆓 *Free*: {s['free']['c']} lezárt, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
