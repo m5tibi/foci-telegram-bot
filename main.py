@@ -251,7 +251,46 @@ async def vip_area(request: Request):
 
             # 4. VIP Manuális szelvények
             m_res = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute()
-            active_manual = sorted(m_res.data or [], key=lambda x: (x.get("target_date") or "9999", x.get("ai_commence") or "99:99"))
+            def slip_sort_key(x):
+                import json as _json
+                td = x.get("target_date") or "9999"
+                ac = x.get("ai_commence") or "99:99"
+                # Kombikhoz: a lábakból vesszük a legkorábbi commence-t
+                if x.get("tip_type") == "kombi" and x.get("ai_legs"):
+                    try:
+                        legs = _json.loads(x["ai_legs"]) if isinstance(x["ai_legs"], str) else x["ai_legs"]
+                        commences = [l.get("commence","99:99") for l in legs if l.get("commence")]
+                        if commences:
+                            ac = min(commences)
+                            # target_date kinyerése a legkorábbi commence-ből (pl. "08.07 20:30")
+                            parts = ac.strip().split(" ")[0].split(".")
+                            if len(parts) == 2:
+                                from datetime import datetime as _dt
+                                year = _dt.now().year
+                                td = f"{year}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+                    except Exception:
+                        pass
+                return (td, ac)
+            # _sort_date mező hozzáadása minden sliphez
+            def enrich_slip(x):
+                import json as _j
+                td = x.get("target_date") or ""
+                if x.get("tip_type") == "kombi" and x.get("ai_legs"):
+                    try:
+                        legs = _j.loads(x["ai_legs"]) if isinstance(x["ai_legs"], str) else x["ai_legs"]
+                        commences = [l.get("commence","") for l in legs if l.get("commence")]
+                        if commences:
+                            mc = min(commences)
+                            parts = mc.strip().split(" ")[0].split(".")
+                            if len(parts) == 2:
+                                from datetime import datetime as _dt
+                                yr = _dt.now().year
+                                td = f"{yr}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+                    except Exception:
+                        pass
+                x["_sort_date"] = td or x.get("created_at", "")[:10]
+                return x
+            active_manual = sorted([enrich_slip(x) for x in (m_res.data or [])], key=slip_sort_key)
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
             analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
