@@ -35,6 +35,20 @@ def fetch_match_list() -> dict:
         return {"matches": [], "tippedMatches": [], "tippedPicks": []}
 
 
+
+def parse_target_date(commence: str) -> str:
+    """'08.07 20:30' → '2026-08-07'"""
+    if not commence:
+        return datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
+    try:
+        parts = commence.strip().split(" ")[0]  # "08.07"
+        m, d = parts.split(".")
+        year = datetime.now(BUDAPEST_TZ).year
+        return f"{year}-{m.zfill(2)}-{d.zfill(2)}"
+    except Exception:
+        return datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
+
+
 # ── 2. Claude API hívás ───────────────────────────────────────────────────────
 
 def build_prompt(matches: list, tipped_matches: list) -> str:
@@ -206,6 +220,7 @@ def save_to_supabase(tips: dict) -> dict:
             "ai_pick": t.get("pick", ""),
             "ai_market": t.get("market", ""),
             "ai_commence": t.get("commence", ""),
+            "target_date": parse_target_date(t.get("commence", "")),
             "result_status": "Folyamatban"
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
@@ -227,6 +242,7 @@ def save_to_supabase(tips: dict) -> dict:
             "ai_confidence": "kombi",
             "tip_type": "kombi",
             "ai_legs": json.dumps(c.get("legs", []), ensure_ascii=False),
+            "target_date": parse_target_date((c.get("legs") or [{}])[0].get("commence", "")),
             "result_status": "Folyamatban"
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
