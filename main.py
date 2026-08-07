@@ -290,7 +290,15 @@ async def vip_area(request: Request):
                         pass
                 x["_sort_date"] = td or x.get("created_at", "")[:10]
                 return x
-            active_manual = sorted([enrich_slip(x) for x in (m_res.data or [])], key=slip_sort_key)
+            def slip_type_order(x):
+                tip_type = x.get("tip_type", "single")
+                return 0 if tip_type != "kombi" else 1
+            enriched = [enrich_slip(x) for x in (m_res.data or [])]
+            active_manual = sorted(enriched, key=lambda x: (
+                x.get("_sort_date") or "9999",
+                slip_type_order(x),
+                x.get("ai_commence") or "99:99"
+            ))
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
             analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
