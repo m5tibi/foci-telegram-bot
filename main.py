@@ -204,7 +204,7 @@ async def vip_area(request: Request):
         free_analysis_files = f_analysis_res.data or []
 
         # 2. Ingyenes manuális szelvények lekérése
-        f_res = db.table("free_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
+        f_res = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).order("created_at", desc=False).execute()
         active_free = f_res.data or []
 
         if access_granted:
@@ -250,7 +250,7 @@ async def vip_area(request: Request):
                                 todays_slips.append(sz)
 
             # 4. VIP Manuális szelvények
-            m_res = db.table("manual_slips").select("*").eq("status", "Folyamatban").order("created_at", desc=False).execute()
+            m_res = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).order("created_at", desc=False).execute()
             active_manual = m_res.data or []
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
@@ -373,6 +373,14 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
             approved.extend(res2.data or [])
         except Exception:
             pass
+    # Már kiküldöttek száma (tájékoztatásra)
+    sent_count = 0
+    for table in ["manual_slips", "free_slips"]:
+        try:
+            r3 = db.table(table).select("id", count="exact") \
+                .eq("status", "Kiküldve").eq("ai_generated", True).execute()
+            sent_count += r3.count or 0
+        except: pass
 
     return templates.TemplateResponse(request=request, name="ai_tips_review.html", context={
         "request": request, "user": user,
@@ -550,7 +558,6 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         res = db.table(table).select("*") \
             .eq("status", "Folyamatban") \
             .eq("ai_generated", True) \
-            .eq("status", "Folyamatban") \
             .execute()
         for tip in (res.data or []):
             if table == "free_slips": free_tips_list.append(tip)
@@ -595,7 +602,11 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
             msg = f"✅ *Ingyenes tipp!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
 
-    # Tippek maradnak "Folyamatban" státuszban – a result_status jelzi majd a végeredményt
+    # Megjelölés kiküldöttként
+    for table, tips in [("manual_slips", vip_tips), ("free_slips", free_tips_list)]:
+        for tip in tips:
+            try: db.table(table).update({"status": "Kiküldve"}).eq("id", tip["id"]).execute()
+            except: pass
 
     return RedirectResponse(url=f"/admin/ai-tips?message={total} tipp értesítői elküldve!", status_code=303)
 
