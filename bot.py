@@ -464,8 +464,8 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             elif period == "all":
                 tuti_q = sb.table("napi_tuti").select("*")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds")
-                man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"])
-                free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített"])
+                man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"])
+                free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"])
                 header = "Összesített (All-Time)"
                 
             else:
@@ -511,26 +511,26 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                     s["bot"]["p"] -= 1.0
 
         # VIP tippek feldolgozása (csak lezárt szelvények)
-        for d in (res_man.data or []):
+        def calc_profit(d, cat):
             status = d.get('status')
+            odds = float(d.get('eredo_odds', 1.0))
             if status == "Nyert":
-                s["vip"]["c"] += 1
-                s["vip"]["w"] += 1
-                s["vip"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
+                s[cat]["c"] += 1; s[cat]["w"] += 1; s[cat]["p"] += odds - 1
             elif status == "Veszített":
-                s["vip"]["c"] += 1
-                s["vip"]["p"] -= 1.0
+                s[cat]["c"] += 1; s[cat]["p"] -= 1.0
+            elif status == "Fél-nyert":
+                s[cat]["c"] += 1; s[cat]["w"] += 0.5; s[cat]["p"] += (odds - 1) / 2
+            elif status == "Fél-veszített":
+                s[cat]["c"] += 1; s[cat]["p"] -= 0.5
+            elif status == "Visszajár":
+                s[cat]["c"] += 1; s[cat]["w"] += 1
+
+        for d in (res_man.data or []):
+            calc_profit(d, "vip")
 
         # Free tippek feldolgozása (csak lezárt szelvények)
         for d in (res_free.data or []):
-            status = d.get('status')
-            if status == "Nyert":
-                s["free"]["c"] += 1
-                s["free"]["w"] += 1
-                s["free"]["p"] += (float(d.get('eredo_odds', 1.0)) - 1)
-            elif status == "Veszített":
-                s["free"]["c"] += 1
-                s["free"]["p"] -= 1.0
+            calc_profit(d, "free")
 
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
         won_tot = s["bot"]["w"] + s["vip"]["w"] + s["free"]["w"]
