@@ -204,8 +204,8 @@ async def vip_area(request: Request):
         free_analysis_files = f_analysis_res.data or []
 
         # 2. Ingyenes manuális szelvények lekérése
-        f_res = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).order("created_at", desc=False).execute()
-        active_free = f_res.data or []
+        f_res = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute()
+        active_free = sorted(f_res.data or [], key=lambda x: (x.get("target_date") or "9999", x.get("ai_commence") or "99:99"))
 
         if access_granted:
             # 3. VIP Automata tippek
@@ -250,8 +250,8 @@ async def vip_area(request: Request):
                                 todays_slips.append(sz)
 
             # 4. VIP Manuális szelvények
-            m_res = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).order("created_at", desc=False).execute()
-            active_manual = m_res.data or []
+            m_res = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute()
+            active_manual = sorted(m_res.data or [], key=lambda x: (x.get("target_date") or "9999", x.get("ai_commence") or "99:99"))
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
             analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
