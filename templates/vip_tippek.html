@@ -288,9 +288,16 @@
         {# --- 2. SZERKESZTŐI VIP TIPPEK --- #}
         {% if active_manual_slips %}
             <div class="manual-slips-section">
-                <h3>Szerkesztői Szelvények</h3>
-                <div class="manual-slips-grid">
-                {% for slip in active_manual_slips %}
+                <h3>Napi Tippek</h3>
+                {% set ns = namespace(last_date='') %}
+                {% for slip in active_manual_slips | sort(attribute='target_date') %}
+                {% set tip_date = slip.target_date or slip.created_at[:10] %}
+                {% if tip_date != ns.last_date %}
+                    {% if ns.last_date != '' %}</div>{% endif %}
+                    <div style="font-size:12px;font-weight:700;color:#5d7a96;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">📅 {{ tip_date }}</div>
+                    <div class="manual-slips-grid">
+                    {% set ns.last_date = tip_date %}
+                {% endif %}
                     {% if slip.image_url %}
                         <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                             <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
@@ -326,7 +333,7 @@
                         </div>
                     {% endif %}
                 {% endfor %}
-                </div>
+                {% if active_manual_slips %}</div>{% endif %}
             </div>
         {% endif %}
 
@@ -513,9 +520,16 @@
         {% endif %}
 
         {% if active_free_slips %}
-            <h3>Mai Ingyenes Szelvény(ek)</h3>
-            <div class="manual-slips-grid">
-            {% for slip in active_free_slips %}
+            <h3>Ingyenes Szelvény(ek)</h3>
+                {% set nf = namespace(last_date='') %}
+                {% for slip in active_free_slips | sort(attribute='target_date') %}
+                {% set tip_date = slip.target_date or slip.created_at[:10] %}
+                {% if tip_date != nf.last_date %}
+                    {% if nf.last_date != '' %}</div>{% endif %}
+                    <div style="font-size:12px;font-weight:700;color:#5d7a96;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">📅 {{ tip_date }}</div>
+                    <div class="manual-slips-grid">
+                    {% set nf.last_date = tip_date %}
+                {% endif %}
                 {% if slip.image_url %}
                     <a href="{{ slip.image_url }}" target="_blank" class="manual-slip-card">
                         <img src="{{ slip.image_url }}" alt="{{ slip.tipp_neve }}">
