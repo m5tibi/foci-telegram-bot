@@ -291,7 +291,7 @@
                 <h3>Napi Tippek</h3>
                 {% set ns = namespace(last_date='') %}
                 {% for slip in active_manual_slips %}
-                {% set tip_date = slip.target_date or slip.created_at[:10] %}
+                {% set tip_date = slip._sort_date or slip.target_date or slip.created_at[:10] %}
                 {% if tip_date != ns.last_date %}
                     {% if ns.last_date != '' %}</div>{% endif %}
                     <div style="font-size:12px;font-weight:700;color:#5d7a96;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">📅 {{ tip_date }}</div>
