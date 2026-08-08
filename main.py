@@ -620,12 +620,42 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
             .eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute()
         ids = [u["chat_id"] for u in (subs.data or []) if u.get("chat_id")]
         if ids:
-            def fmt_vip(t):
-                name = t["tipp_neve"].replace("[AI] ", "").replace("[AI FREE] ", "")
-                icon = "🎰" if t.get("tip_type") == "kombi" else "⚽"
-                return f"{icon} {name}"
-            lines = "\n".join([fmt_vip(t) for t in vip_tips])
-            msg = f"🔥 *VIP – Új AI tippek!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
+            import json as _json
+            # Dátum szerinti csoportosítás, singlek előbb
+            by_date = {}
+            for t in vip_tips:
+                d = t.get("_sort_date") or t.get("target_date") or today
+                by_date.setdefault(d, {"singles": [], "combos": []})
+                if t.get("tip_type") == "kombi":
+                    by_date[d]["combos"].append(t)
+                else:
+                    by_date[d]["singles"].append(t)
+
+            lines = []
+            for date in sorted(by_date.keys()):
+                grp = by_date[date]
+                lines.append(f"📅 *{date}*")
+                for t in grp["singles"]:
+                    name = t["tipp_neve"].replace("[AI] ", "").replace("[AI FREE] ", "")
+                    lines.append(f"⚽ {name}")
+                for t in grp["combos"]:
+                    name = t["tipp_neve"].replace("[AI] ", "")
+                    lines.append(f"\n🎰 *{name}*")
+                    try:
+                        legs = _json.loads(t.get("ai_legs") or "[]")
+                        for leg in legs:
+                            pick = leg.get("pick","")
+                            odds = leg.get("odds","")
+                            match = leg.get("match","")
+                            commence = leg.get("commence","")
+                            lines.append(f"   • {match}: {pick} @ {odds}" + (f" 🕐 {commence}" if commence else ""))
+                    except Exception:
+                        pass
+                lines.append("─────────────")
+
+            if lines and lines[-1] == "─────────────":
+                lines.pop()
+            msg = f"🔥 *VIP – Új AI tippek!*\n\n" + "\n".join(lines) + f"\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, ids, msg)
 
     # VIP Email
@@ -642,11 +672,16 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         all_subs = db.table("felhasznalok").select("chat_id").execute()
         all_ids  = [u["chat_id"] for u in (all_subs.data or []) if u.get("chat_id")]
         if all_ids:
-            def fmt_free(t):
+            free_lines = []
+            for t in free_tips_list:
                 name = t["tipp_neve"].replace("[AI FREE] ", "").replace("[AI] ", "")
-                return f"⚽ {name}"
-            lines = "\n".join([fmt_free(t) for t in free_tips_list])
-            msg = f"✅ *Ingyenes tipp!*\n\n{lines}\n\n🚀 [Megtekintés]({site_url}/vip)"
+                free_lines.append(f"🆓 *{name}*")
+                note = (t.get("ai_note") or "").split("\nLábak:")[0].strip()
+                if note:
+                    # Max 2 sor az indoklásból
+                    note_short = ". ".join(note.split(". ")[:2])
+                    free_lines.append(f"_{note_short}_")
+            msg = f"✅ *Ingyenes napi tipp!*\n\n" + "\n".join(free_lines) + f"\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
 
     # Megjelölés kiküldöttként
