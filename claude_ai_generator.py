@@ -52,7 +52,7 @@ def parse_target_date(commence: str) -> str:
 # ── 2. Claude API hívás ───────────────────────────────────────────────────────
 
 def build_prompt(matches: list, tipped_matches: list) -> str:
-    """Felépíti a Foci_egységes alapú automatizált promptot."""
+    """90perc.hu-val megegyező logikájú prompt, más pick kizárásokkal."""
 
     def fmt_odds(odds_list):
         if not odds_list: return "n/a"
@@ -62,98 +62,38 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
         ])
 
     match_text = "\n".join([
-        f"- {m['match']} | {m.get('sport','')} | Kezdés: {m.get('commence','?')} | Odds: {fmt_odds(m.get('odds', []))}"
+        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Valós odds: {fmt_odds(m.get('odds', []))}"
         for m in matches
     ]) or "Nincs elérhető meccs."
 
-    skip_text = "; ".join(tipped_matches) if tipped_matches else "Nincs."
+    skip_text = "\nEZEKRE MÁR VAN AKTÍV TIPP – NE szerepeljen semmilyen tippként: " + "; ".join(tipped_matches) if tipped_matches else ""
 
-    return f"""Te egy 25+ éves tapasztalattal rendelkező professzionális sportfogadási elemző vagy, \
-aki a labdarúgásra specializálódott. Dolgoztál fogadóirodának árazóként és professzionális \
-fogadói szindikátusoknak, ezért belülről érted a piacok működését.
+    return f"""Te egy profi labdarúgás-fogadási elemző vagy. Használj web keresést az aktuális formához, sérülésekhez és keretinformációkhoz az alábbi közelgő foci meccsekre.
 
-A megközelítésed hideg, fegyelmezett és adatvezérelt. Ismered a magyar fogadási piacot.
-
-## MECCSEK LISTÁJA (valós odds adatokkal):
+Mai meccsek (valós bookmaker oddsokkal):
 {match_text}
-
-## MÁR TIPPELT PICK-EK A TESTVÉROLDALON (ezeket a konkrét piac+pick kombinációkat NE ismételd):
 {skip_text}
 
-FONTOS: Ugyanarra a meccsre tippelhetsz, de MÁS PIACOT vagy ELTÉRŐ KIMENETELT válassz!
-Pl. ha a testvéroldalon "Boca Juniors győzelem 1X2" van, te tippelhetsz "Over 1.5" vagy "Hendikep +0.5"-t ugyanarra a meccsre.
+HÁROM dolgot adj:
 
-## FELADATOD:
+1) "singles": 2-3 ERŐS single tipp (csak a legjobbak, ne erőltesd a számot).
+   - MECCSENKÉNT LEGFELJEBB 1 single tipp – a legerősebb piacot válaszd.
+   - Minimum 1.65 odds. Csak pozitív kimenetel: over gólok, hendikep győzelem, csapat győzelme.
+   - NE adj under tippet. Rövid (1-2 mondat) magyar indoklás.
 
-Elemezd a fenti meccseket és adj MAXIMUM 3 single tippet és 1-2 kombi szelvényt.
+2) "free_tip": 1 db INGYENES tipp, különálló single.
+   - MÁS meccsről legyen mint a "singles"-ben. 1.65-1.90 odds között. Ha nincs megfelelő: null.
 
-### Háromszintű logika:
-- **TIER 1 – VALUE**: Ahol a saját becsült valószínűséged érdemben magasabb az odds implikált \
-valószínűségénél (min. +5% edge). Célzott odds ≥ 1.65.
-- **TIER 2 – BANKER**: Ha kevés a value, magas valószínűségű (≥70%) kimenetel, \
-1.30-1.70 odds között. MINDIG jelöld, hogy ez találati arányt optimalizál, nem profitot.
-- **TIER 3 – KOMBI**: Csak független lábakból (különböző meccsek), max 3 láb, \
-nulla átfedés a kombik között.
+3) "combos": 1-2 kombi szelvény, 2-3 lábbal.
+   - Lábak: biztonságos, alacsony kockázatú tippek különböző meccsekről (1.15-1.55 odds).
+   - Kombi eredő odds minimum 1.80. NEM átfedő kombik.
 
-### FREE TIPP (kötelező!):
-- Adj meg 1 ingyenes tippet is (`free_tip` mezőben) – ez mindenki számára látható lesz
-- Más meccs legyen mint a singles/kombik (vagy más piac ugyanarra)
-- Minimum 1.65 odds, maximum 1.90 – magas valószínűségű, de értékes
-- NE szerepeljen a kizárt meccsek listájában
-- A free tipp KÜLÖNBÖZZEN a 90perc.hu free tippjétől is
+KÖZÖS szabályok:
+- Csak valós, fent megadott bookmaker oddsokat használj.
+- Kizárt listán szereplő pick-ekre SEMMILYEN tipp. Ha egy meccs+piac kizárt, más piacot válassz.
 
-### Szabályok:
-- MECCSENKÉNT max 1 single tipp
-- NE adj under tippet, NE adj BTTS-nem tippet (csak indokolt esetben)
-- Célzott single odds minimum 1.65
-- Kombi eredő odds minimum 1.80
-- A kizárt meccsekre SEMMILYEN tipp (sem single, sem kombi láb)
-- Ha nincs elég jó meccs, adj kevesebbet (akár 1-et is)
-- Minden meccset keresd utána web kereséssel: forma, sérülések, H2H!
-
-### FONTOS: Ezek a tippek ELTÉRJENEK a 90perc.hu tippjeitől!
-Más piacot válassz, más szöget keress, még ha ugyanarra a meccsre tippelez is \
-(ami amúgy tilos a kizárt listán lévőknél).
-
-## KIMENET – KIZÁRÓLAG JSON formátum:
-
-{{
-  "singles": [
-    {{
-      "match": "Csapat A vs Csapat B",
-      "market": "1X2",
-      "pick": "Csapat A győzelem",
-      "odds": 1.85,
-      "tier": 1,
-      "edge_pct": 12,
-      "confidence": "magas",
-      "note": "Magyar nyelvű indoklás 2-3 mondatban, friss adatokra hivatkozva.",
-      "commence": "08.06 19:00"
-    }}
-  ],
-  "combos": [
-    {{
-      "legs": [
-        {{"match": "Csapat A vs Csapat B", "pick": "Over 1.5", "odds": 1.28, "commence": "08.06 19:00"}},
-        {{"match": "Csapat C vs Csapat D", "pick": "Csapat C győzelem", "odds": 1.45, "commence": "08.06 21:00"}}
-      ],
-      "total_odds": 1.86,
-      "note": "Rövid indoklás magyarul."
-    }}
-  ],
-  "free_tip": {{
-    "match": "Csapat A vs Csapat B",
-    "market": "1X2",
-    "pick": "Csapat A győzelem",
-    "odds": 1.72,
-    "note": "Magyar nyelvű indoklás 1-2 mondatban.",
-    "commence": "08.06 19:00"
-  }},
-  "summary": "2-3 mondatos összegzés a napi kínálatról magyarul."
-}}
-
-Semmi más szöveg, csak a JSON objektum."""
-
+Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL:
+{{"singles":[{{"match":"Csapat A vs Csapat B","market":"1X2","pick":"Csapat A győzelem","odds":1.85,"note":"Indoklás.","commence":"08.06 19:00"}}],"combos":[{{"legs":[{{"match":"Csapat A vs Csapat B","pick":"Over 1.5","odds":1.28,"commence":"08.06 19:00"}},{{"match":"Csapat C vs D","pick":"Csapat C győzelem","odds":1.45,"commence":"08.06 21:00"}}],"total_odds":1.86,"note":"Indoklás."}}],"free_tip":{{"match":"Csapat A vs Csapat B","market":"1X2","pick":"Csapat A győzelem","odds":1.72,"note":"Indoklás.","commence":"08.06 19:00"}},"summary":"Összegzés magyarul."}}"""
 
 def call_claude(prompt: str) -> dict:
     """Meghívja a Claude Sonnet API-t és visszaadja a parsolt JSON-t."""
