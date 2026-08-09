@@ -291,6 +291,39 @@ def save_to_supabase(tips: dict) -> dict:
 
 # ── 4. Fő belépési pont ───────────────────────────────────────────────────────
 
+def fetch_active_supabase_picks() -> list:
+    """Lekéri a Supabase-ből az aktív (még ki nem értékelt) AI tippeket."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+    try:
+        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+        picks = []
+        for table in ["manual_slips", "free_slips"]:
+            r = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{table}",
+                headers=headers,
+                params={
+                    "select": "ai_match,ai_pick,ai_market,tipp_neve",
+                    "ai_generated": "eq.true",
+                    "status": "in.(Folyamatban,Kiküldve,Jóváhagyásra vár)"
+                },
+                timeout=10
+            )
+            for row in (r.json() if r.ok else []):
+                match = row.get("ai_match") or ""
+                pick  = row.get("ai_pick") or ""
+                market = row.get("ai_market") or ""
+                if match and pick:
+                    picks.append(f"{match} | {market} | {pick}")
+                elif match:
+                    picks.append(match)
+        print(f"[claude_gen] Supabase aktív tippek: {len(picks)} db")
+        return picks
+    except Exception as e:
+        print(f"[claude_gen] Supabase lekérési hiba: {e}")
+        return []
+
+
 def generate_tips() -> dict:
     """Teljes pipeline: meccsek → Claude → Supabase."""
     print("[claude_gen] Tipp generálás indul...")
@@ -301,7 +334,11 @@ def generate_tips() -> dict:
     tipped = data.get("tippedMatches", [])
     # Tippelt pick-ek összegyűjtése (match | piac | pick formátumban)
     tipped_picks = data.get("tippedPicks", tipped)  # fallback: meccs szintű kizárás
-    print(f"[claude_gen] {len(matches)} meccs, {len(tipped)} már tippelt meccs")
+
+    # Supabase aktív tippek hozzáadása a kizárási listához
+    supabase_picks = fetch_active_supabase_picks()
+    tipped_picks = list(set(tipped_picks + supabase_picks))
+    print(f"[claude_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
 
     if not matches:
         return {"error": "Nincs elérhető meccs a 90perc.hu szerverről"}
