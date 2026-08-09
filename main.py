@@ -710,10 +710,47 @@ async def admin_ai_check_results(request: Request, background_tasks: BackgroundT
         return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
 
 
+
+# ── Automatikus AI eredmény ellenőrzés ───────────────────────────────────────
+
+import asyncio
+import threading
+
+def _auto_check_loop():
+    """Háttérszál: naponta 06:05-kor futtatja az AI eredmény ellenőrzőt."""
+    import time
+    import pytz
+    from datetime import datetime
+
+    last_run_date = None
+
+    while True:
+        try:
+            now = datetime.now(pytz.timezone("Europe/Budapest"))
+            today = now.strftime("%Y-%m-%d")
+            # 06:05-kor fut, naponta egyszer
+            if now.hour == 6 and now.minute == 5 and last_run_date != today:
+                last_run_date = today
+                print(f"[auto-eval] Automatikus AI eredmény ellenőrzés indul: {today}")
+                try:
+                    from ai_eredmeny_ellenorzo import main as check_main
+                    check_main()
+                    print(f"[auto-eval] Kész.")
+                except Exception as e:
+                    print(f"[auto-eval] Hiba: {e}")
+        except Exception as e:
+            print(f"[auto-eval] Scheduler hiba: {e}")
+        time.sleep(30)  # 30 másodpercenként ellenőriz
+
+
 # --- 6. Startup és Webhook ---
 @api.on_event("startup")
 async def startup():
     global application
+    # Automatikus AI eredmény ellenőrző háttérszál
+    t = threading.Thread(target=_auto_check_loop, daemon=True)
+    t.start()
+    print("[auto-eval] Automatikus eredmény ellenőrző elindítva (06:05 Budapest)")
     token = os.environ.get("TELEGRAM_TOKEN")
     if token:
         persistence = PicklePersistence(filepath="bot_data.pickle")
