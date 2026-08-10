@@ -711,6 +711,72 @@ async def admin_ai_check_results(request: Request, background_tasks: BackgroundT
 
 
 
+
+def _send_daily_stats():
+    """Tegnapi AI tipp statisztika elküldése Telegram-on."""
+    import requests as _req
+    import pytz
+    from datetime import datetime, timedelta
+    from app.database import get_admin_db
+
+    TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+    ADMIN_CHAT_ID  = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not TELEGRAM_TOKEN:
+        return
+
+    db = get_admin_db()
+    tz = pytz.timezone("Europe/Budapest")
+    yesterday = (datetime.now(tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Tegnapi AI tippek lekérése
+    won, lost, half_won, half_lost, push = 0, 0, 0, 0, 0
+    profit = 0.0
+
+    for table in ["manual_slips", "free_slips"]:
+        try:
+            res = db.table(table).select("status, eredo_odds, target_date") \
+                .eq("ai_generated", True) \
+                .eq("target_date", yesterday) \
+                .in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"]) \
+                .execute()
+            for r in (res.data or []):
+                s = r.get("status")
+                odds = float(r.get("eredo_odds") or 1.0)
+                if s == "Nyert":       won += 1;       profit += odds - 1
+                elif s == "Veszített": lost += 1;      profit -= 1.0
+                elif s == "Fél-nyert": half_won += 1;  profit += (odds - 1) / 2
+                elif s == "Fél-veszített": half_lost += 1; profit -= 0.5
+                elif s == "Visszajár": push += 1
+        except Exception as e:
+            print(f"[stat] {table} hiba: {e}")
+
+    total = won + lost + half_won + half_lost + push
+    if total == 0:
+        print(f"[auto-eval] Nincs tegnapi ({yesterday}) lezárt AI tipp – stat nem ment ki.")
+        return
+
+    win_rate = round((won + half_won * 0.5) / total * 100, 1) if total > 0 else 0
+    roi = round(profit / total * 100, 1) if total > 0 else 0
+    profit_str = f"+{profit:.2f}" if profit >= 0 else f"{profit:.2f}"
+
+    msg = (
+        f"📊 *AI Tipp Statisztika – {yesterday}*\n\n"
+        f"Kiértékelt: {total} db\n"
+        f"✅ Nyert: {won}" + (f" | ½ {half_won}" if half_won else "") + "\n"
+        f"❌ Veszített: {lost}" + (f" | ½ {half_lost}" if half_lost else "") + "\n"
+        f"Találati arány: {win_rate}%\n"
+        f"Profit: {profit_str} egység\n"
+        f"ROI: {roi}%"
+    )
+
+    _req.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"},
+        timeout=10
+    )
+    print(f"[auto-eval] Napi stat elküldve: {total} tipp, profit {profit_str}")
+
+
 # ── Automatikus AI eredmény ellenőrzés ───────────────────────────────────────
 
 import asyncio
@@ -738,6 +804,12 @@ def _auto_check_loop():
                     print(f"[auto-eval] Kész.")
                 except Exception as e:
                     print(f"[auto-eval] Hiba: {e}")
+
+                # Napi statisztika Telegram összefoglaló
+                try:
+                    _send_daily_stats()
+                except Exception as e:
+                    print(f"[auto-eval] Stat küldési hiba: {e}")
         except Exception as e:
             print(f"[auto-eval] Scheduler hiba: {e}")
         time.sleep(30)  # 30 másodpercenként ellenőriz
