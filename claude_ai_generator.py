@@ -83,8 +83,9 @@ HÁROM dolgot adj:
 
 2) "free_tip": 1 db INGYENES tipp, különálló single.
    - MÁS meccsről legyen mint a "singles"-ben.
-   - MINIMUM 1.65, MAXIMUM 1.90 odds – ennél kívüli odds esetén null!
-   - Ha nincs megfelelő: null (ne kényszeríts bele 1.65 alatti tippet).
+   - MINIMUM 1.65, MAXIMUM 1.90 odds.
+   - KÖTELEZŐ ha legalább 2 single vagy 1 kombi van a válaszban – ilyenkor MINDIG adj meg egyet!
+   - Csak akkor lehet null, ha egyáltalán nincs 1.65-1.90 közötti magas valószínűségű kimenetel.
 
 3) "combos": 1-2 kombi szelvény, 2-3 lábbal.
    - Lábak: MAXIMUM 1.55 odds – ennél magasabb odds NEM kerülhet kombi lábba! Különböző meccsekről.
@@ -119,15 +120,32 @@ def call_claude(prompt: str) -> dict:
     response.raise_for_status()
     data = response.json()
 
-    raw = data["content"][0]["text"].strip()
+    # Szöveges tartalom összegyűjtése (web search blokkok között is lehet)
+    text_blocks = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
+    raw = "\n".join(text_blocks).strip()
 
-    # JSON kinyerése
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    if not raw:
+        print(f"[claude_gen] Üres válasz! stop_reason: {data.get('stop_reason')}")
+        print(f"[claude_gen] Content blokkok: {[b.get('type') for b in data.get('content', [])]}")
+        raise ValueError("Claude üres választ adott")
 
-    return json.loads(raw.strip())
+    # JSON kinyerése markdown blokkból vagy nyers szövegből
+    import re as _re
+    code_block = _re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+    if code_block:
+        raw = code_block.group(1).strip()
+    else:
+        first = raw.find("{")
+        last  = raw.rfind("}")
+        if first != -1 and last > first:
+            raw = raw[first:last+1]
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"[claude_gen] JSON parse hiba: {e}")
+        print(f"[claude_gen] Raw válasz eleje: {raw[:300]}")
+        raise
 
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
