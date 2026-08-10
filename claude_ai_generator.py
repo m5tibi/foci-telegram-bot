@@ -82,10 +82,12 @@ HÁROM dolgot adj:
    - NE adj under tippet. Rövid (1-2 mondat) magyar indoklás.
 
 2) "free_tip": 1 db INGYENES tipp, különálló single.
-   - MÁS meccsről legyen mint a "singles"-ben. 1.65-1.90 odds között. Ha nincs megfelelő: null.
+   - MÁS meccsről legyen mint a "singles"-ben.
+   - MINIMUM 1.65, MAXIMUM 1.90 odds – ennél kívüli odds esetén null!
+   - Ha nincs megfelelő: null (ne kényszeríts bele 1.65 alatti tippet).
 
 3) "combos": 1-2 kombi szelvény, 2-3 lábbal.
-   - Lábak: biztonságos, alacsony kockázatú tippek különböző meccsekről (1.15-1.55 odds).
+   - Lábak: MAXIMUM 1.55 odds – ennél magasabb odds NEM kerülhet kombi lábba! Különböző meccsekről.
    - Kombi eredő odds minimum 1.80. NEM átfedő kombik.
 
 KÖZÖS szabályok:
@@ -185,6 +187,15 @@ def save_to_supabase(tips: dict) -> dict:
             "target_date": parse_target_date((c.get("legs") or [{}])[0].get("commence", "")),
             "result_status": "Folyamatban"
         }
+        # Kombi validáció: minden láb max 1.55 odds, legalább 2 láb
+        legs_check = c.get("legs", [])
+        if len(legs_check) < 2:
+            print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
+            continue
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.85]
+        if invalid_legs:
+            print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
+            continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
             saved.append(r.json())
@@ -197,7 +208,7 @@ def save_to_supabase(tips: dict) -> dict:
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.30
+        float(free_tip.get("odds", 0) or 0) < 1.65
     ):
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
