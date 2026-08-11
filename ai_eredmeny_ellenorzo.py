@@ -35,6 +35,9 @@ SPORT_KEYS = [
     "soccer_brazil_campeonato", "soccer_argentina_primera_division",
     "soccer_usa_mls", "soccer_mexico_ligamx",
     "soccer_japan_j_league", "soccer_australia_aleague",
+    "soccer_uefa_champs_league_qualifying",
+    "soccer_uefa_europa_league_qualifying",
+    "soccer_uefa_europa_conference_league_qualifying",
 ]
 
 
