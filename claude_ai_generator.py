@@ -94,6 +94,8 @@ HÁROM dolgot adj:
 KÖZÖS szabályok:
 - Csak valós, fent megadott bookmaker oddsokat használj.
 - Kizárt listán szereplő pick-ekre SEMMILYEN tipp. Ha egy meccs+piac kizárt, más piacot válassz.
+- Ha kizárt "Csapat A győzelem", NE tippelj "Csapat B győzelem"-et ugyanarra a meccsre!
+- KOMBIKBAN NULLA ÁTFEDÉS: ha meccs+pick benne van egyik kombiban, másikban NE szerepeljen!
 
 Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL:
 {{"singles":[{{"match":"Csapat A vs Csapat B","market":"1X2","pick":"Csapat A győzelem","odds":1.85,"note":"Indoklás.","commence":"08.06 19:00"}}],"combos":[{{"legs":[{{"match":"Csapat A vs Csapat B","pick":"Over 1.5","odds":1.28,"commence":"08.06 19:00"}},{{"match":"Csapat C vs D","pick":"Csapat C győzelem","odds":1.45,"commence":"08.06 21:00"}}],"total_odds":1.86,"note":"Indoklás."}}],"free_tip":{{"match":"Csapat A vs Csapat B","market":"1X2","pick":"Csapat A győzelem","odds":1.72,"note":"Indoklás.","commence":"08.06 19:00"}},"summary":"Összegzés magyarul."}}"""
@@ -164,6 +166,8 @@ def save_to_supabase(tips: dict) -> dict:
     base = f"{SUPABASE_URL}/rest/v1"
     now = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
     saved = []
+
+    all_combo_leg_keys = set()
 
     # Single tippek mentése
     for t in tips.get("singles", []):
