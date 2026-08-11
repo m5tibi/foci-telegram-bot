@@ -171,6 +171,18 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Single tippek mentése
     for t in tips.get("singles", []):
+        # Minimum odds validáció
+        t_odds = float(t.get("odds", 0) or 0)
+        if t_odds < 1.65:
+            print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
+            continue
+        # Note tisztítás (AI gondolkodás szűrése)
+        note = t.get("note", "") or ""
+        for prefix in ["Sajnos", "FIGYELEM", "Hibás", "Újratervezem", "kihagyjuk"]:
+            if prefix.lower() in note.lower()[:50]:
+                note = ""
+                break
+        t["note"] = note
         row = {
             "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
             "eredo_odds": t["odds"],
@@ -196,6 +208,13 @@ def save_to_supabase(tips: dict) -> dict:
     # Kombi szelvények mentése
     for i, c in enumerate(tips.get("combos", []), 1):
         legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}{' 🕐 '+l['commence'] if l.get('commence') else ''}" for l in c["legs"]])
+        # Kombi note tisztítás
+        combo_note = c.get("note", "") or ""
+        for prefix in ["Sajnos", "FIGYELEM", "Hibás", "Újratervezem", "kihagyjuk"]:
+            if prefix.lower() in combo_note.lower()[:80]:
+                combo_note = ""
+                break
+        c["note"] = combo_note
         row = {
             "tipp_neve": f"[AI] Kombi {i} – össz odds {c['total_odds']}",
             "eredo_odds": c["total_odds"],
@@ -214,7 +233,7 @@ def save_to_supabase(tips: dict) -> dict:
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
-        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.85]
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
             continue
@@ -226,6 +245,13 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Free tipp mentése a free_slips táblába
     free_tip = tips.get("free_tip")
+    # Free tipp ne egyezzen egyik single tippel sem (meccs + pick)
+    if free_tip:
+        saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
+        ft_key = (free_tip.get("match",""), free_tip.get("pick",""))
+        if ft_key in saved_singles:
+            print(f"[save] Free tipp kihagyva: duplikáció egy single tippel ({ft_key[0]})")
+            free_tip = None
     # Érvénytelen free tipp kiszűrése (N/A, 0 odds, hiányzó adatok)
     if free_tip and (
         not free_tip.get("match") or
