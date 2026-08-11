@@ -298,13 +298,14 @@ def fetch_active_supabase_picks() -> list:
         headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
         picks = []
         for table in ["manual_slips", "free_slips"]:
+            # URL-safe filter: NOT IN lezárt státuszok
             r = requests.get(
                 f"{SUPABASE_URL}/rest/v1/{table}",
                 headers=headers,
                 params={
                     "select": "ai_match,ai_pick,ai_market,tipp_neve",
                     "ai_generated": "eq.true",
-                    "status": "in.(Folyamatban,Kiküldve,Jóváhagyásra vár)"
+                    "status": "not.in.(Nyert,Veszített,Visszajár,Fél-nyert,Fél-veszített)"
                 },
                 timeout=10
             )
