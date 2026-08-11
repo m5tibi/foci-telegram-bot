@@ -94,11 +94,19 @@ def fetch_completed_matches():
                 if not is_completed and has_scores:
                     from datetime import timezone
                     try:
+                        last_update = g.get("last_update", "")
                         commence = g.get("commence_time", "")
-                        if commence:
+                        if last_update:
+                            # Ha last_update legalább 30 perce nem változott → végleges
+                            lu = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
+                            since_update = (datetime.now(timezone.utc) - lu).total_seconds() / 60
+                            if since_update >= 30:
+                                is_completed = True
+                        elif commence:
+                            # Ha nincs last_update, kickoff + 3 óra küszöb (óvatosabb)
                             ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
                             since_kickoff = (datetime.now(timezone.utc) - ct).total_seconds() / 3600
-                            if since_kickoff >= 2:
+                            if since_kickoff >= 3:
                                 is_completed = True
                     except Exception:
                         pass
@@ -141,68 +149,71 @@ def settle_quarter(value: float, line: float) -> str:
     return "Veszített"
 
 
-def evaluate_pick(pick: str, market: str, h: int, a: int) -> str:
-    """Meghatározza hogy nyert-e a tipp. Visszatér: 'Nyert' / 'Veszített' / 'Ismeretlen'"""
+def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", away_team: str = "") -> str:
+    """Meghatározza hogy nyert-e a tipp."""
     pick_l = pick.lower().strip()
     total = h + a
 
-    # Over/Under gólok
+    # Over/Under
     if "over" in pick_l:
         try:
             nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
             line = float(nums[0]) if nums else 0
-            result = settle_quarter(total, line)
-            return "Nyert" if result == "Nyert" else "Visszajár" if result == "Visszajár" else "Fél_nyert" if result == "Fél_nyert" else "Fél_veszített" if result == "Fél_veszített" else "Veszített"
+            r = settle_quarter(total, line)
+            return r
         except: pass
 
     if "under" in pick_l:
         try:
             nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
             line = float(nums[0]) if nums else 0
-            result = settle_quarter(total, line)
-            # Under: megfordítjuk
-            return "Nyert" if result == "Veszített" else "Veszített" if result == "Nyert" else "Visszajár" if result == "Visszajár" else "Fél_veszített" if result == "Fél_nyert" else "Fél_nyert"
+            r = settle_quarter(total, line)
+            mapping = {"Nyert": "Veszített", "Veszített": "Nyert", "Visszajár": "Visszajár",
+                       "Fél-nyert": "Fél-veszített", "Fél-veszített": "Fél-nyert"}
+            return mapping.get(r, r)
         except: pass
 
     # BTTS
     if "mindkét" in pick_l or "btts" in pick_l or "gól-gól" in pick_l:
         return "Nyert" if h > 0 and a > 0 else "Veszített"
 
-    # 1X2 / győzelem
+    # 1X2 – team név alapján
     if "győzelem" in pick_l or "hazai" in pick_l or "home" in pick_l:
+        if away_team and away_team.lower().split()[0] in pick_l:
+            return "Nyert" if a > h else "Veszített"
         return "Nyert" if h > a else "Veszített"
     if "vendég" in pick_l or "away" in pick_l:
         return "Nyert" if a > h else "Veszített"
     if "döntetlen" in pick_l or "draw" in pick_l:
         return "Nyert" if h == a else "Veszített"
 
-    # Hendikep (asian handicap)
-    if "-1.5" in pick_l or "-1,5" in pick_l:
-        return "Nyert" if (h - a) > 1.5 else "Veszített"
-    if "+1.5" in pick_l or "+1,5" in pick_l:
-        return "Nyert" if (h - a) > -1.5 else "Veszített"
-    if "-1" in pick_l and "." not in pick_l:
-        diff = h - a
+    # Hendikep
+    if "-1.5" in pick_l or "-1,5" in pick_l: return "Nyert" if (h-a) > 1.5 else "Veszített"
+    if "+1.5" in pick_l or "+1,5" in pick_l: return "Nyert" if (h-a) > -1.5 else "Veszített"
+    if "-2.5" in pick_l: return "Nyert" if (h-a) > 2.5 else "Veszített"
+    if "+2.5" in pick_l: return "Nyert" if (h-a) > -2.5 else "Veszített"
+    if "-1" in pick_l and "." not in pick_l.split("-1")[1][:2]:
+        diff = h-a
         if diff > 1: return "Nyert"
         if diff == 1: return "Visszajár"
         return "Veszített"
-    if "+1" in pick_l and "." not in pick_l:
-        diff = h - a
+    if "+1" in pick_l and "." not in pick_l.split("+1")[1][:2]:
+        diff = h-a
         if diff < -1: return "Veszített"
         if diff == -1: return "Visszajár"
         return "Nyert"
-    if "-0.5" in pick_l or "-0,5" in pick_l:
-        return "Nyert" if h > a else "Veszített"
-    if "+0.5" in pick_l or "+0,5" in pick_l:
-        return "Nyert" if h >= a else "Veszített"
-    if "-0.25" in pick_l or "-0,25" in pick_l:
+    if "-0.5" in pick_l: return "Nyert" if h > a else "Veszített"
+    if "+0.5" in pick_l: return "Nyert" if h >= a else "Veszített"
+    if "-0.25" in pick_l:
         if h > a: return "Nyert"
-        if h == a: return "Fél_visszajár"
+        if h == a: return "Fél-veszített"
         return "Veszített"
-    if "+0.25" in pick_l or "+0,25" in pick_l:
+    if "+0.25" in pick_l:
         if h < a: return "Veszített"
-        if h == a: return "Fél_nyert"
+        if h == a: return "Fél-nyert"
         return "Nyert"
+    if "-0.75" in pick_l: return settle_quarter(h-a, 0.75)
+    if "+0.75" in pick_l: return settle_quarter(a-h+0.75, 0.75)
 
     return "Ismeretlen"
 
@@ -210,25 +221,52 @@ def evaluate_pick(pick: str, market: str, h: int, a: int) -> str:
 # ── Kombi kiértékelés ─────────────────────────────────────────────────────────
 
 def evaluate_combo(legs_json: str, completed: dict) -> str:
+    """Pontos ázsiai hendikep kombi kiértékelés szorzó alapon."""
     try:
         legs = json.loads(legs_json)
     except:
         return "Ismeretlen"
 
+    multiplier = 1.0  # futó szorzó (1.0 = tét visszajár)
+
     for leg in legs:
-        match = leg.get("match", "")
-        pick  = leg.get("pick", "")
+        match  = leg.get("match", "")
+        pick   = leg.get("pick", "")
         market = leg.get("market", "")
-        score = completed.get(match)
+        odds   = float(leg.get("odds", 1.0) or 1.0)
+        score  = completed.get(match)
+
         if not score:
             return None  # Még nem zárult le minden láb
-        res = evaluate_pick(pick, market, score["h"], score["a"])
+
+        res = evaluate_pick(pick, market, score["h"], score["a"], 
+                              home_team=score.get("home",""), 
+                              away_team=score.get("away",""))
+
         if res == "Veszített":
-            return "Veszített"
-        if res == "Ismeretlen":
+            return "Veszített"       # az egész kombi elvész
+        elif res == "Nyert":
+            multiplier *= odds       # teljes szorzó
+        elif res == "Visszajár":
+            multiplier *= 1.0       # semmi változás
+        elif res == "Fél-nyert":
+            multiplier *= (0.5 * odds + 0.5)   # fele nyert, fele visszajár
+        elif res == "Fél-veszített":
+            multiplier *= 0.5       # fele elvész, fele visszajár
+        else:
             return "Ismeretlen"
 
-    return "Nyert"
+    # Végeredmény a szorzó alapján
+    if multiplier > 1.0:
+        return "Nyert"
+    elif multiplier == 1.0:
+        return "Visszajár"
+    elif multiplier > 0.5:
+        return "Fél-nyert"   # több mint fele visszajár + profit
+    elif multiplier > 0:
+        return "Fél-veszített"  # kevesebb mint fele jár vissza
+    else:
+        return "Veszített"
 
 
 # ── Telegram értesítő ─────────────────────────────────────────────────────────
