@@ -27,6 +27,9 @@ _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
 if _os.path.exists(_docs_path):
     api.mount("/docs-static", StaticFiles(directory=_docs_path), name="docs-static")
+_images_path = _os.path.join(_BASE_DIR, "docs", "images")
+if _os.path.exists(_images_path):
+    api.mount("/images", StaticFiles(directory=_images_path), name="images")
 SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 
 # --- 2. Middleware ---
