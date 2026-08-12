@@ -611,7 +611,7 @@
             <button onclick="openTab(event,'register')">Regisztráció</button>
         </div>
         <div id="login" class="auth-content active">
-            <form action="https://foci-telegram-bot.onrender.com/login" method="post">
+            <form action="/login" method="post">
                 <div class="form-group">
                     <label for="l-email">E-mail cím</label>
                     <input type="email" id="l-email" name="email" placeholder="te@email.com" required>
@@ -621,11 +621,11 @@
                     <input type="password" id="l-pw" name="password" required>
                 </div>
                 <button type="submit" class="auth-submit">Bejelentkezés →</button>
-                <a href="https://foci-telegram-bot.onrender.com/forgot-password" class="forgot-link">Elfelejtettem a jelszavam</a>
+                <a href="/forgot-password" class="forgot-link">Elfelejtettem a jelszavam</a>
             </form>
         </div>
         <div id="register" class="auth-content">
-            <form action="https://foci-telegram-bot.onrender.com/register" method="post">
+            <form action="/register" method="post">
                 <div class="form-group">
                     <label for="r-email">E-mail cím</label>
                     <input type="email" id="r-email" name="email" placeholder="te@email.com" required>
