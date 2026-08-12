@@ -24,7 +24,8 @@ api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
 
 import os as _os
-_docs_path = _os.path.join(_os.path.dirname(__file__), "docs")
+_BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
+_docs_path = _os.path.join(_BASE_DIR, "docs")
 if _os.path.exists(_docs_path):
     api.mount("/docs-static", StaticFiles(directory=_docs_path), name="docs-static")
 SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
@@ -828,27 +829,27 @@ def _auto_check_loop():
 @api.get("/free_tips.html")
 async def free_tips_page():
     from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_os.path.dirname(__file__), "docs", "free_tips.html"))
+    return FileResponse(_os.path.join(_BASE_DIR, "docs", "free_tips.html"))
 
 @api.get("/adatvedelem.html")
 async def adatvedelem_page():
     from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_os.path.dirname(__file__), "docs", "adatvedelem.html"))
+    return FileResponse(_os.path.join(_BASE_DIR, "docs", "adatvedelem.html"))
 
 @api.get("/aszf.html")
 async def aszf_page():
     from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_os.path.dirname(__file__), "docs", "aszf.html"))
+    return FileResponse(_os.path.join(_BASE_DIR, "docs", "aszf.html"))
 
 @api.get("/style.css")
 async def css_file():
     from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_os.path.dirname(__file__), "docs", "style.css"), media_type="text/css")
+    return FileResponse(_os.path.join(_BASE_DIR, "docs", "style.css"), media_type="text/css")
 
 @api.get("/sitemap.xml")
 async def sitemap():
     from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_os.path.dirname(__file__), "docs", "sitemap.xml"), media_type="application/xml")
+    return FileResponse(_os.path.join(_BASE_DIR, "docs", "sitemap.xml"), media_type="application/xml")
 
 
 @api.on_event("startup")
