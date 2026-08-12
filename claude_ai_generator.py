@@ -80,6 +80,8 @@ HÁROM dolgot adj:
    - MECCSENKÉNT LEGFELJEBB 1 single tipp – a legerősebb piacot válaszd.
    - Minimum 1.65 odds. Csak pozitív kimenetel: over gólok, hendikep győzelem, csapat győzelme.
    - NE adj under tippet. Rövid (1-2 mondat) magyar indoklás.
+   - HENDIKEP LIMIT: maximum -1 (pl. -0.5, -0.75, -1 ok; -1.25, -1.5 TILOS).
+   - Ha nincs 2-3 meggyőző tipp, adj kevesebbet – inkább 1 erős mint 3 közepes!
 
 2) "free_tip": 1 db INGYENES tipp, különálló single.
    - MÁS meccsről legyen mint a "singles"-ben.
@@ -87,9 +89,10 @@ HÁROM dolgot adj:
    - KÖTELEZŐ ha legalább 2 single vagy 1 kombi van a válaszban – ilyenkor MINDIG adj meg egyet!
    - Csak akkor lehet null, ha egyáltalán nincs 1.65-1.90 közötti magas valószínűségű kimenetel.
 
-3) "combos": 1-2 kombi szelvény, 2-3 lábbal.
-   - Lábak: MAXIMUM 1.55 odds – ennél magasabb odds NEM kerülhet kombi lábba! Különböző meccsekről.
-   - Kombi eredő odds minimum 1.80. NEM átfedő kombik.
+3) "combos": 0-1 kombi szelvény, 2-3 lábbal (csak ha van legalább 2 NAGYON BIZTONSÁGOS láb).
+   - Lábak: MAXIMUM 1.45 odds. Különböző meccsekről. Ha nincs elég meggyőző láb: "combos": []
+   - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
+   - NEM átfedő kombik.
 
 KÖZÖS szabályok:
 - Csak valós, fent megadott bookmaker oddsokat használj.
