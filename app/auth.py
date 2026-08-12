@@ -34,7 +34,7 @@ def send_reset_email(to_email: str, token: str):
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
     SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-    RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+    RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
     
     reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
     subject = "🔑 Jelszó visszaállítás - Mondom a Tutit!"
@@ -106,7 +106,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
             return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
         
         request.session["user_id"] = user_res.data['id']
-        render_app_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+        render_app_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
         return RedirectResponse(url=f"{render_app_url}/vip", status_code=303)
     except Exception as e:
         return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
