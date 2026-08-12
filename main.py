@@ -6,6 +6,7 @@ import pytz
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
+import os as _os
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,8 +23,6 @@ from bot import add_handlers, get_tip_details
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 templates = Jinja2Templates(directory="templates")
-
-import os as _os
 _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
 if _os.path.exists(_docs_path):
@@ -160,11 +159,42 @@ async def resubscribe(token: str = None):
 
 @api.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    """Főoldal: ha be van jelentkezve, a VIP-re megy, különben a loginra."""
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/vip")
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", "index.html")
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return HTMLResponse(_f.read())
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
+
+@api.get("/free_tips.html", response_class=HTMLResponse)
+async def free_tips_page():
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", "free_tips.html")
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return HTMLResponse(_f.read())
+    return HTMLResponse("Not found", status_code=404)
+
+@api.get("/adatvedelem.html", response_class=HTMLResponse)
+async def adatvedelem_page():
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", "adatvedelem.html")
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return HTMLResponse(_f.read())
+    return HTMLResponse("Not found", status_code=404)
+
+@api.get("/aszf.html", response_class=HTMLResponse)
+async def aszf_page():
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", "aszf.html")
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return HTMLResponse(_f.read())
+    return HTMLResponse("Not found", status_code=404)
 
 @api.get("/vip", response_class=HTMLResponse)
 async def vip_area(request: Request):
@@ -823,35 +853,6 @@ def _auto_check_loop():
 
 
 # --- 6. Startup és Webhook ---
-
-# ── Statikus oldalak a docs/ mappából ─────────────────────────────────────────
-
-@api.get("/free_tips.html")
-async def free_tips_page():
-    from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_BASE_DIR, "docs", "free_tips.html"))
-
-@api.get("/adatvedelem.html")
-async def adatvedelem_page():
-    from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_BASE_DIR, "docs", "adatvedelem.html"))
-
-@api.get("/aszf.html")
-async def aszf_page():
-    from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_BASE_DIR, "docs", "aszf.html"))
-
-@api.get("/style.css")
-async def css_file():
-    from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_BASE_DIR, "docs", "style.css"), media_type="text/css")
-
-@api.get("/sitemap.xml")
-async def sitemap():
-    from fastapi.responses import FileResponse
-    return FileResponse(_os.path.join(_BASE_DIR, "docs", "sitemap.xml"), media_type="application/xml")
-
-
 @api.on_event("startup")
 async def startup():
     global application
