@@ -79,7 +79,7 @@ async def handle_registration(request: Request, email: str = Form(...), password
         # Ellenőrizzük, létezik-e már a felhasználó
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
         if existing_user.data:
-            return RedirectResponse(url="https://mondomatutit.hu?register_error=email_exists#login-register", status_code=303)
+            return RedirectResponse(url="/?register_error=email_exists#login-register", status_code=303)
         
         hashed_password = get_password_hash(password)
         # Új felhasználó beszúrása
@@ -90,12 +90,12 @@ async def handle_registration(request: Request, email: str = Form(...), password
         }).execute()
         
         if insert_res.data:
-            return RedirectResponse(url="https://mondomatutit.hu/koszonjuk-a-regisztraciot.html", status_code=303)
+            return RedirectResponse(url="/koszonjuk-a-regisztraciot.html", status_code=303)
         else:
             raise Exception("Insert failed")
     except Exception as e:
         print(f"Regisztrációs hiba: {e}")
-        return RedirectResponse(url="https://mondomatutit.hu?register_error=unknown#login-register", status_code=303)
+        return RedirectResponse(url="/?register_error=unknown#login-register", status_code=303)
 
 # --- Bejelentkezési útvonal ---
 @router.post("/login")
@@ -103,19 +103,18 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
-            return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+            return RedirectResponse(url="/?login_error=true#login-register", status_code=303)
         
         request.session["user_id"] = user_res.data['id']
-        render_app_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
-        return RedirectResponse(url=f"{render_app_url}/vip", status_code=303)
+        return RedirectResponse(url="/vip", status_code=303)
     except Exception as e:
-        return RedirectResponse(url="https://mondomatutit.hu?login_error=true#login-register", status_code=303)
+        return RedirectResponse(url="/?login_error=true#login-register", status_code=303)
 
 # --- Kijelentkezési útvonal ---
 @router.get("/logout")
 async def logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url="https://mondomatutit.hu", status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 # --- Jelszóvisszaállítási útvonalak ---
 @router.get("/forgot-password")
@@ -177,4 +176,4 @@ async def handle_new_password(request: Request, token: str = Form(...), password
         "reset_token_expiry": None
     }).eq("id", user['id']).execute()
     
-    return RedirectResponse(url="https://mondomatutit.hu?message=Sikeres jelszócsere!#login-register", status_code=303)
+    return RedirectResponse(url="/?message=Sikeres jelszócsere!#login-register", status_code=303)
