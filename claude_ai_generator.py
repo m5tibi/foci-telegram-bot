@@ -292,12 +292,22 @@ def save_to_supabase(tips: dict) -> dict:
         else:
             # Free single - duplikáció és validáció
             saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
-            ft_key = (free_tip.get("match",""), free_tip.get("pick",""))
-            if ft_key in saved_singles:
-                print(f"[save] Free tipp kihagyva: duplikáció ({ft_key[0]})")
+            ft_match = free_tip.get("match","")
+            # Meccs-szintű kizárás: ha a meccs bármely formában kizárt listán van
+            tipped_matches_set = set(m.split(" | ")[0].strip() for m in tipped_matches)
+            saved_matches_set = set(m for m, _ in saved_singles)
+            if ft_match in tipped_matches_set or ft_match in saved_matches_set:
+                print(f"[save] Free tipp kihagyva: meccs kizárt ({ft_match})")
                 free_tip = None
             if free_tip:
                 ft_odds = float(free_tip.get("odds", 0) or 0)
+                ft_note = free_tip.get("note", "") or ""
+                # FIGYELEM/kizárt szöveg szűrése
+                for badword in ["FIGYELEM", "kizárt", "kizárva", "Sajnos", "Hibás"]:
+                    if badword.lower() in ft_note.lower()[:100]:
+                        ft_note = ""
+                        break
+                free_tip["note"] = ft_note
                 if not free_tip.get("match") or free_tip.get("match") in ("N/A", "null", "", None) or ft_odds < 1.60:
                     print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
                     free_tip = None
