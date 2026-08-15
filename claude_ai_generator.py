@@ -90,7 +90,7 @@ HÁROM dolgot adj:
    - Csak akkor lehet null, ha egyáltalán nincs 1.65-1.90 közötti magas valószínűségű kimenetel.
 
 3) "combos": 0-1 kombi szelvény, 2-3 lábbal (csak ha van legalább 2 NAGYON BIZTONSÁGOS láb).
-   - Lábak: MAXIMUM 1.45 odds. Különböző meccsekről. Ha nincs elég meggyőző láb: "combos": []
+   - Lábak: MAXIMUM 1.55 odds. Különböző meccsekről. Ha nincs elég meggyőző láb: "combos": []
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
    - NEM átfedő kombik.
 
@@ -236,7 +236,7 @@ def save_to_supabase(tips: dict) -> dict:
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
-        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.60]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
             continue
@@ -259,7 +259,7 @@ def save_to_supabase(tips: dict) -> dict:
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.65
+        float(free_tip.get("odds", 0) or 0) < 1.60
     ):
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
