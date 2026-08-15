@@ -170,7 +170,7 @@ def call_claude(prompt: str) -> dict:
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
 
-def save_to_supabase(tips: dict) -> dict:
+def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
     """Menti az AI-generált tippeket a Supabase manual_slips táblába jóváhagyásra."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {"saved": 0, "error": "Supabase nem konfigurált"}
@@ -294,7 +294,7 @@ def save_to_supabase(tips: dict) -> dict:
             saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
             ft_match = free_tip.get("match","")
             # Meccs-szintű kizárás: ha a meccs bármely formában kizárt listán van
-            tipped_matches_set = set(m.split(" | ")[0].strip() for m in tipped_matches)
+            tipped_matches_set = set(m.split(" | ")[0].strip() for m in (tipped_matches or []))
             saved_matches_set = set(m for m, _ in saved_singles)
             if ft_match in tipped_matches_set or ft_match in saved_matches_set:
                 print(f"[save] Free tipp kihagyva: meccs kizárt ({ft_match})")
