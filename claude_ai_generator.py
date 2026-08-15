@@ -89,10 +89,11 @@ HÁROM dolgot adj:
    - KÖTELEZŐ ha legalább 2 single vagy 1 kombi van a válaszban – ilyenkor MINDIG adj meg egyet!
    - Csak akkor lehet null, ha egyáltalán nincs 1.65-1.90 közötti magas valószínűségű kimenetel.
 
-3) "combos": 0-1 kombi szelvény, 2-3 lábbal (csak ha van legalább 2 NAGYON BIZTONSÁGOS láb).
-   - Lábak: MAXIMUM 1.55 odds. Különböző meccsekről. Ha nincs elég meggyőző láb: "combos": []
+3) "combos": 1-3 kombi szelvény, 2-3 lábbal.
+   - Lábak: 1.20-1.60 odds között (ennél alacsonyabb vagy magasabb NEM mehet be).
+   - Ha nincs elegendő erős single tipp (csak 0-1 db), készíts 2-3 kombiszelvényt!
+   - Különböző meccsekről, NEM átfedő kombik.
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
-   - NEM átfedő kombik.
 
 KÖZÖS szabályok:
 - Csak valós, fent megadott bookmaker oddsokat használj.
@@ -236,7 +237,7 @@ def save_to_supabase(tips: dict) -> dict:
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
-        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.60]
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.60 or float(l.get("odds", 0) or 0) < 1.20]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
             continue
