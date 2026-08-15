@@ -395,7 +395,8 @@ async def admin_ai_generate(request: Request):
             for i, c in enumerate(combos)
         ])
         free_html = (
-            f'<li>🆓 {free_tip["match"]} – {free_tip["pick"]} @ {free_tip["odds"]}</li>'
+            (f'<li>🆓 Kombi: {', '.join([l.get("pick","") for l in free_tip.get("legs",[])])} → össz odds {free_tip.get("total_odds","")}</li>' if free_tip.get("type")=="combo"
+             else f'<li>🆓 {free_tip.get("match","")} – {free_tip.get("pick","")} @ {free_tip.get("odds","")}</li>')
             if free_tip else "<li>Nem generált free tippet</li>"
         )
 
