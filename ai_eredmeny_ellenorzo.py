@@ -135,11 +135,12 @@ def fetch_completed_matches():
                 timeout=15,
             )
             if not r.ok:
+                print(f"[ai_eval] {sport}: HTTP {r.status_code}")
                 continue
             sport_data = r.json()
+            total_in_sport = len(sport_data)
             sport_done = sum(1 for g in sport_data if g.get("completed") or (g.get("scores") and g.get("last_update")))
-            if sport_done > 0:
-                print(f"[ai_eval] {sport}: {sport_done} lezárt meccs")
+            print(f"[ai_eval] {sport}: {total_in_sport} meccs, {sport_done} lezárt")
             for g in sport_data:
                 has_scores = bool(g.get("scores"))
                 is_completed = g.get("completed")
