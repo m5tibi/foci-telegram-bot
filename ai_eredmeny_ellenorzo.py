@@ -220,7 +220,17 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     if "mindkét" in pick_l or "btts" in pick_l or "gól-gól" in pick_l:
         return "Nyert" if h > 0 and a > 0 else "Veszített"
 
-    # 1X2 – team név alapján
+    # 1X2 market – csapatnév alapján ha market = 1X2
+    market_l = (market or "").lower()
+    if "1x2" in market_l or "1X2" in market:
+        if home_team and _norm_team(pick_l) == _norm_team(home_team):
+            return "Nyert" if h > a else "Veszített"
+        if away_team and _norm_team(pick_l) == _norm_team(away_team):
+            return "Nyert" if a > h else "Veszített"
+        if "draw" in pick_l or "döntetlen" in pick_l:
+            return "Nyert" if h == a else "Veszített"
+
+    # 1X2 – kulcsszó alapján
     if "győzelem" in pick_l or "hazai" in pick_l or "home" in pick_l:
         if away_team and away_team.lower().split()[0] in pick_l:
             return "Nyert" if a > h else "Veszített"
