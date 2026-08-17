@@ -382,10 +382,10 @@ def main():
                 legs_json = row.get("ai_legs", "[]")
                 result = evaluate_combo(legs_json, completed)
             else:
-                match  = row.get("ai_match", "")
                 pick   = row.get("ai_pick", "")
                 market = row.get("ai_market", "")
-                # tipp_neve-ből visszafejtés ha ai_match üres
+                # match: ai_match mezőből, vagy tipp_neve-ből visszafejtve
+                match = row.get("ai_match", "")
                 if not match:
                     tipp_neve = row.get("tipp_neve", "")
                     for prefix in ["[AI FREE] ", "[AI] "]:
@@ -393,6 +393,10 @@ def main():
                     parts = tipp_neve.split(" – ")
                     if parts:
                         match = parts[0].split(" 🕐")[0].strip()
+                    # pick/market visszafejtése is ha üres
+                    if not pick and len(parts) > 1:
+                        pick_part = parts[1].split(" @ ")[0].strip()
+                        pick = pick_part
                 score = find_by_name(match, completed) if match else None
                 if not score and match:
                     print(f"[ai_eval] Nem találva: '{match}'")
