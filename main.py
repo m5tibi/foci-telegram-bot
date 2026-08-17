@@ -339,6 +339,13 @@ async def vip_area(request: Request):
                 slip_type_order(x),
                 x.get("ai_commence") or "99:99"
             ))
+            # Kombik újraszámozása megjelenítési sorrend szerint
+            _ki = 1
+            for _s in active_manual:
+                if _s.get("tip_type") == "kombi":
+                    import re as _re2
+                    _s["tipp_neve"] = _re2.sub(r"Kombi \d+", f"Kombi {_ki}", _s.get("tipp_neve",""))
+                    _ki += 1
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
             analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
