@@ -129,7 +129,7 @@ def fetch_completed_matches():
                 f"https://api.the-odds-api.com/v4/sports/{sport}/scores/",
                 params={
                     "apiKey": ODDS_API_KEY,
-                    "daysFrom": 5,
+                    "daysFrom": 3,
                     "dateFormat": "iso",
                 },
                 timeout=15,
