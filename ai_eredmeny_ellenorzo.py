@@ -69,6 +69,52 @@ def sb_update(table, id_, data: dict):
 
 # ── The-Odds-API eredmény lekérés ─────────────────────────────────────────────
 
+import re as _re
+import unicodedata as _ud
+
+def norm_team(s: str) -> str:
+    """Csapatnév normalizálása: ékezetek, FC/SC/stb. eltávolítása."""
+    s = _ud.normalize("NFD", s or "").encode("ascii", "ignore").decode()
+    s = s.lower()
+    s = _re.sub(r"\b(fc|cf|sc|afc|cd|ac|ss|ssc|as|rc|fk|sk|club|deportivo|united|city|fotball|football|il|if|bk|gk)\b", "", s)
+    s = _re.sub(r"[^a-z0-9]", "", s)
+    return s
+
+def lev_dist(a: str, b: str) -> int:
+    m, n = len(a), len(b)
+    d = [[0]*(n+1) for _ in range(m+1)]
+    for i in range(m+1): d[i][0] = i
+    for j in range(n+1): d[0][j] = j
+    for i in range(1, m+1):
+        for j in range(1, n+1):
+            d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (0 if a[i-1]==b[j-1] else 1))
+    return d[m][n]
+
+def name_sim(a: str, b: str) -> bool:
+    if not a or not b: return False
+    if a == b or a in b or b in a: return True
+    return lev_dist(a, b) <= max(2, int(min(len(a), len(b)) * 0.25))
+
+def find_by_name(match_name: str, completed: dict) -> dict | None:
+    """Háromszintű meccs-keresés: pontos → normalizált → fordított."""
+    if match_name in completed:
+        return completed[match_name]
+    parts = _re.split(r"\s+vs\.?\s+", match_name, flags=_re.IGNORECASE)
+    if len(parts) != 2:
+        return None
+    nh, na = norm_team(parts[0]), norm_team(parts[1])
+    # Normalizált egyezés
+    for g in completed.values():
+        if name_sim(nh, norm_team(g["home_team"])) and name_sim(na, norm_team(g["away_team"])):
+            return g
+    # Fordított hazai/vendég
+    for g in completed.values():
+        if name_sim(nh, norm_team(g["away_team"])) and name_sim(na, norm_team(g["home_team"])):
+            print(f"[ai_eval] ⇄ Fordított: '{match_name}' → {g['home_team']} vs {g['away_team']}")
+            return g
+    return None
+
+
 def fetch_completed_matches():
     """Lekéri az elmúlt 3 nap lezárt meccseit The-Odds-API-ból (scores endpoint)."""
     if not ODDS_API_KEY:
@@ -83,14 +129,18 @@ def fetch_completed_matches():
                 f"https://api.the-odds-api.com/v4/sports/{sport}/scores/",
                 params={
                     "apiKey": ODDS_API_KEY,
-                    "daysFrom": 3,
+                    "daysFrom": 5,
                     "dateFormat": "iso",
                 },
                 timeout=15,
             )
             if not r.ok:
                 continue
-            for g in r.json():
+            sport_data = r.json()
+            sport_done = sum(1 for g in sport_data if g.get("completed") or (g.get("scores") and g.get("last_update")))
+            if sport_done > 0:
+                print(f"[ai_eval] {sport}: {sport_done} lezárt meccs")
+            for g in sport_data:
                 has_scores = bool(g.get("scores"))
                 is_completed = g.get("completed")
                 # Ha completed=false de van scores és régebbi mint 1 óra → elfogadjuk lezártként
@@ -334,15 +384,17 @@ def main():
                 match  = row.get("ai_match", "")
                 pick   = row.get("ai_pick", "")
                 market = row.get("ai_market", "")
-                score  = completed.get(match)
-                if not score:
-                    # Fuzzy keresés
-                    mn = match.lower().replace(" ","")
-                    for k in completed:
-                        if k.lower().replace(" ","") == mn:
-                            score = completed[k]; break
-                    if not score and match:
-                        print(f"[ai_eval] Nem találva: '{match}'")
+                # tipp_neve-ből visszafejtés ha ai_match üres
+                if not match:
+                    tipp_neve = row.get("tipp_neve", "")
+                    for prefix in ["[AI FREE] ", "[AI] "]:
+                        tipp_neve = tipp_neve.replace(prefix, "")
+                    parts = tipp_neve.split(" – ")
+                    if parts:
+                        match = parts[0].split(" 🕐")[0].strip()
+                score = find_by_name(match, completed) if match else None
+                if not score and match:
+                    print(f"[ai_eval] Nem találva: '{match}'")
                 if score:
                     result = evaluate_pick(pick, market, score["h"], score["a"])
 
