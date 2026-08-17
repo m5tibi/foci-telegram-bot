@@ -105,12 +105,12 @@ def find_by_name(match_name: str, completed: dict) -> dict | None:
     nh, na = norm_team(parts[0]), norm_team(parts[1])
     # Normalizált egyezés
     for g in completed.values():
-        if name_sim(nh, norm_team(g["home_team"])) and name_sim(na, norm_team(g["away_team"])):
+        if name_sim(nh, norm_team(g.get("home",""))) and name_sim(na, norm_team(g.get("away",""))):
             return g
     # Fordított hazai/vendég
     for g in completed.values():
-        if name_sim(nh, norm_team(g["away_team"])) and name_sim(na, norm_team(g["home_team"])):
-            print(f"[ai_eval] ⇄ Fordított: '{match_name}' → {g['home_team']} vs {g['away_team']}")
+        if name_sim(nh, norm_team(g.get("away",""))) and name_sim(na, norm_team(g.get("home",""))):
+            print(f"[ai_eval] ⇄ Fordított: '{match_name}' → {g.get('home')} vs {g.get('away')}")
             return g
     return None
 
