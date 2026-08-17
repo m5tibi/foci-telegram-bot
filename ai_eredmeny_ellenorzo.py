@@ -318,9 +318,14 @@ def main():
         rows = r_all.json() if r_all.ok else []
         print(f"[ai_eval] {table}: {len(rows)} folyamatban lévő AI tipp")
 
+        # Debug: meccsnevek megjelenítése
+        sample_completed = list(completed.keys())[:8]
+        print(f"[ai_eval] Completed minta: {sample_completed}")
         for row in rows:
             tip_type = row.get("tip_type", "single")
             result   = None
+            match  = row.get("ai_match", "") or row.get("tipp_neve","")[:50]
+            print(f"[ai_eval] Tipp: '{match}' (tip_type={tip_type})")
 
             if tip_type == "kombi":
                 legs_json = row.get("ai_legs", "[]")
@@ -330,6 +335,14 @@ def main():
                 pick   = row.get("ai_pick", "")
                 market = row.get("ai_market", "")
                 score  = completed.get(match)
+                if not score:
+                    # Fuzzy keresés
+                    mn = match.lower().replace(" ","")
+                    for k in completed:
+                        if k.lower().replace(" ","") == mn:
+                            score = completed[k]; break
+                    if not score and match:
+                        print(f"[ai_eval] Nem találva: '{match}'")
                 if score:
                     result = evaluate_pick(pick, market, score["h"], score["a"])
 
