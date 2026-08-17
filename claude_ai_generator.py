@@ -1,4 +1,4 @@
-# claude_ai_generator.py
+# claude_ai_generator.py v1.2.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -52,8 +52,7 @@ def parse_target_date(commence: str) -> str:
 # ── 2. Claude API hívás ───────────────────────────────────────────────────────
 
 def build_prompt(matches: list, tipped_matches: list) -> str:
-    """90perc.hu-val megegyező logikájú prompt."""
-
+    """Prompt összeállítása a match listából."""
     def fmt_odds(odds_list):
         if not odds_list: return "n/a"
         return ", ".join([
@@ -68,54 +67,37 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
     skip_text = "\nEZEKRE MÁR VAN AKTÍV TIPP – NE szerepeljen semmilyen tippként: " + "; ".join(tipped_matches) if tipped_matches else ""
 
-    JSON_EXAMPLE = (
-        '{"singles":[{"match":"Csapat A vs B","market":"1X2","pick":"Csapat A","odds":1.78,'
-        '"note":"Indoklás.","commence":"08.15 19:00"}],'
-        '"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.15 19:00"},'
-        '{"match":"A vs B","pick":"A gyozelem","odds":1.45,"commence":"08.15 21:00"}],'
-        '"total_odds":1.96,"note":"Indoklás."},'
-        '{"legs":[{"match":"C vs D","pick":"Over 1.5","odds":1.30,"commence":"08.15 20:00"},'
-        '{"match":"E vs F","pick":"E gyozelem","odds":1.50,"commence":"08.15 20:30"}],'
-        '"total_odds":1.95,"note":"Indoklás."}],'
-        '"free_tip":{"type":"single","match":"X vs Y","market":"1X2","pick":"X","odds":1.72,'
-        '"note":"Indoklás.","commence":"08.15 19:00"},"summary":"Összegzés."}'
-    )
-    JSON_COMBO_EX = (
-        '{"free_tip":{"type":"combo","legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,'
-        '"commence":"08.15 19:00"},{"match":"A vs B","pick":"Over 1.5","odds":1.45,'
-        '"commence":"08.15 21:00"}],"total_odds":1.96,"note":"Indoklás."}}'
-    )
+    rules = """HÁROM dolgot adj:
+
+1) "singles": 0-3 ERŐS single tipp.
+   - CSAK legalább 1.65 oddsú single tippet adj.
+   - HENDIKEP LIMIT: maximum -1.
+   - Ha nincs 1.65+ odds, adj üres tömböt.
+   - FONTOS: Ha egy meccset 1.65+ oddsszal kombilábnak ajánlasz, azt ELŐBB ajánld singlenek!
+
+2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
+   - Ha kevés/nincs single: adj 3 kombiszelvényt!
+   - Minden kombi 2-3 lábból áll, 1.20-1.60 odds között lábankénti.
+   - Ha egy láb 1.60 felett van, NEM kerülhet kombiba – inkább tedd singlebe!
+   - Különböző meccsekről, NEM átfedő kombik.
+   - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
+
+3) "free_tip": KÖTELEZŐ! Minden nap adj 1 ingyenes tippet!
+   - Lehet single (1.60-1.90 odds) VAGY kombi (2-3 láb, 1.20-1.60 odds lábankénti).
+   - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel.
+   - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
+
+Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL."""
+
+    json_example = '{"singles":[{"match":"Csapat A vs B","market":"1X2","pick":"Csapat A","odds":1.78,"note":"Indoklás.","commence":"08.17 19:00"}],"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.17 19:00"},{"match":"A vs B","pick":"A gyozelem","odds":1.45,"commence":"08.17 21:00"}],"total_odds":1.96,"note":"Indoklás."},{"legs":[{"match":"C vs D","pick":"Over 1.5","odds":1.30,"commence":"08.17 20:00"},{"match":"E vs F","pick":"E gyozelem","odds":1.50,"commence":"08.17 20:30"}],"total_odds":1.95,"note":"Indoklás."}],"free_tip":{"type":"single","match":"X vs Y","market":"1X2","pick":"X","odds":1.72,"note":"Indoklás.","commence":"08.17 19:00"},"summary":"Összegzés."}'
 
     return (
         "Te egy profi labdarúgás-fogadási elemző vagy. Használj web keresést az aktuális formához, "
         "sérülésekhez és keretinformációkhoz.\n\n"
-        "Mai meccsek (valós bookmaker oddsokkal):\n" + match_text + "\n"
-        + skip_text + "\n\n"
-        "HÁROM dolgot adj:\n\n"
-        "1) \"singles\": 0-3 ERŐS single tipp.\n"
-        "   - CSAK legalább 1.65 oddsú single tippet adj.\n"
-        "   - HENDIKEP LIMIT: maximum -1 (pl. -0.5, -0.75, -1 ok; -1.25, -1.5 TILOS).\n"
-        "   - Ha nincs 1.65+ odds, adj üres tömböt: \"singles\": []\n\n"
-        "2) \"combos\": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!\n"
-        "   - Ha kevés/nincs single: adj 3 kombiszelvényt!\n"
-        "   - Minden kombi 2-3 lábból áll, 1.20-1.60 odds között lábankénti.\n"
-        "   - Különböző meccsekről, NEM átfedő kombik.\n"
-        "   - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.\n\n"
-        "3) \"free_tip\": KÖTELEZŐ! Minden nap adj 1 ingyenes tippet!\n"
-        "   - Lehet single (1.60-1.90 odds) VAGY kombi (2-3 láb, 1.20-1.60 odds lábankénti).\n"
-        "   - Ha single: MÁS meccsről mint a \"singles\" mezőben.\n"
-        "   - Ha kombi: NEM átfedő a \"combos\" kombikkal.\n"
-        "   - MINDIG adj free tippet ha van elegendő meccs!\n\n"
-        "KÖZÖS szabályok:\n"
-        "- Csak valós, fent megadott bookmaker oddsokat használj.\n"
-        "- Kizárt listán lévő pick-ekre SEMMILYEN tipp.\n"
-        "- Ha egy meccs+piac kizárt, MÁSIK piacot válassz.\n\n"
-        "Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL:\n"
-        + JSON_EXAMPLE
-        + "\n\nHa a free_tip kombi, így add meg:\n"
-        + JSON_COMBO_EX
+        f"Mai meccsek (valós bookmaker oddsokkal):\n{match_text}\n"
+        f"{skip_text}\n\n"
+        f"{rules}\n{json_example}"
     )
-
 
 
 def call_claude(prompt: str) -> dict:
@@ -170,7 +152,7 @@ def call_claude(prompt: str) -> dict:
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
 
-def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
+def save_to_supabase(tips: dict) -> dict:
     """Menti az AI-generált tippeket a Supabase manual_slips táblába jóváhagyásra."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {"saved": 0, "error": "Supabase nem konfigurált"}
@@ -251,7 +233,7 @@ def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
-        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.60 or float(l.get("odds", 0) or 0) < 1.20]
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
             continue
@@ -263,77 +245,46 @@ def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
 
     # Free tipp mentése a free_slips táblába
     free_tip = tips.get("free_tip")
+    # Free tipp ne egyezzen egyik single tippel sem (meccs + pick)
     if free_tip:
-        ft_type = free_tip.get("type", "single")
-
-        if ft_type == "combo":
-            # Free kombi mentése
-            ft_legs = free_tip.get("legs", [])
-            if len(ft_legs) >= 2:
-                legs_str = "\n".join([
-                    f"  • {l.get('match','')}: {l.get('pick','')} @ {l.get('odds','')} 🕐 {l.get('commence','')}"
-                    for l in ft_legs
-                ])
-                first_commence = ft_legs[0].get("commence", "") if ft_legs else ""
-                row = {
-                    "tipp_neve": f"[AI FREE] Kombi @ {free_tip.get('total_odds','')}",
-                    "eredo_odds": free_tip.get("total_odds", 0),
-                    "status": "Jóváhagyásra vár",
-                    "target_date": parse_target_date(first_commence),
-                    "ai_generated": True,
-                    "ai_note": free_tip.get("note", "") + f"\n\nLábak:\n{legs_str}",
-                    "tip_type": "free",
-                    "result_status": "Folyamatban"
-                }
-                r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
-                if r.status_code in (200, 201):
-                    saved.append(r.json())
-                    print(f"[save] Free kombi mentve")
+        saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
+        ft_key = (free_tip.get("match",""), free_tip.get("pick",""))
+        if ft_key in saved_singles:
+            print(f"[save] Free tipp kihagyva: duplikáció egy single tippel ({ft_key[0]})")
+            free_tip = None
+    # Érvénytelen free tipp kiszűrése (N/A, 0 odds, hiányzó adatok)
+    if free_tip and (
+        not free_tip.get("match") or
+        free_tip.get("match") in ("N/A", "null", "", None) or
+        float(free_tip.get("odds", 0) or 0) < 1.65
+    ):
+        print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
+        free_tip = None
+    if free_tip:
+        tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
+        commence = free_tip.get("commence", "")
+        commence_str = f" 🕐 {commence}" if commence else ""
+        row = {
+            "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
+            "eredo_odds": free_tip["odds"],
+            "status": "Jóváhagyásra vár",
+            "target_date": tomorrow,
+            "ai_generated": True,
+            "ai_note": free_tip.get("note", ""),
+            "tip_type": "free",
+            "ai_match": free_tip.get("match", ""),
+            "ai_pick": free_tip.get("pick", ""),
+            "ai_market": free_tip.get("market", ""),
+            "ai_commence": free_tip.get("commence", ""),
+            "result_status": "Folyamatban"
+        }
+        r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
+        if r.status_code in (200, 201):
+            saved.append(r.json())
+            print(f"[save] Free tipp mentve: {free_tip['match']}")
         else:
-            # Free single - duplikáció és validáció
-            saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
-            ft_match = free_tip.get("match","")
-            # Meccs-szintű kizárás: ha a meccs bármely formában kizárt listán van
-            tipped_matches_set = set(m.split(" | ")[0].strip() for m in (tipped_matches or []))
-            saved_matches_set = set(m for m, _ in saved_singles)
-            if ft_match in tipped_matches_set or ft_match in saved_matches_set:
-                print(f"[save] Free tipp kihagyva: meccs kizárt ({ft_match})")
-                free_tip = None
-            if free_tip:
-                ft_odds = float(free_tip.get("odds", 0) or 0)
-                ft_note = free_tip.get("note", "") or ""
-                # FIGYELEM/kizárt szöveg szűrése
-                for badword in ["FIGYELEM", "kizárt", "kizárva", "Sajnos", "Hibás"]:
-                    if badword.lower() in ft_note.lower()[:100]:
-                        ft_note = ""
-                        break
-                free_tip["note"] = ft_note
-                if not free_tip.get("match") or free_tip.get("match") in ("N/A", "null", "", None) or ft_odds < 1.60:
-                    print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
-                    free_tip = None
-            if free_tip:
-                commence = free_tip.get("commence", "")
-                commence_str = f" 🕐 {commence}" if commence else ""
-                row = {
-                    "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
-                    "eredo_odds": free_tip["odds"],
-                    "status": "Jóváhagyásra vár",
-                    "target_date": parse_target_date(free_tip.get("commence", "")),
-                    "ai_generated": True,
-                    "ai_note": free_tip.get("note", ""),
-                    "tip_type": "free",
-                    "ai_match": free_tip.get("match", ""),
-                    "ai_pick": free_tip.get("pick", ""),
-                    "ai_market": free_tip.get("market", ""),
-                    "ai_commence": free_tip.get("commence", ""),
-                    "result_status": "Folyamatban"
-                }
-                r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
-                if r.status_code in (200, 201):
-                    saved.append(r.json())
-                    print(f"[save] Free tipp mentve: {free_tip['match']}")
-                else:
-                    print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
+            print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
+
     return {"saved": len(saved), "tips": tips}
 
 
