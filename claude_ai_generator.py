@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.2.2
+# claude_ai_generator.py v1.3.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -87,9 +87,14 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel.
    - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
 
+4) "extra_labak": 3-4 Over/GG/BTTS láb extra szelvényhez (1.50-2.20 odds lábankénti).
+   - Csak Over 2.5, Over 1.5, BTTS/GG piacok!
+   - Ha nincs legalább 3 meggyőző gólgazdag meccs: "extra_labak": []
+   - Magasabb kockázat, de gólváró meccsekre jól jön be.
+
 Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL."""
 
-    json_example = '{"singles":[{"match":"Csapat A vs B","market":"1X2","pick":"Csapat A","odds":1.78,"note":"Indoklás.","commence":"08.17 19:00"}],"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.17 19:00"},{"match":"A vs B","pick":"A gyozelem","odds":1.45,"commence":"08.17 21:00"}],"total_odds":1.96,"note":"Indoklás."},{"legs":[{"match":"C vs D","pick":"Over 1.5","odds":1.30,"commence":"08.17 20:00"},{"match":"E vs F","pick":"E gyozelem","odds":1.50,"commence":"08.17 20:30"}],"total_odds":1.95,"note":"Indoklás."}],"free_tip":{"type":"single","match":"X vs Y","market":"1X2","pick":"X","odds":1.72,"note":"Indoklás.","commence":"08.17 19:00"},"summary":"Összegzés."}'
+    json_example = '{"singles":[{"match":"Csapat A vs B","market":"1X2","pick":"Csapat A","odds":1.78,"note":"Indoklás.","commence":"08.17 19:00"}],"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.17 19:00"},{"match":"A vs B","pick":"A gyozelem","odds":1.45,"commence":"08.17 21:00"}],"total_odds":1.96,"note":"Indoklás."}],"extra_labak":[{"match":"C vs D","pick":"Over 2.5","odds":1.75,"market":"Totals","commence":"08.17 20:00"},{"match":"E vs F","pick":"BTTS","odds":1.65,"market":"BTTS","commence":"08.17 20:30"},{"match":"G vs H","pick":"Over 2.5","odds":1.80,"market":"Totals","commence":"08.17 21:00"}],"free_tip":{"type":"single","match":"X vs Y","market":"1X2","pick":"X","odds":1.72,"note":"Indoklás.","commence":"08.17 19:00"},"summary":"Összegzés."}'
 
     return (
         "Te egy profi labdarúgás-fogadási elemző vagy. Használj web keresést az aktuális formához, "
@@ -302,6 +307,35 @@ def save_to_supabase(tips: dict) -> dict:
             print(f"[save] Free tipp mentve: {free_tip['match']}")
         else:
             print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
+
+
+    # Extra Over/GG szelvény
+    extra_legs = tips.get("extra_labak", [])
+    valid_m = ["over", "btts", "gg", "mindket", "both"]
+    extra_valid = [
+        l for l in extra_legs
+        if 1.50 <= float(l.get("odds", 0) or 0) <= 2.20
+        and any(m in (l.get("pick","") + l.get("market","")).lower() for m in valid_m)
+    ]
+    if len(extra_valid) >= 3:
+        sel = sorted(extra_valid, key=lambda x: float(x.get("odds",1)), reverse=True)[:4]
+        import functools, operator
+        total_o = round(functools.reduce(operator.mul, [float(l.get("odds",1)) for l in sel], 1), 2)
+        if total_o >= 4.50:
+            legs_str = "\n".join([f"  • {l.get('match','')}: {l.get('pick','')} @ {l.get('odds','')} 🕐 {l.get('commence','')}" for l in sel])
+            extra_row = {
+                "tipp_neve": f"[AI] 🎯 Extra szelvény – össz odds {total_o}",
+                "eredo_odds": total_o, "status": "Jóváhagyásra vár",
+                "target_date": parse_target_date(sel[0].get("commence","")),
+                "ai_generated": True,
+                "ai_note": "Extra Over/GG szelvény – magasabb kockázat.\n\nLábak:\n" + legs_str,
+                "tip_type": "kombi", "ai_legs": json.dumps(sel, ensure_ascii=False),
+                "result_status": "Folyamatban"
+            }
+            r = requests.post(f"{base}/manual_slips", headers=headers, json=extra_row, timeout=15)
+            if r.status_code in (200, 201):
+                saved.append(r.json())
+                print(f"[save] Extra szelvény mentve: {len(sel)} láb, össz odds {total_o}")
 
     return {"saved": len(saved), "tips": tips}
 
