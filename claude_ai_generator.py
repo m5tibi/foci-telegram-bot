@@ -321,10 +321,13 @@ def save_to_supabase(tips: dict) -> dict:
         and any(m in (l.get("pick","") + l.get("market","")).lower() for m in valid_m)
     ]
     if len(extra_valid) >= 3:
-        sel = sorted(extra_valid, key=lambda x: float(x.get("odds",1)), reverse=True)[:4]
         import functools, operator
+        sel = sorted(extra_valid, key=lambda x: float(x.get("odds",1)), reverse=True)[:4]
         total_o = round(functools.reduce(operator.mul, [float(l.get("odds",1)) for l in sel], 1), 2)
-        if total_o >= 4.50:
+        if total_o > 10.00:
+            sel = sel[:3]
+            total_o = round(functools.reduce(operator.mul, [float(l.get("odds",1)) for l in sel], 1), 2)
+        if 4.50 <= total_o <= 10.00:
             legs_str = "\n".join([f"  • {l.get('match','')}: {l.get('pick','')} @ {l.get('odds','')} 🕐 {l.get('commence','')}" for l in sel])
             extra_row = {
                 "tipp_neve": f"[AI] 🎯 Extra szelvény – össz odds {total_o}",
