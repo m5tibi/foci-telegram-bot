@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.2.0
+# claude_ai_generator.py v1.2.1
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -261,14 +261,13 @@ def save_to_supabase(tips: dict) -> dict:
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
     if free_tip:
-        tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
         commence = free_tip.get("commence", "")
         commence_str = f" 🕐 {commence}" if commence else ""
         row = {
             "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
             "eredo_odds": free_tip["odds"],
             "status": "Jóváhagyásra vár",
-            "target_date": tomorrow,
+            "target_date": parse_target_date(free_tip.get("commence", "")),
             "ai_generated": True,
             "ai_note": free_tip.get("note", ""),
             "tip_type": "free",
