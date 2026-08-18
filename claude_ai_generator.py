@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.1
+# claude_ai_generator.py v1.3.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -259,7 +259,7 @@ def save_to_supabase(tips: dict) -> dict:
                         }
                         r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
                         if r2.status_code in (200, 201):
-                            saved.append(r2.json())
+                            _rj = r2.json(); saved.append(_rj[0] if isinstance(_rj, list) else _rj)
                             print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
@@ -337,7 +337,7 @@ def save_to_supabase(tips: dict) -> dict:
             }
             r = requests.post(f"{base}/manual_slips", headers=headers, json=extra_row, timeout=15)
             if r.status_code in (200, 201):
-                saved.append(r.json())
+                _rj = r.json(); saved.append(_rj[0] if isinstance(_rj, list) else _rj)
                 print(f"[save] Extra szelvény mentve: {len(sel)} láb, össz odds {total_o}")
 
     return {"saved": len(saved), "tips": tips}
