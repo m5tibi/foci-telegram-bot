@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.0
+# claude_ai_generator.py v1.3.1
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -206,7 +206,8 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append(r.json())
+            rj = r.json()
+            saved.append(rj[0] if isinstance(rj, list) else rj)
         else:
             print(f"[save] Hiba single mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -263,7 +264,8 @@ def save_to_supabase(tips: dict) -> dict:
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append(r.json())
+            rj = r.json()
+            saved.append(rj[0] if isinstance(rj, list) else rj)
         else:
             print(f"[save] Hiba kombi mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -303,7 +305,8 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append(r.json())
+            rj = r.json()
+            saved.append(rj[0] if isinstance(rj, list) else rj)
             print(f"[save] Free tipp mentve: {free_tip['match']}")
         else:
             print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
