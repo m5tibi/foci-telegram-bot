@@ -30,7 +30,7 @@ if _os.path.exists(_docs_path):
 _images_path = _os.path.join(_BASE_DIR, "docs", "images")
 if _os.path.exists(_images_path):
     api.mount("/images", StaticFiles(directory=_images_path), name="images")
-SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
 
 # --- 2. Middleware ---
 api.add_middleware(
@@ -563,7 +563,7 @@ async def admin_ai_approve_all(request: Request, background_tasks: BackgroundTas
         except Exception as e:
             print(f"[approve-all] {table} hiba: {e}")
 
-    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
     now_iso  = datetime.now(pytz.utc).isoformat()
     today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
     total    = len(vip_tips) + len(free_tips_list)
@@ -646,7 +646,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
     import pytz
     from datetime import datetime
     now_iso  = datetime.now(pytz.utc).isoformat()
-    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
     today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
 
     vip_tips, free_tips_list = [], []
