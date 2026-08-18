@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.2
+# claude_ai_generator.py v1.3.3
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -72,6 +72,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 1) "singles": 0-3 ERŐS single tipp.
    - CSAK legalább 1.65 oddsú single tippet adj.
    - HENDIKEP LIMIT: maximum -1.
+   - Minden single tipphez KÖTELEZŐ "note" mező: 1-2 mondatos magyar indoklás konkrét statisztikákkal!
    - Ha nincs 1.65+ odds, adj üres tömböt.
    - FONTOS: Ha egy meccset 1.65+ oddsszal kombilábnak ajánlasz, azt ELŐBB ajánld singlenek!
 
@@ -180,6 +181,9 @@ def save_to_supabase(tips: dict) -> dict:
         t_odds = float(t.get("odds", 0) or 0)
         if t_odds < 1.65:
             print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
+            continue
+        if not t.get("note", "").strip():
+            print(f"[save] Single kihagyva: nincs indoklás ({t.get('match','')})")
             continue
         # Note tisztítás (AI gondolkodás szűrése)
         note = t.get("note", "") or ""
