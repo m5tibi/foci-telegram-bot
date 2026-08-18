@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.2.1
+# claude_ai_generator.py v1.2.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -233,9 +233,28 @@ def save_to_supabase(tips: dict) -> dict:
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
-        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
+        invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.60 or float(l.get("odds", 0) or 0) < 1.20]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
+            for bad_leg in invalid_legs:
+                leg_odds = float(bad_leg.get("odds", 0) or 0)
+                if leg_odds >= 1.65:
+                    leg_match = bad_leg.get("match", "")
+                    already = any(s.get("ai_match","") == leg_match for s in saved)
+                    if not already and leg_match:
+                        sr = {
+                            "tipp_neve": f"[AI] {leg_match} – {bad_leg.get('pick','')} @ {bad_leg.get('odds','')} 🕐 {bad_leg.get('commence','')}",
+                            "eredo_odds": leg_odds, "status": "Jóváhagyásra vár",
+                            "target_date": parse_target_date(bad_leg.get("commence", "")),
+                            "ai_generated": True, "ai_note": "", "tip_type": "single",
+                            "ai_match": leg_match, "ai_pick": bad_leg.get("pick",""),
+                            "ai_market": bad_leg.get("market","1X2"),
+                            "ai_commence": bad_leg.get("commence",""), "result_status": "Folyamatban"
+                        }
+                        r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
+                        if r2.status_code in (200, 201):
+                            saved.append(r2.json())
+                            print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
