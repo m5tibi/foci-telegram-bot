@@ -32,6 +32,7 @@ def fetch_match_list() -> dict:
         return r.json()
     except Exception as e:
         print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
+        print(f"[claude_gen] URL: {PERC90_URL}/api/match-list, PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
         return {"matches": [], "tippedMatches": [], "tippedPicks": []}
 
 
