@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.3
+# claude_ai_generator.py v1.3.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -72,9 +72,9 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 1) "singles": 0-3 ERŐS single tipp.
    - CSAK legalább 1.65 oddsú single tippet adj.
    - HENDIKEP LIMIT: maximum -1.
-   - Minden single tipphez KÖTELEZŐ "note" mező: 1-2 mondatos magyar indoklás konkrét statisztikákkal!
    - Ha nincs 1.65+ odds, adj üres tömböt.
    - FONTOS: Ha egy meccset 1.65+ oddsszal kombilábnak ajánlasz, azt ELŐBB ajánld singlenek!
+   - MINDEN single tipphez kötelező "note" (1-3 mondat konkrét statisztikával)! Üres note-ú tipp TILOS!
 
 2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
    - Ha kevés/nincs single: adj 3 kombiszelvényt!
@@ -87,6 +87,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - Lehet single (1.60-1.90 odds) VAGY kombi (2-3 láb, 1.20-1.60 odds lábankénti).
    - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel.
    - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
+   - HA NEM TUDSZ free tippet adni: adj 2-lábas kombiszelvényt free_tip-ként (type:"combo")!
 
 4) "extra_labak": 3-4 Over/GG/BTTS láb extra szelvényhez (1.50-2.20 odds lábankénti).
    - Csak Over 2.5, Over 1.5, BTTS/GG piacok!
@@ -182,8 +183,9 @@ def save_to_supabase(tips: dict) -> dict:
         if t_odds < 1.65:
             print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
             continue
+        # Note kötelező
         if not t.get("note", "").strip():
-            print(f"[save] Single kihagyva: nincs indoklás ({t.get('match','')})")
+            print(f"[save] Single kihagyva: hiányzó note ({t.get('match','')})")
             continue
         # Note tisztítás (AI gondolkodás szűrése)
         note = t.get("note", "") or ""
@@ -210,8 +212,7 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            rj = r.json()
-            saved.append(rj[0] if isinstance(rj, list) else rj)
+            saved.append(r.json())
         else:
             print(f"[save] Hiba single mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -263,13 +264,12 @@ def save_to_supabase(tips: dict) -> dict:
                         }
                         r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
                         if r2.status_code in (200, 201):
-                            _rj = r2.json(); saved.append(_rj[0] if isinstance(_rj, list) else _rj)
+                            saved.append(r2.json())
                             print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            rj = r.json()
-            saved.append(rj[0] if isinstance(rj, list) else rj)
+            saved.append(r.json())
         else:
             print(f"[save] Hiba kombi mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -309,8 +309,7 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            rj = r.json()
-            saved.append(rj[0] if isinstance(rj, list) else rj)
+            saved.append(r.json())
             print(f"[save] Free tipp mentve: {free_tip['match']}")
         else:
             print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
@@ -325,13 +324,10 @@ def save_to_supabase(tips: dict) -> dict:
         and any(m in (l.get("pick","") + l.get("market","")).lower() for m in valid_m)
     ]
     if len(extra_valid) >= 3:
-        import functools, operator
         sel = sorted(extra_valid, key=lambda x: float(x.get("odds",1)), reverse=True)[:4]
+        import functools, operator
         total_o = round(functools.reduce(operator.mul, [float(l.get("odds",1)) for l in sel], 1), 2)
-        if total_o > 10.00:
-            sel = sel[:3]
-            total_o = round(functools.reduce(operator.mul, [float(l.get("odds",1)) for l in sel], 1), 2)
-        if 4.50 <= total_o <= 10.00:
+        if total_o >= 4.50:
             legs_str = "\n".join([f"  • {l.get('match','')}: {l.get('pick','')} @ {l.get('odds','')} 🕐 {l.get('commence','')}" for l in sel])
             extra_row = {
                 "tipp_neve": f"[AI] 🎯 Extra szelvény – össz odds {total_o}",
@@ -344,7 +340,7 @@ def save_to_supabase(tips: dict) -> dict:
             }
             r = requests.post(f"{base}/manual_slips", headers=headers, json=extra_row, timeout=15)
             if r.status_code in (200, 201):
-                _rj = r.json(); saved.append(_rj[0] if isinstance(_rj, list) else _rj)
+                saved.append(r.json())
                 print(f"[save] Extra szelvény mentve: {len(sel)} láb, össz odds {total_o}")
 
     return {"saved": len(saved), "tips": tips}
