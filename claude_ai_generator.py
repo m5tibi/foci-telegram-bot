@@ -159,20 +159,46 @@ def call_claude(prompt: str) -> dict:
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
 
-def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
+def save_to_supabase(tips: dict, tipped_matches: list = None, matches: list = None) -> dict:
     """Menti az AI-generált tippeket a Supabase manual_slips táblába jóváhagyásra."""
     import traceback
     try:
-        return _save_to_supabase_inner(tips, tipped_matches)
+        return _save_to_supabase_inner(tips, tipped_matches, matches)
     except Exception as _e:
         print(f"[save] KIVÉTEL: {_e}")
         traceback.print_exc()
         raise
 
-def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
+def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: list = None) -> dict:
     import traceback
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {"saved": 0, "error": "Supabase nem konfigurált"}
+
+    # Odds lookup: {match_name → {market/pick → max_odds}}
+    odds_lookup = {}
+    for m in (matches or []):
+        mn = m.get("match", "")
+        for o in m.get("odds", []):
+            key = mn
+            real_odds = float(o.get("odds", 0) or 0)
+            if key not in odds_lookup or real_odds > odds_lookup[key].get("_max", 0):
+                if key not in odds_lookup:
+                    odds_lookup[key] = {}
+                odds_lookup[key]["_max"] = real_odds
+                odds_lookup[key]["_min"] = min(odds_lookup[key].get("_min", real_odds), real_odds)
+
+    def validate_odds(match_name: str, ai_odds: float) -> bool:
+        """Ellenőrzi hogy az AI által megadott odds reális-e."""
+        if not odds_lookup or match_name not in odds_lookup:
+            return True  # ha nincs adat, elfogadjuk
+        real_max = odds_lookup[match_name].get("_max", 0)
+        real_min = odds_lookup[match_name].get("_min", 0)
+        if real_max == 0:
+            return True
+        # Ha az AI oddsja több mint 50%-kal magasabb a valódi maximumnál → gyanús
+        if ai_odds > real_max * 1.5:
+            return False
+        return True
 
     headers = {
         "apikey": SUPABASE_KEY,
@@ -195,6 +221,10 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
         t_odds = float(t.get("odds", 0) or 0)
         if t_odds < 1.65:
             print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
+            continue
+        # Odds realitás ellenőrzés
+        if not validate_odds(t.get("match", ""), t_odds):
+            print(f"[save] Single kihagyva: irreális odds {t_odds} ({t.get('match','')})")
             continue
         # Note kötelező
         if not t.get("note", "").strip():
@@ -446,7 +476,7 @@ def generate_tips() -> dict:
 
     # 3. Mentés
     try:
-        result = save_to_supabase(tips)
+        result = save_to_supabase(tips, tipped_picks, matches)
         print(f"[claude_gen] Mentve: {result.get('saved', 0)} tétel")
         return result
     except Exception as _e:
