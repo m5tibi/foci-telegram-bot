@@ -575,7 +575,7 @@ def generate_tips_raw() -> dict:
     import re as _re
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+        headers={"x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
         json={"model": "claude-sonnet-4-6", "max_tokens": 4096,
               "tools": [{"type": "web_search_20250305", "name": "web_search"}],
