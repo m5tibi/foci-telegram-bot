@@ -509,8 +509,50 @@ def save_single_tip(data: dict) -> dict:
     return {"id": saved.get("id"), "ok": True}
 
 
+def build_raw_prompt(matches: list, tipped_matches: list) -> str:
+    """Prompt a Tipp Manager számára: csak singlek, kötelező note."""
+    def fmt_odds(odds_list):
+        if not odds_list: return "n/a"
+        return ", ".join([
+            f"{o.get('market','?')}/{o.get('name','?')}: {o.get('odds','?')}"
+            for o in odds_list[:5]
+        ])
+
+    match_text = "\n".join([
+        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Odds: {fmt_odds(m.get('odds', []))}"
+        for m in matches
+    ]) or "Nincs elérhető meccs."
+
+    skip_text = "\nKIZÁRT (már van aktív tipp): " + "; ".join(tipped_matches) if tipped_matches else ""
+
+    rules = """6-10 SINGLE TIPPET adj, rangsorolva a legjobbtól a kockázatosabbig.
+
+SZABÁLYOK:
+- Minimum 1.55 odds (ide kerülhetnek alacsonyabb odds-os "biztos" tippek is kombinálás céljából)
+- Maximum 3.00 odds
+- HENDIKEP LIMIT: maximum -1
+- NE adj under tippet
+- MINDEN tipphez kötelező 2-3 mondatos magyar indoklás KONKRÉT statisztikákkal!
+  Pl: "Flamengo az elmúlt 10 hazai meccsén 8-szor nyert. Cruzeiro idegenben 3 vereséggel zárt az utolsó 5-ből."
+- Az indoklás CSAK az adott meccsre vonatkozzon!
+- Preferált piacok: Over 2.5, BTTS/GG, 1X2 egyértelmű favorit esetén
+
+Válaszolj KIZÁRÓLAG JSON TÖMBKÉNT (nem objektum!):
+[
+  {"match":"Csapat A vs B","market":"Over 2.5","pick":"Over 2.5","odds":1.85,"note":"Az elmúlt 5 meccsen mindkét csapat 3+ gólt szerzett, az átlag 2.8 gól meccsenként.","commence":"08.19 21:00"},
+  {"match":"X vs Y","market":"1X2","pick":"X győzelem","odds":1.72,"note":"X az utolsó 6 hazai meccsén veretlen, Y idegenben csak 30%-os győzelmi aránnyal bír.","commence":"08.19 19:00"}
+]"""
+
+    return (
+        "Te egy profi labdarúgás-fogadási elemző vagy. Használj web keresést a pontos statisztikákhoz!\n\n"
+        f"Mai meccsek:\n{match_text}\n"
+        f"{skip_text}\n\n"
+        f"{rules}"
+    )
+
+
 def generate_tips_raw() -> dict:
-    """Tippeket generál mentés nélkül – Tipp Manager számára."""
+    """Tippeket generál mentés nélkül – Tipp Manager számára. Csak singlek, kötelező note."""
     data = fetch_match_list()
     if not data.get("matches"):
         return {"error": "Nincs meccsadat", "tips": []}
@@ -519,60 +561,53 @@ def generate_tips_raw() -> dict:
     tipped_picks = fetch_active_supabase_picks()
     print(f"[raw_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
 
-    prompt = build_prompt(matches, tipped_picks)
+    prompt = build_raw_prompt(matches, tipped_picks)
     print("[raw_gen] Claude API hívás...")
-    tips = call_claude(prompt)
 
-    # Visszaadjuk a nyers tippeket validálva
+    # Claude hívás – JSON tömböt várunk vissza
+    import re as _re
+    r = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"},
+        json={"model": "claude-sonnet-4-6", "max_tokens": 4096,
+              "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+              "messages": [{"role": "user", "content": prompt}]},
+        timeout=120
+    )
+    if not r.ok:
+        raise Exception(f"Claude API hiba: {r.status_code}")
+
+    raw = ""
+    for block in r.json().get("content", []):
+        if block.get("type") == "text":
+            raw += block.get("text", "")
+
+    # JSON tömb kinyerése
+    raw = raw.strip()
+    match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+    if match:
+        raw = match.group(0)
+    raw_tips = json.loads(raw)
+
     result_tips = []
-
-    for t in tips.get("singles", []):
+    for t in raw_tips:
         if not isinstance(t, dict): continue
         t_odds = float(t.get("odds", 0) or 0)
-        if t_odds < 1.65: continue
+        if t_odds < 1.55 or t_odds > 3.00: continue
+        note = t.get("note", "").strip()
+        if not note:
+            print(f"[raw_gen] Tipp kihagyva (nincs note): {t.get('match','')}")
+            continue
         result_tips.append({
             "type": "single",
             "match": t.get("match", ""),
             "pick": t.get("pick", ""),
             "market": t.get("market", "1X2"),
             "odds": t_odds,
-            "note": t.get("note", ""),
+            "note": note,
             "commence": t.get("commence", ""),
         })
-
-    for i, c in enumerate(tips.get("combos", []), 1):
-        if not isinstance(c, dict): continue
-        legs = c.get("legs", [])
-        if len(legs) < 2: continue
-        result_tips.append({
-            "type": "combo",
-            "legs": legs,
-            "total_odds": c.get("total_odds", 0),
-            "note": c.get("note", ""),
-        })
-
-    ft = tips.get("free_tip")
-    if isinstance(ft, list): ft = ft[0] if ft else None
-    if isinstance(ft, dict):
-        if ft.get("type") == "combo":
-            result_tips.append({
-                "type": "free_combo",
-                "legs": ft.get("legs", []),
-                "total_odds": ft.get("total_odds", 0),
-                "note": ft.get("note", ""),
-            })
-        else:
-            ft_odds = float(ft.get("odds", 0) or 0)
-            if ft_odds >= 1.60:
-                result_tips.append({
-                    "type": "free_single",
-                    "match": ft.get("match", ""),
-                    "pick": ft.get("pick", ""),
-                    "market": ft.get("market", "1X2"),
-                    "odds": ft_odds,
-                    "note": ft.get("note", ""),
-                    "commence": ft.get("commence", ""),
-                })
 
     print(f"[raw_gen] {len(result_tips)} tipp visszaadva")
     return {"tips": result_tips, "matches_count": len(matches)}
