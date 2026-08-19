@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.1
+# claude_ai_generator.py v1.3.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -159,8 +159,18 @@ def call_claude(prompt: str) -> dict:
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
 
-def save_to_supabase(tips: dict) -> dict:
+def save_to_supabase(tips: dict, tipped_matches: list = None) -> dict:
     """Menti az AI-generált tippeket a Supabase manual_slips táblába jóváhagyásra."""
+    import traceback
+    try:
+        return _save_to_supabase_inner(tips, tipped_matches)
+    except Exception as _e:
+        print(f"[save] KIVÉTEL: {_e}")
+        traceback.print_exc()
+        raise
+
+def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
+    import traceback
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {"saved": 0, "error": "Supabase nem konfigurált"}
 
@@ -178,6 +188,9 @@ def save_to_supabase(tips: dict) -> dict:
 
     # Single tippek mentése
     for t in tips.get("singles", []):
+        if not isinstance(t, dict):
+            print(f"[save] Single kihagyva: nem dict típus ({type(t)})")
+            continue
         # Minimum odds validáció
         t_odds = float(t.get("odds", 0) or 0)
         if t_odds < 1.65:
@@ -212,7 +225,7 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append((r.json() or [{}])[0] if isinstance(r.json(), list) else r.json())
+            _rj = r.json(); saved.append((_rj[0] if isinstance(_rj, list) and _rj else _rj) or {})
         else:
             print(f"[save] Hiba single mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -269,15 +282,22 @@ def save_to_supabase(tips: dict) -> dict:
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append((r.json() or [{}])[0] if isinstance(r.json(), list) else r.json())
+            _rj = r.json(); saved.append((_rj[0] if isinstance(_rj, list) and _rj else _rj) or {})
         else:
             print(f"[save] Hiba kombi mentésnél: {r.status_code} {r.text[:200]}")
 
     # Free tipp mentése a free_slips táblába
     free_tip = tips.get("free_tip")
+    # Ha lista, vegyük az első elemet
+    if isinstance(free_tip, list):
+        free_tip = free_tip[0] if free_tip else None
+    # Ha nem dict, hagyjuk ki
+    if free_tip is not None and not isinstance(free_tip, dict):
+        print(f"[save] Free tipp kihagyva: nem dict típus ({type(free_tip)})")
+        free_tip = None
     # Free tipp ne egyezzen egyik single tippel sem (meccs + pick)
     if free_tip:
-        saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", [])]
+        saved_singles = [(t.get("match",""), t.get("pick","")) for t in tips.get("singles", []) if isinstance(t, dict)]
         ft_key = (free_tip.get("match",""), free_tip.get("pick",""))
         if ft_key in saved_singles:
             print(f"[save] Free tipp kihagyva: duplikáció egy single tippel ({ft_key[0]})")
@@ -309,7 +329,7 @@ def save_to_supabase(tips: dict) -> dict:
         }
         r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
-            saved.append((r.json() or [{}])[0] if isinstance(r.json(), list) else r.json())
+            _rj = r.json(); saved.append((_rj[0] if isinstance(_rj, list) and _rj else _rj) or {})
             print(f"[save] Free tipp mentve: {free_tip['match']}")
         else:
             print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
@@ -340,7 +360,7 @@ def save_to_supabase(tips: dict) -> dict:
             }
             r = requests.post(f"{base}/manual_slips", headers=headers, json=extra_row, timeout=15)
             if r.status_code in (200, 201):
-                saved.append((r.json() or [{}])[0] if isinstance(r.json(), list) else r.json())
+                _rj = r.json(); saved.append((_rj[0] if isinstance(_rj, list) and _rj else _rj) or {})
                 print(f"[save] Extra szelvény mentve: {len(sel)} láb, össz odds {total_o}")
 
     return {"saved": len(saved), "tips": tips}
@@ -408,10 +428,15 @@ def generate_tips() -> dict:
     print(f"[claude_gen] {len(tips.get('singles', []))} single, {len(tips.get('combos', []))} kombi generálva")
 
     # 3. Mentés
-    result = save_to_supabase(tips)
-    print(f"[claude_gen] Mentve: {result['saved']} tétel")
-
-    return result
+    try:
+        result = save_to_supabase(tips)
+        print(f"[claude_gen] Mentve: {result.get('saved', 0)} tétel")
+        return result
+    except Exception as _e:
+        import traceback
+        print(f"[claude_gen] HIBA save_to_supabase-ben: {_e}")
+        traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
