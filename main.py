@@ -178,7 +178,7 @@ async def read_root(request: Request):
 async def admin_import_tip(request: Request):
     """Tipp Manager által küldött tipp mentése Supabase-be."""
     user = get_current_user(request)
-    if not user or not user.get("is_admin"):
+    if not user or str(user.get('chat_id')) != admin_id:
         return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
     data = await request.json()
     from claude_ai_generator import save_single_tip
@@ -192,7 +192,7 @@ async def admin_import_tip(request: Request):
 async def admin_generate_tips_raw(request: Request):
     """Tipp generálás mentés nélkül."""
     user = get_current_user(request)
-    if not user or not user.get("is_admin"):
+    if not user or str(user.get('chat_id')) != admin_id:
         return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
     from starlette.concurrency import run_in_threadpool
     try:
@@ -206,7 +206,7 @@ async def admin_generate_tips_raw(request: Request):
 async def tipp_manager_page(request: Request):
     """Tipp Manager oldal."""
     user = get_current_user(request)
-    if not user or not user.get("is_admin"):
+    if not user or str(user.get('chat_id')) != admin_id:
         return RedirectResponse(url="/", status_code=303)
     from fastapi.responses import FileResponse
     p = _os.path.join(_BASE_DIR, "templates", "tipp_manager.html")
