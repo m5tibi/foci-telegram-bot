@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tipp Manager</title>
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --card: #131929;
+    --border: #1e2d45;
+    --green: #22c55e;
+    --gold: #f59e0b;
+    --blue: #3b82f6;
+    --red: #ef4444;
+    --purple: #a855f7;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px;
+           display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header a { color: var(--muted); font-size: 13px; text-decoration: none; }
+
+  .toolbar { padding: 20px 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px;
+         font-weight: 600; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary { background: var(--green); color: #000; }
+  .btn-publish { background: var(--gold); color: #000; }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 6px; border: none; cursor: pointer;
+             font-weight: 600; transition: opacity .15s; }
+  .btn-sm:hover { opacity: .8; }
+
+  #status { font-size: 13px; color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+          gap: 16px; padding: 0 24px 40px; }
+
+  .tip-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 18px; display: flex; flex-direction: column; gap: 12px;
+              transition: border-color .2s; }
+  .tip-card.selected { border-color: var(--green); }
+  .tip-card.skipped { opacity: .4; border-color: var(--border); }
+
+  .card-header { display: flex; align-items: flex-start; gap: 10px; }
+  .card-type-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+                     white-space: nowrap; text-transform: uppercase; letter-spacing: .5px; }
+  .badge-single { background: #1e3a2f; color: var(--green); }
+  .badge-combo { background: #1e2a4a; color: var(--blue); }
+  .badge-free { background: #2d1f3a; color: var(--purple); }
+  .badge-extra { background: #3a1f1f; color: var(--red); }
+
+  .card-title { font-size: 14px; font-weight: 600; line-height: 1.4; flex: 1; }
+  .card-odds { font-size: 18px; font-weight: 800; color: var(--gold); }
+
+  .card-legs { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  .card-legs span { padding: 4px 8px; background: #0d1626; border-radius: 4px; }
+
+  .card-note { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .card-note textarea { width: 100%; background: #0d1626; border: 1px solid var(--border);
+                         border-radius: 6px; color: var(--text); font-size: 12px; padding: 8px;
+                         resize: vertical; min-height: 60px; font-family: var(--font); }
+
+  .card-controls { display: flex; flex-direction: column; gap: 8px; }
+  .control-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .control-row label { width: 70px; flex-shrink: 0; }
+  .seg-btns { display: flex; gap: 4px; }
+  .seg-btn { padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border);
+              background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+              font-weight: 600; transition: all .15s; }
+  .seg-btn.active-single { background: #1e3a2f; color: var(--green); border-color: var(--green); }
+  .seg-btn.active-combo { background: #1e2a4a; color: var(--blue); border-color: var(--blue); }
+  .seg-btn.active-free { background: #2d1f3a; color: var(--purple); border-color: var(--purple); }
+  .seg-btn.active-skip { background: #2a1515; color: var(--red); border-color: var(--red); }
+  .seg-btn.active-perc90 { background: #1e3a2f; color: var(--green); border-color: var(--green); }
+  .seg-btn.active-mondo { background: #1e2a4a; color: var(--blue); border-color: var(--blue); }
+  .seg-btn.active-both { background: #2d2a10; color: var(--gold); border-color: var(--gold); }
+
+  .publish-bar { position: sticky; bottom: 0; background: #0d1220; border-top: 1px solid var(--border);
+                  padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .publish-summary { font-size: 13px; color: var(--muted); }
+
+  .empty { padding: 80px 24px; text-align: center; color: var(--muted); font-size: 15px; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #333;
+              border-top-color: var(--green); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚽ Tipp Manager</h1>
+  <a href="/admin/upload">← Admin</a>
+</header>
+
+<div class="toolbar">
+  <button class="btn btn-primary" id="genBtn" onclick="generate()">🔄 Generálás</button>
+  <span id="status">Nyomj a generálásra a napi tippek lekéréséhez.</span>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="publish-bar" id="publishBar" style="display:none">
+  <div class="publish-summary" id="publishSummary"></div>
+  <button class="btn btn-publish" onclick="publish()">📤 Közzététel</button>
+</div>
+
+<script>
+let tips = [];
+
+const PERC90_URL = "https://90perc.hu";
+const PERC90_PASS = localStorage.getItem("perc90_admin_pass") || "";
+
+async function generate() {
+  const btn = document.getElementById("genBtn");
+  const status = document.getElementById("status");
+  btn.disabled = true;
+  status.innerHTML = '<span class="spinner"></span> Generálás folyamatban...';
+  document.getElementById("grid").innerHTML = "";
+  document.getElementById("publishBar").style.display = "none";
+
+  try {
+    const r = await fetch("/admin/generate-tips-raw", { method: "POST" });
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    tips = data.tips || [];
+    status.textContent = `✅ ${tips.length} tipp generálva (${data.matches_count} meccs)`;
+    renderTips();
+  } catch(e) {
+    status.textContent = "❌ Hiba: " + e.message;
+  }
+  btn.disabled = false;
+}
+
+function renderTips() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  tips.forEach((t, i) => {
+    t._tipType = t.type === "free_single" ? "free" : t.type === "free_combo" ? "free" : t.type;
+    t._platform = "both";
+    t._skip = false;
+    grid.appendChild(makeCard(t, i));
+  });
+  updatePublishBar();
+}
+
+function makeCard(t, i) {
+  const card = document.createElement("div");
+  card.className = "tip-card selected";
+  card.id = "card-" + i;
+
+  const isCombo = t.type === "combo" || t.type === "free_combo";
+  const badgeClass = t.type.includes("free") ? "badge-free" : t.type === "combo" ? "badge-combo" : "badge-single";
+  const badgeLabel = t.type.includes("free") ? "🆓 FREE" : t.type === "combo" ? "🎰 KOMBI" : "⚽ SINGLE";
+
+  let titleHtml = "";
+  let legsHtml = "";
+
+  if (isCombo) {
+    titleHtml = `Össz odds: <span style="color:var(--gold)">${t.total_odds}</span>`;
+    legsHtml = `<div class="card-legs">${(t.legs || []).map(l =>
+      `<span>• ${l.match}: ${l.pick} @ ${l.odds} 🕐 ${l.commence||""}</span>`
+    ).join("")}</div>`;
+  } else {
+    titleHtml = `${t.match}<br><small style="color:var(--muted)">${t.market} · ${t.pick}</small>`;
+  }
+
+  card.innerHTML = `
+    <div class="card-header">
+      <span class="card-type-badge ${badgeClass}">${badgeLabel}</span>
+      <div class="card-title">${titleHtml}</div>
+      ${!isCombo ? `<div class="card-odds">${t.odds}</div>` : ""}
+    </div>
+    ${legsHtml}
+    ${t.commence && !isCombo ? `<div style="font-size:11px;color:var(--muted)">🕐 ${t.commence}</div>` : ""}
+    <div class="card-note">
+      <textarea id="note-${i}" placeholder="Indoklás…">${t.note || ""}</textarea>
+    </div>
+    <div class="card-controls">
+      <div class="control-row">
+        <label>Típus</label>
+        <div class="seg-btns">
+          ${["single","combo","free","skip"].map(v => `
+            <button class="seg-btn ${v === t._tipType ? "active-"+v : ""}" 
+                    onclick="setType(${i},'${v}')">${v==="skip"?"🗑️ Kihag":"🆓 Free"===v?"🆓":"🎰"===v?"🎰":"⚽"} ${v==="skip"?"Kihagy":v==="free"?"Free":v.charAt(0).toUpperCase()+v.slice(1)}</button>
+          `).join("")}
+        </div>
+      </div>
+      <div class="control-row">
+        <label>Platform</label>
+        <div class="seg-btns">
+          ${["perc90","mondo","both"].map(v => `
+            <button class="seg-btn ${v === t._platform ? "active-"+v : ""}"
+                    onclick="setPlatform(${i},'${v}')">${v==="perc90"?"90perc.hu":v==="mondo"?"mondomatutit":"Mindkettő"}</button>
+          `).join("")}
+        </div>
+      </div>
+    </div>`;
+  return card;
+}
+
+function setType(i, v) {
+  tips[i]._tipType = v;
+  tips[i]._skip = (v === "skip");
+  const card = document.getElementById("card-" + i);
+  card.className = "tip-card " + (v === "skip" ? "skipped" : "selected");
+  // Frissítjük a gombokat
+  card.querySelectorAll(".seg-btns")[0].querySelectorAll(".seg-btn").forEach((btn, bi) => {
+    const vals = ["single","combo","free","skip"];
+    btn.className = "seg-btn" + (vals[bi] === v ? " active-" + vals[bi] : "");
+  });
+  updatePublishBar();
+}
+
+function setPlatform(i, v) {
+  tips[i]._platform = v;
+  const card = document.getElementById("card-" + i);
+  card.querySelectorAll(".seg-btns")[1].querySelectorAll(".seg-btn").forEach((btn, bi) => {
+    const vals = ["perc90","mondo","both"];
+    btn.className = "seg-btn" + (vals[bi] === v ? " active-" + vals[bi] : "");
+  });
+  updatePublishBar();
+}
+
+function updatePublishBar() {
+  if (!tips.length) return;
+  const active = tips.filter(t => !t._skip);
+  const bar = document.getElementById("publishBar");
+  const summary = document.getElementById("publishSummary");
+  bar.style.display = active.length ? "flex" : "none";
+  const p90 = active.filter(t => t._platform === "perc90" || t._platform === "both").length;
+  const mondo = active.filter(t => t._platform === "mondo" || t._platform === "both").length;
+  summary.textContent = `${active.length} tipp közzétehető · 90perc.hu: ${p90} · mondomatutit: ${mondo}`;
+}
+
+async function publish() {
+  const active = tips.filter(t => !t._skip);
+  if (!active.length) return alert("Nincs kiválasztott tipp!");
+
+  const perc90Pass = localStorage.getItem("perc90_admin_pass");
+  if (!perc90Pass) {
+    const p = prompt("90perc.hu admin jelszó:");
+    if (p) localStorage.setItem("perc90_admin_pass", p);
+  }
+
+  let ok90 = 0, okMondo = 0, errors = [];
+
+  for (const t of active) {
+    const note = document.getElementById("note-" + tips.indexOf(t))?.value || t.note || "";
+    const isCombo = t._tipType === "combo";
+    const isFree = t._tipType === "free";
+
+    // 90perc.hu
+    if (t._platform === "perc90" || t._platform === "both") {
+      try {
+        const body = isCombo
+          ? { type: "combo", legs: t.legs, odds: t.total_odds, note }
+          : isFree
+            ? { type: "free", match: t.match, pick: t.pick, market: t.market, odds: t.odds, note, commence: t.commence }
+            : { type: "single", match: t.match, pick: t.pick, market: t.market, odds: t.odds, note, commence: t.commence };
+        const r = await fetch(`${PERC90_URL}/api/admin/import-tip`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin-password": localStorage.getItem("perc90_admin_pass") || "" },
+          body: JSON.stringify(body)
+        });
+        if (r.ok) ok90++; else errors.push("90perc: " + (await r.text()).slice(0,50));
+      } catch(e) { errors.push("90perc hálózati hiba: " + e.message); }
+    }
+
+    // mondomatutit.hu
+    if (t._platform === "mondo" || t._platform === "both") {
+      try {
+        const body = { type: isFree ? "free" : isCombo ? "combo" : "single",
+                       match: t.match, pick: t.pick, market: t.market,
+                       odds: isCombo ? t.total_odds : t.odds,
+                       note, commence: t.commence, legs: t.legs };
+        const r = await fetch("/admin/import-tip", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (r.ok) okMondo++; else errors.push("mondo: " + (await r.text()).slice(0,50));
+      } catch(e) { errors.push("mondo hálózati hiba: " + e.message); }
+    }
+  }
+
+  const msg = `✅ Közzétéve: 90perc.hu (${ok90}), mondomatutit.hu (${okMondo})` +
+              (errors.length ? `\n❌ Hibák: ${errors.join(", ")}` : "");
+  alert(msg);
+  document.getElementById("status").textContent = msg.replace("\n", " | ");
+}
+</script>
+</body>
+</html>
