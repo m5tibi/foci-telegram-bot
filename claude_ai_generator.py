@@ -449,6 +449,135 @@ def fetch_active_supabase_picks() -> list:
         return []
 
 
+
+
+def save_single_tip(data: dict) -> dict:
+    """Egyetlen tipp mentése Supabase-be (Tipp Manager hívja)."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise Exception("Supabase nem konfigurált")
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    base = f"{SUPABASE_URL}/rest/v1"
+    tip_type = data.get("type", "single")
+    note = data.get("note", "") or ""
+    table = "free_slips" if tip_type == "free" else "manual_slips"
+
+    if tip_type == "combo":
+        legs = data.get("legs", [])
+        legs_str = "\n".join([
+            f"  • {l.get('match','')}: {l.get('pick','')} @ {l.get('odds','')} 🕐 {l.get('commence','')}"
+            for l in legs
+        ])
+        row = {
+            "tipp_neve": f"[AI] Kombi @ {data.get('odds','')}",
+            "eredo_odds": float(data.get("odds", 0) or 0),
+            "status": "Jóváhagyásra vár",
+            "target_date": parse_target_date(legs[0].get("commence","") if legs else ""),
+            "ai_generated": True,
+            "ai_note": note + (f"\n\nLábak:\n{legs_str}" if legs else ""),
+            "tip_type": "kombi",
+            "ai_legs": __import__("json").dumps(legs, ensure_ascii=False),
+            "result_status": "Folyamatban"
+        }
+    else:
+        commence = data.get("commence", "")
+        row = {
+            "tipp_neve": f"[AI] {data.get('match','')} – {data.get('pick','')} @ {data.get('odds','')} 🕐 {commence}",
+            "eredo_odds": float(data.get("odds", 0) or 0),
+            "status": "Jóváhagyásra vár",
+            "target_date": parse_target_date(commence),
+            "ai_generated": True,
+            "ai_note": note,
+            "tip_type": "single" if tip_type != "free" else "free",
+            "ai_match": data.get("match", ""),
+            "ai_pick": data.get("pick", ""),
+            "ai_market": data.get("market", "1X2"),
+            "ai_commence": commence,
+            "result_status": "Folyamatban"
+        }
+
+    r = requests.post(f"{base}/{table}", headers=headers, json=row, timeout=15)
+    if r.status_code not in (200, 201):
+        raise Exception(f"Supabase hiba: {r.status_code} {r.text[:100]}")
+    rj = r.json()
+    saved = (rj[0] if isinstance(rj, list) and rj else rj) or {}
+    return {"id": saved.get("id"), "ok": True}
+
+
+def generate_tips_raw() -> dict:
+    """Tippeket generál mentés nélkül – Tipp Manager számára."""
+    data = fetch_match_list()
+    if not data.get("matches"):
+        return {"error": "Nincs meccsadat", "tips": []}
+
+    matches = data["matches"]
+    tipped_picks = fetch_active_supabase_picks()
+    print(f"[raw_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
+
+    prompt = build_prompt(matches, tipped_picks)
+    print("[raw_gen] Claude API hívás...")
+    tips = call_claude(prompt)
+
+    # Visszaadjuk a nyers tippeket validálva
+    result_tips = []
+
+    for t in tips.get("singles", []):
+        if not isinstance(t, dict): continue
+        t_odds = float(t.get("odds", 0) or 0)
+        if t_odds < 1.65: continue
+        result_tips.append({
+            "type": "single",
+            "match": t.get("match", ""),
+            "pick": t.get("pick", ""),
+            "market": t.get("market", "1X2"),
+            "odds": t_odds,
+            "note": t.get("note", ""),
+            "commence": t.get("commence", ""),
+        })
+
+    for i, c in enumerate(tips.get("combos", []), 1):
+        if not isinstance(c, dict): continue
+        legs = c.get("legs", [])
+        if len(legs) < 2: continue
+        result_tips.append({
+            "type": "combo",
+            "legs": legs,
+            "total_odds": c.get("total_odds", 0),
+            "note": c.get("note", ""),
+        })
+
+    ft = tips.get("free_tip")
+    if isinstance(ft, list): ft = ft[0] if ft else None
+    if isinstance(ft, dict):
+        if ft.get("type") == "combo":
+            result_tips.append({
+                "type": "free_combo",
+                "legs": ft.get("legs", []),
+                "total_odds": ft.get("total_odds", 0),
+                "note": ft.get("note", ""),
+            })
+        else:
+            ft_odds = float(ft.get("odds", 0) or 0)
+            if ft_odds >= 1.60:
+                result_tips.append({
+                    "type": "free_single",
+                    "match": ft.get("match", ""),
+                    "pick": ft.get("pick", ""),
+                    "market": ft.get("market", "1X2"),
+                    "odds": ft_odds,
+                    "note": ft.get("note", ""),
+                    "commence": ft.get("commence", ""),
+                })
+
+    print(f"[raw_gen] {len(result_tips)} tipp visszaadva")
+    return {"tips": result_tips, "matches_count": len(matches)}
+
+
 def generate_tips() -> dict:
     """Teljes pipeline: meccsek → Claude → Supabase."""
     print("[claude_gen] Tipp generálás indul...")
