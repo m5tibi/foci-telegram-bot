@@ -68,6 +68,7 @@
 </header>
 <div class="toolbar">
   <button class="btn btn-primary" id="genBtn" onclick="generate()">🔄 Generálás</button>
+  <button class="btn" style="background:#1e293b;color:#94a3b8;border:1px solid #334155" onclick="clearTips()">🗑️ Törlés</button>
   <span id="status">Kattints a generálásra a napi tippek lekéréséhez.</span>
 </div>
 <div class="grid" id="grid"></div>
@@ -86,6 +87,40 @@
 <script>
 let tips = [];
 const PERC90_URL = "https://90perc.hu";
+const STORAGE_KEY = "tipp_manager_tips";
+
+function saveTips() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tips)); } catch(e) {}
+}
+
+function loadTips() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !saved.length) return false;
+    tips = saved;
+    return true;
+  } catch(e) { return false; }
+}
+
+function clearTips() {
+  localStorage.removeItem(STORAGE_KEY);
+  tips = [];
+  document.getElementById("grid").innerHTML = "";
+  document.getElementById("publishBar").style.display = "none";
+  document.getElementById("comboSection").style.display = "none";
+  document.getElementById("status").textContent = "Tippek törölve. Kattints a generálásra.";
+}
+
+// Betöltés induláskor
+window.addEventListener("DOMContentLoaded", () => {
+  if (loadTips()) {
+    document.getElementById("status").textContent =
+      `💾 ${tips.length} mentett tipp betöltve – folytathatod a szerkesztést.`;
+    renderTips();
+  }
+});
 
 async function generate() {
   const btn = document.getElementById("genBtn");
@@ -104,6 +139,7 @@ async function generate() {
     }
     if (data.error) throw new Error(data.error);
     tips = (data.tips || []).map(t => ({ ...t, _role: "single", _platform: "both" }));
+    saveTips();
     status.textContent = `✅ ${tips.length} tipp generálva (${data.matches_count} meccs alapján)`;
     renderTips();
   } catch(e) { status.textContent = "❌ Hiba: " + e.message; }
@@ -130,7 +166,7 @@ function makeCard(t, i) {
       </div>
       <div class="odds">${t.odds}</div>
     </div>
-    <textarea class="note-area" id="note-${i}" placeholder="Indoklás…">${t.note || ""}</textarea>
+    <textarea class="note-area" id="note-${i}" placeholder="Indoklás…" oninput="saveTips()">${t.note || ""}</textarea>
     <div class="seg-row">
       <span class="seg-label">Típus</span>
       <div class="segs" id="type-${i}">
@@ -161,7 +197,7 @@ function setRole(i, v) {
   });
   // Platform sor elrejtése skip esetén
   document.getElementById("plat-row-" + i).style.display = v === "skip" ? "none" : "";
-  updateAll();
+  updateAll(); saveTips();
 }
 
 function setPlat(i, v) {
@@ -170,7 +206,7 @@ function setPlat(i, v) {
     const plats = ["perc90","mondo","both"];
     b.className = "seg" + (plats[bi] === v ? " on-" + v : "");
   });
-  updateAll();
+  updateAll(); saveTips();
 }
 
 function updateAll() {
