@@ -242,11 +242,7 @@ async function publish() {
   const active = tips.filter(t => t._role !== "skip");
   if (!active.length) return alert("Nincs kiválasztott tipp!");
 
-  let perc90pass = localStorage.getItem("perc90_admin_pass");
-  if (!perc90pass) {
-    perc90pass = prompt("90perc.hu admin jelszó:");
-    if (perc90pass) localStorage.setItem("perc90_admin_pass", perc90pass);
-  }
+  // 90perc.hu hívás proxy-n megy, jelszó a szerveren
 
   const comboLegs = active.filter(t => t._role === "combo");
   const singles   = active.filter(t => t._role === "single");
@@ -263,13 +259,13 @@ async function publish() {
   const sendTip = async (platform, body) => {
     if (platform === "perc90" || platform === "both") {
       try {
-        const r = await fetch(`${PERC90_URL}/api/admin/import-tip`, {
+        const r = await fetch("/admin/proxy-perc90", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-admin-password": perc90pass || "" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
         if (r.ok) ok++; else errors.push("90perc: " + (await r.text()).slice(0,60));
-      } catch(e) { errors.push("90perc hálózati hiba"); }
+      } catch(e) { errors.push("90perc proxy hiba: " + e.message); }
     }
     if (platform === "mondo" || platform === "both") {
       try {
