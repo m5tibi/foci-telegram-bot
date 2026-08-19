@@ -21,18 +21,24 @@ BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 # ── 1. Meccsek lekérése a 90perc.hu-ról ──────────────────────────────────────
 
 def fetch_match_list() -> dict:
-    """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt pick-eket."""
+    """Lekéri a 90perc.hu meccslistáját. Ha üres, előbb refresh-t indít."""
+    headers = {"X-Admin-Password": PERC90_ADMIN_PASS}
     try:
-        r = requests.get(
-            f"{PERC90_URL}/api/match-list",
-            headers={"X-Admin-Password": PERC90_ADMIN_PASS},
-            timeout=30
-        )
+        r = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=30)
         r.raise_for_status()
-        return r.json()
+        data = r.json()
+        if data.get("matches"):
+            return data
+        # Üres lista → refresh indítása
+        print("[claude_gen] Meccs lista üres, refresh indítása...")
+        rf = requests.post(f"{PERC90_URL}/api/refresh", headers=headers, timeout=90)
+        print(f"[claude_gen] Refresh: HTTP {rf.status_code}")
+        # Újra lekérés
+        r2 = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=30)
+        r2.raise_for_status()
+        return r2.json()
     except Exception as e:
-        print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
-        print(f"[claude_gen] URL: {PERC90_URL}/api/match-list, PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
+        print(f"[claude_gen] match-list hiba: {e} | URL: {PERC90_URL} | PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
         return {"matches": [], "tippedMatches": [], "tippedPicks": []}
 
 
