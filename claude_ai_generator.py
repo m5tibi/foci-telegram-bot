@@ -206,6 +206,16 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
             if prefix.lower() in note.lower()[:50]:
                 note = ""
                 break
+        # Note relevanciaszűrés: ha egyik csapat neve sem szerepel a note-ban, töröljük
+        if note:
+            match_name = t.get("match", "")
+            if " vs " in match_name:
+                home, away = match_name.split(" vs ", 1)
+                home_w = home.split()[0].lower() if home.split() else ""
+                away_w = away.split()[0].lower() if away.split() else ""
+                if home_w and away_w and home_w not in note.lower() and away_w not in note.lower():
+                    print(f"[save] Note törlése: nem releváns ({match_name})")
+                    note = ""
         t["note"] = note
         row = {
             "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
