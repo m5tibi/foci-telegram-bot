@@ -97,7 +97,11 @@ async function generate() {
   document.getElementById("comboSection").style.display = "none";
   try {
     const r = await fetch("/admin/generate-tips-raw", { method: "POST" });
-    const data = await r.json();
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      throw new Error("Szerver hiba: " + text.slice(0, 100));
+    }
     if (data.error) throw new Error(data.error);
     tips = (data.tips || []).map(t => ({ ...t, _role: "single", _platform: "both" }));
     status.textContent = `✅ ${tips.length} tipp generálva (${data.matches_count} meccs alapján)`;
