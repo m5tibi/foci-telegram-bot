@@ -583,12 +583,18 @@ def generate_tips_raw() -> dict:
         if block.get("type") == "text":
             raw += block.get("text", "")
 
-    # JSON tömb kinyerése
+    # JSON tömb kinyerése - több fallback
     raw = raw.strip()
+    # Markdown code block eltávolítása
+    raw = _re.sub(r"```(?:json)?", "", raw).strip()
+    # JSON tömb keresése
     match = _re.search(r"\[.*\]", raw, _re.DOTALL)
-    if match:
-        raw = match.group(0)
-    raw_tips = json.loads(raw)
+    if not match:
+        raise Exception(f"Claude nem adott vissza JSON tömböt. Válasz: {raw[:200]}")
+    try:
+        raw_tips = json.loads(match.group(0))
+    except json.JSONDecodeError as je:
+        raise Exception(f"JSON parse hiba: {je}. Raw: {match.group(0)[:200]}")
 
     result_tips = []
     for t in raw_tips:
