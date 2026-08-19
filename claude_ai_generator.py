@@ -277,7 +277,8 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
                         }
                         r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
                         if r2.status_code in (200, 201):
-                            saved.append(r2.json())
+                            _rj2 = r2.json()
+                            saved.append((_rj2[0] if isinstance(_rj2, list) and _rj2 else _rj2) or {})
                             print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
