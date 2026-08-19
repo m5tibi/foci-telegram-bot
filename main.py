@@ -172,6 +172,46 @@ async def read_root(request: Request):
                 return HTMLResponse(_f.read())
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
+
+
+@api.post("/admin/import-tip")
+async def admin_import_tip(request: Request):
+    """Tipp Manager által küldött tipp mentése Supabase-be."""
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
+    data = await request.json()
+    from claude_ai_generator import save_single_tip
+    try:
+        result = save_single_tip(data)
+        return JSONResponse(content={"ok": True, "id": result.get("id")})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@api.post("/admin/generate-tips-raw")
+async def admin_generate_tips_raw(request: Request):
+    """Tipp generálás mentés nélkül."""
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
+    from starlette.concurrency import run_in_threadpool
+    try:
+        from claude_ai_generator import generate_tips_raw
+        tips = await run_in_threadpool(generate_tips_raw)
+        return JSONResponse(content=tips)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@api.get("/admin/tipp-manager", response_class=HTMLResponse)
+async def tipp_manager_page(request: Request):
+    """Tipp Manager oldal."""
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return RedirectResponse(url="/", status_code=303)
+    from fastapi.responses import FileResponse
+    p = _os.path.join(_BASE_DIR, "templates", "tipp_manager.html")
+    return FileResponse(p)
+
 @api.get("/free_tips.html", response_class=HTMLResponse)
 async def free_tips_page():
     for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
