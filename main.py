@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 import os as _os
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
