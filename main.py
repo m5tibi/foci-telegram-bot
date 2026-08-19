@@ -178,9 +178,10 @@ async def read_root(request: Request):
 async def admin_import_tip(request: Request):
     """Tipp Manager által küldött tipp mentése Supabase-be."""
     user = get_current_user(request)
+    from fastapi.responses import JSONResponse as _JR
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     if not user or str(user.get('chat_id')) != admin_id:
-        return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
+        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
     data = await request.json()
     from claude_ai_generator import save_single_tip
     try:
@@ -189,20 +190,47 @@ async def admin_import_tip(request: Request):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
+
+@api.post("/admin/proxy-perc90")
+async def proxy_perc90(request: Request):
+    """Proxy: mondomatutit szerveren keresztül küld a 90perc.hu-ra (CORS elkerülése)."""
+    from fastapi.responses import JSONResponse as _JR
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    user = get_current_user(request)
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
+    import requests as _req
+    data = await request.json()
+    perc90_pass = os.environ.get("PERC90_ADMIN_PASSWORD", "")
+    perc90_url = os.environ.get("PERC90_URL", "https://90perc.hu")
+    try:
+        r = _req.post(
+            f"{perc90_url}/api/admin/import-tip",
+            headers={"Content-Type": "application/json", "x-admin-password": perc90_pass},
+            json=data,
+            timeout=15
+        )
+        return _JR(content=r.json() if r.ok else {"error": r.text[:100]},
+                   status_code=r.status_code)
+    except Exception as e:
+        return _JR(content={"error": str(e)}, status_code=500)
+
 @api.post("/admin/generate-tips-raw")
 async def admin_generate_tips_raw(request: Request):
     """Tipp generálás mentés nélkül."""
     user = get_current_user(request)
+    from fastapi.responses import JSONResponse as _JR
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     if not user or str(user.get('chat_id')) != admin_id:
-        return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
+        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
     from starlette.concurrency import run_in_threadpool
     try:
         from claude_ai_generator import generate_tips_raw
         tips = await run_in_threadpool(generate_tips_raw)
-        return JSONResponse(content=tips)
+        return _JR(content=tips)
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        import traceback; traceback.print_exc()
+        return _JR(content={"error": str(e)}, status_code=500)
 
 @api.get("/admin/tipp-manager", response_class=HTMLResponse)
 async def tipp_manager_page(request: Request):
