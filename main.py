@@ -903,7 +903,7 @@ import asyncio
 import threading
 
 def _auto_check_loop():
-    """Háttérszál: naponta 06:05-kor futtatja az AI eredmény ellenőrzőt."""
+    """Háttérszál: naponta 05:00-kor futtatja az AI eredmény ellenőrzőt."""
     import time
     import pytz
     from datetime import datetime
@@ -914,8 +914,8 @@ def _auto_check_loop():
         try:
             now = datetime.now(pytz.timezone("Europe/Budapest"))
             today = now.strftime("%Y-%m-%d")
-            # 06:05-kor fut, naponta egyszer
-            if now.hour == 6 and now.minute == 5 and last_run_date != today:
+            # 05:00-kor fut, naponta egyszer
+            if now.hour == 5 and now.minute == 0 and last_run_date != today:
                 last_run_date = today
                 print(f"[auto-eval] Automatikus AI eredmény ellenőrzés indul: {today}")
                 try:
