@@ -275,11 +275,17 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None) -> dict:
                             "ai_market": bad_leg.get("market","1X2"),
                             "ai_commence": bad_leg.get("commence",""), "result_status": "Folyamatban"
                         }
-                        r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
-                        if r2.status_code in (200, 201):
-                            _rj2 = r2.json()
-                            saved.append((_rj2[0] if isinstance(_rj2, list) and _rj2 else _rj2) or {})
-                            print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
+                        # Csak akkor mentjük single-ként, ha van note
+                        leg_note = bad_leg.get("note", "") or c.get("note", "")
+                        if not leg_note.strip():
+                            print(f"[save] Kombi lábból single kihagyva (nincs note): {leg_match}")
+                        else:
+                            sr["ai_note"] = leg_note
+                            r2 = requests.post(f"{base}/manual_slips", headers=headers, json=sr, timeout=15)
+                            if r2.status_code in (200, 201):
+                                _rj2 = r2.json()
+                                saved.append((_rj2[0] if isinstance(_rj2, list) and _rj2 else _rj2) or {})
+                                print(f"[save] Kombi lábból single: {leg_match} @ {leg_odds}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
