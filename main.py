@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 import os as _os
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse  # alias a biztonság kedvéért
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -241,18 +242,17 @@ async def edit_ai_tip(tip_id: str, request: Request):
 async def admin_generate_tips_raw(request: Request):
     """Tipp generálás mentés nélkül."""
     user = get_current_user(request)
-    from fastapi.responses import JSONResponse as _JR
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    if not user or str(user.get('chat_id')) != admin_id:
-        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
+    if not user or str(user.get("chat_id")) != admin_id:
+        return JSONResponse(content={"error": "Nincs jogosultság"}, status_code=403)
     from starlette.concurrency import run_in_threadpool
     try:
         from claude_ai_generator import generate_tips_raw
         tips = await run_in_threadpool(generate_tips_raw)
-        return _JR(content=tips)
+        return JSONResponse(content=tips)
     except Exception as e:
         import traceback; traceback.print_exc()
-        return _JR(content={"error": str(e)}, status_code=500)
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @api.get("/admin/tipp-manager", response_class=HTMLResponse)
 async def tipp_manager_page(request: Request):
