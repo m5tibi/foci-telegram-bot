@@ -1,4 +1,4 @@
-# main.py v2.2.0
+# main.py v2.3.0
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -217,6 +217,35 @@ async def proxy_perc90(request: Request):
     except Exception as e:
         return _JR(content={"error": str(e)}, status_code=500)
 
+
+
+@api.get("/admin/ai-tips/{tip_id}/data")
+async def get_ai_tip_data(tip_id: str, request: Request):
+    import json as _json
+    from fastapi.responses import Response as _Resp
+    def _ok(data, status=200):
+        return _Resp(content=_json.dumps(data, ensure_ascii=False), status_code=status, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultság"}, 403)
+    for table in ["manual_slips", "free_slips"]:
+        r = db.table(table).select("*").eq("id", tip_id).execute()
+        if r.data:
+            tip = r.data[0]
+            legs = []
+            if tip.get("ai_legs"):
+                try: legs = _json.loads(tip["ai_legs"])
+                except: pass
+            return _ok({
+                "id": tip_id,
+                "pick": tip.get("ai_pick",""),
+                "odds": tip.get("eredo_odds",""),
+                "note": tip.get("ai_note",""),
+                "legs": legs,
+                "tip_type": tip.get("tip_type","")
+            })
+    return _ok({"error": "Nem található"}, 404)
 
 @api.post("/admin/ai-tips/{tip_id}/edit")
 async def edit_ai_tip(tip_id: str, request: Request):
