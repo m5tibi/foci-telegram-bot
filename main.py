@@ -1,4 +1,4 @@
-# main.py v2.1.0
+# main.py v2.2.0
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -241,20 +241,24 @@ async def edit_ai_tip(tip_id: str, request: Request):
 
 @api.post("/admin/generate-tips-raw")
 async def admin_generate_tips_raw(request: Request):
-    """Tipp generálás mentés nélkül."""
-    from fastapi.responses import JSONResponse as _JSON
+    """Tipp generálás mentés nélkül – Tipp Manager."""
+    import json as _json
+    from fastapi.responses import Response as _Resp
+    def _ok(data, status=200):
+        return _Resp(content=_json.dumps(data, ensure_ascii=False), status_code=status, media_type="application/json")
     user = get_current_user(request)
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     if not user or str(user.get("chat_id")) != admin_id:
-        return _JSON(content={"error": "Nincs jogosultság"}, status_code=403)
+        return _ok({"error": "Nincs jogosultság"}, 403)
     from starlette.concurrency import run_in_threadpool
     try:
         from claude_ai_generator import generate_tips_raw
         tips = await run_in_threadpool(generate_tips_raw)
-        return _JSON(content=tips)
+        return _ok(tips)
     except Exception as e:
         import traceback; traceback.print_exc()
-        return _JSON(content={"error": str(e)}, status_code=500)
+        return _ok({"error": str(e)}, 500)
+
 
 @api.get("/admin/tipp-manager", response_class=HTMLResponse)
 async def tipp_manager_page(request: Request):
