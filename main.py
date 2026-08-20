@@ -1,4 +1,4 @@
-# main.py v2.3.1
+# main.py v2.3.2
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -255,6 +255,7 @@ async def edit_ai_tip(tip_id: str, request: Request):
     user = get_current_user(request)
     if not user or str(user.get("chat_id")) != admin_id:
         return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
+    db = get_admin_db()
     data = await request.json()
     updates = {}
     if "note" in data: updates["ai_note"] = data["note"]
