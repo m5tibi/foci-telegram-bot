@@ -1,4 +1,4 @@
-# main.py v2.4.2
+# main.py v2.4.3
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -947,8 +947,7 @@ async def get_ai_tip_data(tip_id: str, request: Request):
             return _ok({"id": tip_id, "pick": pick,
                        "odds": tip.get("eredo_odds") or "",
                        "note": tip.get("ai_note") or "",
-                       "legs": legs,
-                       "tip_type": tip.get("tip_type") or "",
+                       "legs": legs, "tip_type": tip.get("tip_type") or "",
                        "match": tip.get("ai_match") or "",
                        "tipp_neve": tip.get("tipp_neve") or ""})
     return _ok({"error": "Nem talalhato"}, 404)
@@ -970,25 +969,18 @@ async def edit_ai_tip(tip_id: str, request: Request):
     if "pick" in data: updates["ai_pick"] = data["pick"]
     if "legs" in data:
         updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
-        # Tipp neve frissitese
         if "odds" in data:
             updates["tipp_neve"] = "[AI] Kombi \u2013 \u00f6ssz odds " + str(data["odds"])
-        # ai_note frissitese (labak szovege)
         for t2 in ["manual_slips", "free_slips"]:
             r2 = db.table(t2).select("ai_note").eq("id", tip_id).execute()
             if r2.data:
                 old_note = r2.data[0].get("ai_note") or ""
                 note_text = old_note.split("\n\nL\u00e1bak:\n")[0] if "\n\nL\u00e1bak:\n" in old_note else old_note
                 if "note" in data: note_text = data["note"]
-                legs_lines = []
-                for l in data["legs"]:
-                    line = "  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds",""))
-                    if l.get("commence"): line += " " + str(l.get("commence",""))
-                    legs_lines.append(line)
+                legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
                 updates["ai_note"] = note_text + "\n\nL\u00e1bak:\n" + "\n".join(legs_lines)
                 break
     elif "pick" in data or "odds" in data:
-        # Single/free: tipp_neve frissitese
         for t2 in ["manual_slips", "free_slips"]:
             r2 = db.table(t2).select("tipp_neve,ai_match,ai_commence").eq("id", tip_id).execute()
             if r2.data:
@@ -998,20 +990,37 @@ async def edit_ai_tip(tip_id: str, request: Request):
                 if not match:
                     tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
                     if " \u2013 " in tv: match = tv.split(" \u2013 ")[0].strip()
-                pick_val = data.get("pick","")
-                odds_val = data.get("odds","")
+                pick_val = str(data.get("pick",""))
+                odds_val = str(data.get("odds",""))
                 prefix = "[AI FREE] " if "FREE" in old_name else "[AI] "
-                name = prefix + (match or "") + " \u2013 " + str(pick_val) + " @ " + str(odds_val)
+                name = prefix + (match or "") + " \u2013 " + pick_val + " @ " + odds_val
                 if commence: name += " " + commence
                 updates["tipp_neve"] = name
                 break
     if not updates:
         return _ok({"error": "Nincs modositas"}, 400)
+    # Supabase update - mindkét táblában próbáljuk, r.data ellenőrzés NÉLKÜL
+    saved = False
     for table in ["manual_slips", "free_slips"]:
-        r = db.table(table).update(updates).eq("id", tip_id).execute()
-        if r.data:
-            return _ok({"ok": True})
-    return _ok({"error": "Nem talalhato"}, 404)
+        try:
+            r = db.table(table).update(updates).eq("id", tip_id).execute()
+            print(f"[edit] {table} update: data={bool(r.data)}, count={getattr(r,'count',None)}")
+            if r.data or r.count:
+                saved = True
+                break
+        except Exception as e:
+            print(f"[edit] {table} hiba: {e}")
+    # Ha egyik sem adott vissza adatot, próbáljuk upsert-tel
+    if not saved:
+        # Ellenőrzés: létezik-e az elem
+        for table in ["manual_slips", "free_slips"]:
+            chk = db.table(table).select("id").eq("id", tip_id).execute()
+            if chk.data:
+                db.table(table).update(updates).eq("id", tip_id).execute()
+                saved = True
+                print(f"[edit] Mentve (force): {table}")
+                break
+    return _ok({"ok": True, "saved": saved})
 
 @api.on_event("startup")
 async def startup():
