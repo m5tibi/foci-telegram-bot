@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.1
+# ai_eredmeny_ellenorzo.py
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -36,6 +36,8 @@ SPORT_KEYS = [
     "soccer_usa_mls", "soccer_mexico_ligamx",
     "soccer_japan_j_league", "soccer_australia_aleague",
     "soccer_uefa_champs_league_qualification",
+    "soccer_uefa_europa_league_qualification",
+    "soccer_uefa_conference_league_qualification",
     "soccer_korea_kleague1", "soccer_saudi_arabia_pro_league",
     "soccer_chile_campeonato",
 ]
@@ -393,9 +395,7 @@ def main():
                     print(f"[ai_eval] Nem találva: '{match}'")
                 if score:
                     print(f"[ai_eval] ✓ {match} → {score['h']}-{score['a']} | pick='{pick}' market='{market}'")
-                    result = evaluate_pick(pick, market, score["h"], score["a"],
-                                             home_team=score.get("home",""),
-                                             away_team=score.get("away",""))
+                    result = evaluate_pick(pick, market, score["h"], score["a"])
 
             if result and result not in ("Ismeretlen", None):
                 status_map = {
