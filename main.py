@@ -1,3 +1,4 @@
+# main.py v2.1.0
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
