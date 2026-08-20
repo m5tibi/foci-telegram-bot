@@ -132,19 +132,42 @@
 
 <script>
 async function editTip(id, tipType) {
-  const newPick = prompt("Tipp (pick) – hagyd üresen ha nem változtatod:");
-  if (newPick === null) return;
-  const newOddsStr = prompt("Odds – hagyd üresen ha nem változtatod:");
-  if (newOddsStr === null) return;
-  const newNote = prompt("Indoklás:");
-  if (newNote === null) return;
+  // Tipp adatok lekérése
+  const r0 = await fetch(`/admin/ai-tips/${id}/data`);
+  const tipData = r0.ok ? await r0.json() : null;
+  const isCombo = tipData && tipData.legs && tipData.legs.length > 0;
+  const body = {};
 
-  const body = { note: newNote };
-  if (newPick.trim() !== "") body.pick = newPick.trim();
-  if (newOddsStr.trim() !== "") {
-    const parsed = parseFloat(newOddsStr.replace(",", "."));
+  if (isCombo) {
+    // Kombi: lábanként szerkesztés
+    const newLegs = [];
+    for (let i = 0; i < tipData.legs.length; i++) {
+      const leg = tipData.legs[i];
+      const newPick = prompt(`${i+1}. láb – ${leg.match}\nTipp (pick):`, leg.pick);
+      if (newPick === null) return;
+      const newOddsStr = prompt(`${i+1}. láb odds:`, String(leg.odds));
+      if (newOddsStr === null) return;
+      const newOdds = parseFloat(newOddsStr.replace(",","."));
+      newLegs.push({ ...leg, pick: newPick || leg.pick, odds: isNaN(newOdds) ? leg.odds : newOdds });
+    }
+    body.legs = newLegs;
+    body.odds = parseFloat(newLegs.reduce((p,l) => p * l.odds, 1).toFixed(2));
+  } else {
+    // Single/Free: pick + odds
+    const curPick = tipData ? tipData.pick : "";
+    const curOdds = tipData ? String(tipData.odds) : "";
+    const newPick = prompt("Tipp (pick):", curPick);
+    if (newPick === null) return;
+    const newOddsStr = prompt("Odds:", curOdds);
+    if (newOddsStr === null) return;
+    if (newPick.trim()) body.pick = newPick.trim();
+    const parsed = parseFloat(newOddsStr.replace(",","."));
     if (!isNaN(parsed) && parsed > 1) body.odds = parsed;
   }
+
+  const newNote = prompt("Indoklás:", tipData ? (tipData.note || "") : "");
+  if (newNote === null) return;
+  body.note = newNote;
   
   const r = await fetch(`/admin/ai-tips/${id}/edit`, {
     method: "POST",
