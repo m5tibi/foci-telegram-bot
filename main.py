@@ -1,4 +1,4 @@
-# main.py v2.3.0
+# main.py v2.3.1
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -229,6 +229,7 @@ async def get_ai_tip_data(tip_id: str, request: Request):
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultság"}, 403)
+    db = get_admin_db()
     for table in ["manual_slips", "free_slips"]:
         r = db.table(table).select("*").eq("id", tip_id).execute()
         if r.data:
