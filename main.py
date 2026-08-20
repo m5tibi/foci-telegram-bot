@@ -215,6 +215,28 @@ async def proxy_perc90(request: Request):
     except Exception as e:
         return _JR(content={"error": str(e)}, status_code=500)
 
+
+@api.post("/admin/ai-tips/{tip_id}/edit")
+async def edit_ai_tip(tip_id: str, request: Request):
+    from fastapi.responses import JSONResponse as _JR
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    user = get_current_user(request)
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
+    data = await request.json()
+    updates = {}
+    if "note" in data: updates["ai_note"] = data["note"]
+    if "odds" in data: updates["eredo_odds"] = float(data["odds"])
+    if "pick" in data: updates["ai_pick"] = data["pick"]
+    if not updates:
+        return _JR(content={"error": "Nincs módosítás"}, status_code=400)
+    # manual_slips és free_slips frissítése
+    for table in ["manual_slips", "free_slips"]:
+        r = db.table(table).update(updates).eq("id", tip_id).execute()
+        if r.data:
+            return _JR(content={"ok": True})
+    return _JR(content={"error": "Nem található"}, status_code=404)
+
 @api.post("/admin/generate-tips-raw")
 async def admin_generate_tips_raw(request: Request):
     """Tipp generálás mentés nélkül."""
