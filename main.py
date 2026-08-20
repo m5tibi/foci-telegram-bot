@@ -1,4 +1,4 @@
-# main.py v2.5.0
+# main.py v2.6.0
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -930,34 +930,25 @@ async def get_ai_tip_data(tip_id: str, request: Request):
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
-    for table in ["manual_slips", "free_slips"]:
+    for table in ["free_slips", "manual_slips"]:
         r = db.table(table).select("*").eq("id", tip_id).execute()
         if r.data:
             tip = r.data[0]
             legs = []
-            # 1. ai_legs JSON-ből
             if tip.get("ai_legs"):
                 try: legs = _jj.loads(tip["ai_legs"])
                 except: pass
-            # 2. Ha üres, ai_note szövegből parsáljuk vissza
-            if not legs and tip.get("ai_note") and "\nL\u00e1bak:\n" in tip.get("ai_note",""):
-                note_parts = tip["ai_note"].split("\nL\u00e1bak:\n")
-                if len(note_parts) > 1:
-                    for line in note_parts[1].split("\n"):
-                        line = line.strip().lstrip("*").lstrip("\u2022").strip()
-                        if not line: continue
-                        # Format: "Match: Pick @ Odds Commence"
-                        if ": " in line and " @ " in line:
-                            m_part, rest = line.split(": ", 1)
-                            pick_odds = rest.split(" @ ")
-                            pick = pick_odds[0].strip()
-                            odds_str = pick_odds[1].split(" ")[0].strip() if len(pick_odds) > 1 else ""
-                            commence = " ".join(pick_odds[1].split(" ")[1:]).strip() if len(pick_odds) > 1 else ""
-                            try: odds_f = float(odds_str)
-                            except: odds_f = 1.0
-                            legs.append({"match": m_part.strip(), "pick": pick, "odds": odds_f, "commence": commence})
-            # 3. tip_type = kombi de lábak még mindig üresek? tipp_neve-ből
-            if not legs and tip.get("tip_type") == "kombi" and tip.get("tipp_neve"):
+            if not legs and "\nL\u00e1bak:\n" in (tip.get("ai_note") or ""):
+                for line in tip["ai_note"].split("\nL\u00e1bak:\n")[1].split("\n"):
+                    line = line.strip().lstrip("*").lstrip("\u2022").strip()
+                    if line and ": " in line and " @ " in line:
+                        m_p, rest = line.split(": ", 1)
+                        p_o = rest.split(" @ ")
+                        try: odds_f = float(p_o[1].split(" ")[0]) if len(p_o)>1 else 1.0
+                        except: odds_f = 1.0
+                        commence = " ".join(p_o[1].split(" ")[1:]).strip() if len(p_o)>1 else ""
+                        legs.append({"match": m_p.strip(), "pick": p_o[0].strip(), "odds": odds_f, "commence": commence})
+            if not legs and tip.get("tip_type") == "kombi":
                 legs = [{"match": "?", "pick": "?", "odds": 1.0, "commence": ""}]
             pick = tip.get("ai_pick") or ""
             if not pick and not legs:
@@ -965,12 +956,11 @@ async def get_ai_tip_data(tip_id: str, request: Request):
                 parts = tv.split(" \u2013 ")
                 if len(parts) > 1:
                     pick = parts[1].split(" @ ")[0].strip()
-            return _ok({"id": tip_id, "pick": pick,
-                       "odds": tip.get("eredo_odds") or "",
+            return _ok({"id": tip_id, "pick": pick, "odds": tip.get("eredo_odds") or "",
                        "note": (tip.get("ai_note") or "").split("\n\nL\u00e1bak:\n")[0],
                        "legs": legs, "tip_type": tip.get("tip_type") or "",
-                       "match": tip.get("ai_match") or "",
-                       "tipp_neve": tip.get("tipp_neve") or ""})
+                       "match": tip.get("ai_match") or "", "tipp_neve": tip.get("tipp_neve") or "",
+                       "table": table})
     return _ok({"error": "Nem talalhato"}, 404)
 
 @api.post("/admin/ai-tips/{tip_id}/edit")
@@ -984,55 +974,57 @@ async def edit_ai_tip(tip_id: str, request: Request):
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
     data = await request.json()
+
+    # 1. Melyik tablaban van?
+    target_table = None
+    tip_row = None
+    for table in ["manual_slips", "free_slips"]:
+        chk = db.table(table).select("*").eq("id", tip_id).execute()
+        if chk.data:
+            # Tipusellenorzés: free tipusu a free_slips-ben van
+            row = chk.data[0]
+            if table == "free_slips" or row.get("tip_type") == "free":
+                target_table = table
+                tip_row = row
+                break
+            elif target_table is None:
+                target_table = table
+                tip_row = row
+    if not target_table:
+        return _ok({"error": "Nem talalhato"}, 404)
+
     updates = {}
     if "note" in data: updates["ai_note"] = data["note"]
     if "odds" in data: updates["eredo_odds"] = float(data["odds"])
     if "pick" in data: updates["ai_pick"] = data["pick"]
+
     if "legs" in data:
         updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
         if "odds" in data:
             updates["tipp_neve"] = "[AI] Kombi \u2013 \u00f6ssz odds " + str(data["odds"])
-        for t2 in ["manual_slips", "free_slips"]:
-            r2 = db.table(t2).select("ai_note").eq("id", tip_id).execute()
-            if r2.data:
-                old_note = r2.data[0].get("ai_note") or ""
-                note_text = old_note.split("\n\nL\u00e1bak:\n")[0] if "\n\nL\u00e1bak:\n" in old_note else old_note
-                if "note" in data: note_text = data["note"]
-                legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
-                updates["ai_note"] = note_text + "\n\nL\u00e1bak:\n" + "\n".join(legs_lines)
-                break
+        old_note = tip_row.get("ai_note") or ""
+        note_text = old_note.split("\n\nL\u00e1bak:\n")[0] if "\n\nL\u00e1bak:\n" in old_note else old_note
+        if "note" in data: note_text = data["note"]
+        legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
+        updates["ai_note"] = note_text + "\n\nL\u00e1bak:\n" + "\n".join(legs_lines)
     elif "pick" in data or "odds" in data:
-        for t2 in ["manual_slips", "free_slips"]:
-            r2 = db.table(t2).select("tipp_neve,ai_match,ai_commence").eq("id", tip_id).execute()
-            if r2.data:
-                old_name = r2.data[0].get("tipp_neve") or ""
-                match = r2.data[0].get("ai_match") or ""
-                commence = r2.data[0].get("ai_commence") or ""
-                if not match:
-                    tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
-                    if " \u2013 " in tv: match = tv.split(" \u2013 ")[0].strip()
-                prefix = "[AI FREE] " if "FREE" in old_name else "[AI] "
-                name = prefix + (match or "") + " \u2013 " + str(data.get("pick","")) + " @ " + str(data.get("odds",""))
-                if commence: name += " " + commence
-                updates["tipp_neve"] = name
-                break
+        old_name = tip_row.get("tipp_neve") or ""
+        match = tip_row.get("ai_match") or ""
+        commence = tip_row.get("ai_commence") or ""
+        if not match:
+            tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
+            if " \u2013 " in tv: match = tv.split(" \u2013 ")[0].strip()
+        prefix = "[AI FREE] " if (target_table == "free_slips" or "FREE" in old_name) else "[AI] "
+        name = prefix + (match or "") + " \u2013 " + str(data.get("pick","")) + " @ " + str(data.get("odds",""))
+        if commence: name += " " + commence
+        updates["tipp_neve"] = name
+
     if not updates:
         return _ok({"error": "Nincs modositas"}, 400)
-    for table in ["manual_slips", "free_slips"]:
-        try:
-            r = db.table(table).update(updates).eq("id", tip_id).execute()
-            if r.data:
-                return _ok({"ok": True})
-        except Exception as e:
-            print(f"[edit] {table} hiba: {e}")
-    # Force: ha r.data üres, ellenőrzés nélkül mentünk
-    for table in ["manual_slips", "free_slips"]:
-        chk = db.table(table).select("id").eq("id", tip_id).execute()
-        if chk.data:
-            db.table(table).update(updates).eq("id", tip_id).execute()
-            print(f"[edit] Force mentve: {table} {tip_id}")
-            return _ok({"ok": True})
-    return _ok({"error": "Nem talalhato"}, 404)
+
+    db.table(target_table).update(updates).eq("id", tip_id).execute()
+    print(f"[edit] {target_table} frissitve: {tip_id}")
+    return _ok({"ok": True})
 @api.on_event("startup")
 async def startup():
     global application
