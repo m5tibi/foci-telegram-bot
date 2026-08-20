@@ -1,4 +1,4 @@
-# main.py v2.3.2
+# main.py v2.4.0
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 import os as _os
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.responses import JSONResponse  # alias a biztonság kedvéért
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -29,10 +28,7 @@ _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
 if _os.path.exists(_docs_path):
     api.mount("/docs-static", StaticFiles(directory=_docs_path), name="docs-static")
-_images_path = _os.path.join(_BASE_DIR, "docs", "images")
-if _os.path.exists(_images_path):
-    api.mount("/images", StaticFiles(directory=_images_path), name="images")
-SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
+SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 
 # --- 2. Middleware ---
 api.add_middleware(
@@ -173,134 +169,6 @@ async def read_root(request: Request):
             with open(p, encoding="utf-8") as _f:
                 return HTMLResponse(_f.read())
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
-
-
-
-@api.post("/admin/import-tip")
-async def admin_import_tip(request: Request):
-    """Tipp Manager által küldött tipp mentése Supabase-be."""
-    user = get_current_user(request)
-    from fastapi.responses import JSONResponse as _JR
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    if not user or str(user.get('chat_id')) != admin_id:
-        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
-    data = await request.json()
-    from claude_ai_generator import save_single_tip
-    try:
-        result = save_single_tip(data)
-        return JSONResponse(content={"ok": True, "id": result.get("id")})
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
-@api.post("/admin/proxy-perc90")
-async def proxy_perc90(request: Request):
-    """Proxy: mondomatutit szerveren keresztül küld a 90perc.hu-ra (CORS elkerülése)."""
-    from fastapi.responses import JSONResponse as _JR
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    user = get_current_user(request)
-    if not user or str(user.get("chat_id")) != admin_id:
-        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
-    import requests as _req
-    data = await request.json()
-    perc90_pass = os.environ.get("PERC90_ADMIN_PASSWORD", "")
-    perc90_url = os.environ.get("PERC90_URL", "https://90perc.hu")
-    try:
-        r = _req.post(
-            f"{perc90_url}/api/admin/import-tip",
-            headers={"Content-Type": "application/json", "x-admin-password": perc90_pass},
-            json=data,
-            timeout=15
-        )
-        return _JR(content=r.json() if r.ok else {"error": r.text[:100]},
-                   status_code=r.status_code)
-    except Exception as e:
-        return _JR(content={"error": str(e)}, status_code=500)
-
-
-
-@api.get("/admin/ai-tips/{tip_id}/data")
-async def get_ai_tip_data(tip_id: str, request: Request):
-    import json as _json
-    from fastapi.responses import Response as _Resp
-    def _ok(data, status=200):
-        return _Resp(content=_json.dumps(data, ensure_ascii=False), status_code=status, media_type="application/json")
-    user = get_current_user(request)
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    if not user or str(user.get("chat_id")) != admin_id:
-        return _ok({"error": "Nincs jogosultság"}, 403)
-    db = get_admin_db()
-    for table in ["manual_slips", "free_slips"]:
-        r = db.table(table).select("*").eq("id", tip_id).execute()
-        if r.data:
-            tip = r.data[0]
-            legs = []
-            if tip.get("ai_legs"):
-                try: legs = _json.loads(tip["ai_legs"])
-                except: pass
-            return _ok({
-                "id": tip_id,
-                "pick": tip.get("ai_pick",""),
-                "odds": tip.get("eredo_odds",""),
-                "note": tip.get("ai_note",""),
-                "legs": legs,
-                "tip_type": tip.get("tip_type","")
-            })
-    return _ok({"error": "Nem található"}, 404)
-
-@api.post("/admin/ai-tips/{tip_id}/edit")
-async def edit_ai_tip(tip_id: str, request: Request):
-    from fastapi.responses import JSONResponse as _JR
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    user = get_current_user(request)
-    if not user or str(user.get("chat_id")) != admin_id:
-        return _JR(content={"error": "Nincs jogosultság"}, status_code=403)
-    db = get_admin_db()
-    data = await request.json()
-    updates = {}
-    if "note" in data: updates["ai_note"] = data["note"]
-    if "odds" in data: updates["eredo_odds"] = float(data["odds"])
-    if "pick" in data: updates["ai_pick"] = data["pick"]
-    if not updates:
-        return _JR(content={"error": "Nincs módosítás"}, status_code=400)
-    # manual_slips és free_slips frissítése
-    for table in ["manual_slips", "free_slips"]:
-        r = db.table(table).update(updates).eq("id", tip_id).execute()
-        if r.data:
-            return _JR(content={"ok": True})
-    return _JR(content={"error": "Nem található"}, status_code=404)
-
-@api.post("/admin/generate-tips-raw")
-async def admin_generate_tips_raw(request: Request):
-    """Tipp generálás mentés nélkül – Tipp Manager."""
-    import json as _json
-    from fastapi.responses import Response as _Resp
-    def _ok(data, status=200):
-        return _Resp(content=_json.dumps(data, ensure_ascii=False), status_code=status, media_type="application/json")
-    user = get_current_user(request)
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    if not user or str(user.get("chat_id")) != admin_id:
-        return _ok({"error": "Nincs jogosultság"}, 403)
-    from starlette.concurrency import run_in_threadpool
-    try:
-        from claude_ai_generator import generate_tips_raw
-        tips = await run_in_threadpool(generate_tips_raw)
-        return _ok(tips)
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return _ok({"error": str(e)}, 500)
-
-
-@api.get("/admin/tipp-manager", response_class=HTMLResponse)
-async def tipp_manager_page(request: Request):
-    """Tipp Manager oldal."""
-    user = get_current_user(request)
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
-    if not user or str(user.get('chat_id')) != admin_id:
-        return RedirectResponse(url="/", status_code=303)
-    from fastapi.responses import FileResponse
-    p = _os.path.join(_BASE_DIR, "templates", "tipp_manager.html")
-    return FileResponse(p)
 
 @api.get("/free_tips.html", response_class=HTMLResponse)
 async def free_tips_page():
@@ -469,13 +337,6 @@ async def vip_area(request: Request):
                 slip_type_order(x),
                 x.get("ai_commence") or "99:99"
             ))
-            # Kombik újraszámozása megjelenítési sorrend szerint
-            _ki = 1
-            for _s in active_manual:
-                if _s.get("tip_type") == "kombi":
-                    import re as _re2
-                    _s["tipp_neve"] = _re2.sub(r"Kombi \d+", f"Kombi {_ki}", _s.get("tipp_neve",""))
-                    _ki += 1
 
             # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
             analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
@@ -531,10 +392,8 @@ async def admin_ai_generate(request: Request):
             f'<li>🎰 Kombi {i+1}: {", ".join([l["pick"] for l in c["legs"]])} → össz odds {c["total_odds"]}</li>'
             for i, c in enumerate(combos)
         ])
-        _ft_legs_str = ", ".join([l.get("pick","") for l in free_tip.get("legs",[])]) if free_tip else ""
         free_html = (
-            (f"<li>🆓 Kombi: {_ft_legs_str} → össz odds {free_tip.get('total_odds','')}</li>" if free_tip.get("type")=="combo"
-             else f"<li>🆓 {free_tip.get('match','')} – {free_tip.get('pick','')} @ {free_tip.get('odds','')}</li>")
+            f'<li>🆓 {free_tip["match"]} – {free_tip["pick"]} @ {free_tip["odds"]}</li>'
             if free_tip else "<li>Nem generált free tippet</li>"
         )
 
@@ -693,7 +552,7 @@ async def admin_ai_approve_all(request: Request, background_tasks: BackgroundTas
         except Exception as e:
             print(f"[approve-all] {table} hiba: {e}")
 
-    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
+    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
     now_iso  = datetime.now(pytz.utc).isoformat()
     today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
     total    = len(vip_tips) + len(free_tips_list)
@@ -776,7 +635,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
     import pytz
     from datetime import datetime
     now_iso  = datetime.now(pytz.utc).isoformat()
-    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
+    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
     today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
 
     vip_tips, free_tips_list = [], []
@@ -962,7 +821,7 @@ import asyncio
 import threading
 
 def _auto_check_loop():
-    """Háttérszál: naponta 05:00-kor futtatja az AI eredmény ellenőrzőt."""
+    """Háttérszál: naponta 06:05-kor futtatja az AI eredmény ellenőrzőt."""
     import time
     import pytz
     from datetime import datetime
@@ -973,8 +832,8 @@ def _auto_check_loop():
         try:
             now = datetime.now(pytz.timezone("Europe/Budapest"))
             today = now.strftime("%Y-%m-%d")
-            # 05:00-kor fut, naponta egyszer
-            if now.hour == 5 and now.minute == 0 and last_run_date != today:
+            # 06:05-kor fut, naponta egyszer
+            if now.hour == 6 and now.minute == 5 and last_run_date != today:
                 last_run_date = today
                 print(f"[auto-eval] Automatikus AI eredmény ellenőrzés indul: {today}")
                 try:
@@ -995,6 +854,145 @@ def _auto_check_loop():
 
 
 # --- 6. Startup és Webhook ---
+
+@api.post("/admin/generate-tips-raw")
+async def admin_generate_tips_raw(request: Request):
+    """Tipp generálás mentés nelkul."""
+    import json as _j
+    from fastapi.responses import Response as _R
+    def ok(d, s=200): return _R(content=_j.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return ok({"error": "Nincs jogosultsag"}, 403)
+    from starlette.concurrency import run_in_threadpool
+    try:
+        from claude_ai_generator import generate_tips_raw
+        tips = await run_in_threadpool(generate_tips_raw)
+        return ok(tips)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return ok({"error": str(e)}, 500)
+
+@api.get("/admin/tipp-manager", response_class=HTMLResponse)
+async def tipp_manager_page(request: Request):
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+    from fastapi.responses import FileResponse
+    p = _os.path.join(_BASE_DIR, "templates", "tipp_manager.html")
+    return FileResponse(p)
+
+@api.post("/admin/proxy-perc90")
+async def proxy_perc90(request: Request):
+    import json as _j
+    from fastapi.responses import Response as _R
+    def ok(d, s=200): return _R(content=_j.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return ok({"error": "Nincs jogosultsag"}, 403)
+    import requests as _req
+    data = await request.json()
+    perc90_pass = os.environ.get("PERC90_ADMIN_PASSWORD", "")
+    perc90_url = os.environ.get("PERC90_URL", "https://90perc.hu")
+    try:
+        r = _req.post(f"{perc90_url}/api/admin/import-tip",
+            headers={"Content-Type": "application/json", "x-admin-password": perc90_pass},
+            json=data, timeout=15)
+        return ok(r.json() if r.ok else {"error": r.text[:100]}, r.status_code)
+    except Exception as e:
+        return ok({"error": str(e)}, 500)
+
+@api.post("/admin/import-tip")
+async def admin_import_tip(request: Request):
+    import json as _j
+    from fastapi.responses import Response as _R
+    def ok(d, s=200): return _R(content=_j.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return ok({"error": "Nincs jogosultsag"}, 403)
+    data = await request.json()
+    from claude_ai_generator import save_single_tip
+    try:
+        result = save_single_tip(data)
+        return ok({"ok": True, "id": result.get("id")})
+    except Exception as e:
+        return ok({"error": str(e)}, 500)
+
+@api.get("/admin/ai-tips/{tip_id}/data")
+async def get_ai_tip_data(tip_id: str, request: Request):
+    import json as _j
+    from fastapi.responses import Response as _R
+    def ok(d, s=200): return _R(content=_j.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return ok({"error": "Nincs jogosultsag"}, 403)
+    db = get_admin_db()
+    for table in ["manual_slips", "free_slips"]:
+        r = db.table(table).select("*").eq("id", tip_id).execute()
+        if r.data:
+            tip = r.data[0]
+            legs = []
+            if tip.get("ai_legs"):
+                try: legs = _j.loads(tip["ai_legs"])
+                except: pass
+            pick = tip.get("ai_pick","")
+            if not pick and not legs:
+                tv = tip.get("tipp_neve","")
+                for pref in ["[AI FREE] ","[AI] "]:
+                    tv = tv.replace(pref,"")
+                parts = tv.split(" – ")
+                if len(parts) > 1:
+                    pick = parts[1].split(" @ ")[0].strip()
+            return ok({"id": tip_id, "pick": pick, "odds": tip.get("eredo_odds",""),
+                       "note": tip.get("ai_note",""), "legs": legs,
+                       "tip_type": tip.get("tip_type",""), "match": tip.get("ai_match",""),
+                       "tipp_neve": tip.get("tipp_neve","")})
+    return ok({"error": "Nem talalhato"}, 404)
+
+@api.post("/admin/ai-tips/{tip_id}/edit")
+async def edit_ai_tip(tip_id: str, request: Request):
+    import json as _j
+    from fastapi.responses import Response as _R
+    def ok(d, s=200): return _R(content=_j.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return ok({"error": "Nincs jogosultsag"}, 403)
+    db = get_admin_db()
+    data = await request.json()
+    updates = {}
+    if "note" in data: updates["ai_note"] = data["note"]
+    if "odds" in data: updates["eredo_odds"] = float(data["odds"])
+    if "pick" in data: updates["ai_pick"] = data["pick"]
+    if "legs" in data:
+        updates["ai_legs"] = _j.dumps(data["legs"], ensure_ascii=False)
+        if "odds" in data:
+            updates["tipp_neve"] = "[AI] Kombi – össz odds " + str(data["odds"])
+    elif ("pick" in data or "odds" in data):
+        for table2 in ["manual_slips", "free_slips"]:
+            r2 = db.table(table2).select("tipp_neve,ai_match,ai_commence").eq("id", tip_id).execute()
+            if r2.data:
+                old_name = r2.data[0].get("tipp_neve","")
+                match = r2.data[0].get("ai_match","")
+                commence = r2.data[0].get("ai_commence","")
+                pick_val = data.get("pick","")
+                odds_val = data.get("odds","")
+                prefix = "[AI FREE] " if "FREE" in old_name else "[AI] "
+                updates["tipp_neve"] = prefix + match + " – " + str(pick_val) + " @ " + str(odds_val) + " ⏰ " + commence
+                break
+    if not updates:
+        return ok({"error": "Nincs modositas"}, 400)
+    for table in ["manual_slips", "free_slips"]:
+        r = db.table(table).update(updates).eq("id", tip_id).execute()
+        if r.data:
+            return ok({"ok": True})
+    return ok({"error": "Nem talalhato"}, 404)
+
 @api.on_event("startup")
 async def startup():
     global application
