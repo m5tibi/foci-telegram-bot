@@ -1,4 +1,4 @@
-# main.py v2.4.0
+# main.py v2.4.1
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -983,7 +983,7 @@ async def edit_ai_tip(tip_id: str, request: Request):
                 pick_val = data.get("pick","")
                 odds_val = data.get("odds","")
                 prefix = "[AI FREE] " if "FREE" in old_name else "[AI] "
-                updates["tipp_neve"] = prefix + match + " – " + str(pick_val) + " @ " + str(odds_val) + " ⏰ " + commence
+                updates["tipp_neve"] = prefix + (match or "") + " – " + str(pick_val or "") + " @ " + str(odds_val or "") + (" ⏰ " + commence if commence else "")
                 break
     if not updates:
         return ok({"error": "Nincs modositas"}, 400)
