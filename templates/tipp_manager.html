@@ -320,6 +320,20 @@ async function publish() {
   document.getElementById("status").textContent = msg;
 }
 
+function editLeg(i, li) {
+  const leg = tips[i].legs[li];
+  const newPick = prompt(`${leg.match}\nTipp:`, leg.pick);
+  if (newPick === null) return;
+  const newOddsStr = prompt(`Odds:`, String(leg.odds));
+  if (newOddsStr === null) return;
+  const newOdds = parseFloat(newOddsStr.replace(",","."));
+  tips[i].legs[li] = { ...leg, pick: newPick, odds: isNaN(newOdds) ? leg.odds : newOdds };
+  // Össz odds újraszámítása
+  tips[i].total_odds = parseFloat(tips[i].legs.reduce((p,l) => p * l.odds, 1).toFixed(2));
+  saveTips();
+  renderTips();
+}
+
 function getNoteVal(t) {
   const i = tips.indexOf(t);
   return (document.getElementById("note-" + i)?.value || t.note || "").trim();
