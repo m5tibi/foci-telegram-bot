@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.0
+# claude_ai_generator.py v1.4.1
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -21,25 +21,33 @@ BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 # ── 1. Meccsek lekérése a 90perc.hu-ról ──────────────────────────────────────
 
 def fetch_match_list() -> dict:
-    """Lekéri a 90perc.hu meccslistáját. Ha üres, előbb refresh-t indít."""
+    """Lekéri a 90perc.hu meccslistáját. 502/503 esetén retry, üres lista esetén refresh."""
+    import time as _time
     headers = {"X-Admin-Password": PERC90_ADMIN_PASS}
-    try:
-        r = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        if data.get("matches"):
-            return data
-        # Üres lista → csak odds frissítés (AI nélkül!)
-        print("[claude_gen] Meccs lista üres, odds frissítés indítása...")
-        rf = requests.post(f"{PERC90_URL}/api/refresh-odds-only", headers=headers, timeout=90)
-        print(f"[claude_gen] Odds refresh: HTTP {rf.status_code}")
-        # Újra lekérés
-        r2 = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=30)
-        r2.raise_for_status()
-        return r2.json()
-    except Exception as e:
-        print(f"[claude_gen] match-list hiba: {e} | URL: {PERC90_URL} | PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
-        return {"matches": [], "tippedMatches": [], "tippedPicks": []}
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=45)
+            if r.status_code in (502, 503, 504):
+                print(f"[claude_gen] {r.status_code} hiba ({attempt}/3), 30mp várakozás...")
+                if attempt < 3:
+                    _time.sleep(30)
+                    continue
+                return {"matches": [], "tippedMatches": [], "tippedPicks": []}
+            r.raise_for_status()
+            data = r.json()
+            if data.get("matches"):
+                return data
+            print("[claude_gen] Meccs lista üres, odds frissítés indítása...")
+            rf = requests.post(f"{PERC90_URL}/api/refresh-odds-only", headers=headers, timeout=90)
+            print(f"[claude_gen] Odds refresh: HTTP {rf.status_code}")
+            r2 = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=45)
+            r2.raise_for_status()
+            return r2.json()
+        except Exception as e:
+            print(f"[claude_gen] match-list hiba ({attempt}/3): {e} | URL: {PERC90_URL} | PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
+            if attempt < 3:
+                _time.sleep(30)
+    return {"matches": [], "tippedMatches": [], "tippedPicks": []}
 
 
 
