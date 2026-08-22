@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.2
+# claude_ai_generator.py v1.4.3
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -541,7 +541,7 @@ def build_raw_prompt(matches: list, tipped_matches: list) -> str:
         ])
 
     match_text = "\n".join([
-        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Odds: {fmt_odds(m.get('odds', []))}"
+        f"- {m.get('sport','')} | {m.get('match','?')} | Kezdés: {m.get('commence','?')}\n  Odds: {fmt_odds(m.get('odds', []))}"
         for m in matches
     ]) or "Nincs elérhető meccs."
 
