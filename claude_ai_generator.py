@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.4
+# claude_ai_generator.py v1.4.6
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -107,7 +107,8 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
 3) "free_tip": KÖTELEZŐ! Minden nap adj 1 ingyenes tippet!
    - Lehet single (1.60-1.90 odds) VAGY kombi (2-3 láb, 1.20-1.60 odds lábankénti).
-   - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel.
+   - Lehet UGYANAZ a meccs mint valamelyik single tipp, csak más piaccal – vagy akár azonos pick is!
+   - Ha nincs jobb opció, a legjobb singlet add free tippként is.
    - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
    - HA NEM TUDSZ free tippet adni: adj 2-lábas kombiszelvényt free_tip-ként (type:"combo")!
 
@@ -360,6 +361,19 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
     # Ha lista, vegyük az első elemet
     if isinstance(free_tip, list):
         free_tip = free_tip[0] if free_tip else None
+    # Ha free_tip azonos meccs+pick mint valamelyik single → töröljük a singlekből
+    if isinstance(free_tip, dict) and free_tip.get("match"):
+        ft_match = free_tip.get("match","")
+        ft_pick  = free_tip.get("pick","")
+        ft_market = free_tip.get("market","")
+        orig_singles = tips.get("singles", [])
+        filtered = [t for t in orig_singles if not (
+            t.get("match","") == ft_match and
+            (t.get("pick","") == ft_pick or t.get("market","") == ft_market)
+        )]
+        if len(filtered) < len(orig_singles):
+            print(f"[save] Free tippel azonos single kiszűrve: {ft_match}")
+            tips["singles"] = filtered
     # Ha nem dict, hagyjuk ki
     if free_tip is not None and not isinstance(free_tip, dict):
         print(f"[save] Free tipp kihagyva: nem dict típus ({type(free_tip)})")
@@ -375,7 +389,7 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.65
+        float(free_tip.get("odds", 0) or 0) < 1.50
     ):
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
