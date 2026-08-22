@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.3
+# claude_ai_generator.py v1.4.4
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -83,7 +83,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
         ])
 
     match_text = "\n".join([
-        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Valós odds: {fmt_odds(m.get('odds', []))}"
+        f"- {m.get('sport','')} | {m.get('match','')} | Kezdés: {m.get('commence','?')}\n  Valós odds: {fmt_odds(m.get('odds', []))}"
         for m in matches
     ]) or "Nincs elérhető meccs."
 
@@ -270,7 +270,7 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
                     note = ""
         t["note"] = note
         row = {
-            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
+            "tipp_neve": f"[AI] {t.get('match','')} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
             "eredo_odds": t["odds"],
             "status": "Jóváhagyásra vár",
             "ai_generated": True,
@@ -293,7 +293,7 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
 
     # Kombi szelvények mentése
     for i, c in enumerate(tips.get("combos", []), 1):
-        legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}{' 🕐 '+l['commence'] if l.get('commence') else ''}" for l in c["legs"]])
+        legs_str = "\n".join([f"  • {l.get('match','')}: {l['pick']} @ {l['odds']}{' 🕐 '+l['commence'] if l.get('commence') else ''}" for l in c["legs"]])
         # Kombi note tisztítás
         combo_note = c.get("note", "") or ""
         for prefix in ["Sajnos", "FIGYELEM", "Hibás", "Újratervezem", "kihagyjuk"]:
@@ -383,7 +383,7 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
         commence = free_tip.get("commence", "")
         commence_str = f" 🕐 {commence}" if commence else ""
         row = {
-            "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
+            "tipp_neve": f"[AI FREE] {free_tip.get('match','')} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
             "eredo_odds": free_tip["odds"],
             "status": "Jóváhagyásra vár",
             "target_date": parse_target_date(free_tip.get("commence", "")),
@@ -399,7 +399,7 @@ def _save_to_supabase_inner(tips: dict, tipped_matches: list = None, matches: li
         r = requests.post(f"{base}/free_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
             _rj = r.json(); saved.append((_rj[0] if isinstance(_rj, list) and _rj else _rj) or {})
-            print(f"[save] Free tipp mentve: {free_tip['match']}")
+            print(f"[save] Free tipp mentve: {free_tip.get('match','')}")
         else:
             print(f"[save] Hiba free tipp mentésnél: {r.status_code} {r.text[:200]}")
 
