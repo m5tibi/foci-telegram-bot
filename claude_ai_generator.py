@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.1
+# claude_ai_generator.py v1.4.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -40,9 +40,16 @@ def fetch_match_list() -> dict:
             print("[claude_gen] Meccs lista üres, odds frissítés indítása...")
             rf = requests.post(f"{PERC90_URL}/api/refresh-odds-only", headers=headers, timeout=90)
             print(f"[claude_gen] Odds refresh: HTTP {rf.status_code}")
+            if not rf.ok:
+                print(f"[claude_gen] Refresh hiba ({rf.status_code}), közvetlen generálás indul...")
+                return {"matches": [], "tippedMatches": [], "tippedPicks": []}
             r2 = requests.get(f"{PERC90_URL}/api/match-list", headers=headers, timeout=45)
             r2.raise_for_status()
-            return r2.json()
+            data2 = r2.json()
+            if data2.get("matches"):
+                return data2
+            print("[claude_gen] Refresh után is üres, kihagyás")
+            return {"matches": [], "tippedMatches": [], "tippedPicks": []}
         except Exception as e:
             print(f"[claude_gen] match-list hiba ({attempt}/3): {e} | URL: {PERC90_URL} | PASS: {'SET' if PERC90_ADMIN_PASS else 'EMPTY'}")
             if attempt < 3:
