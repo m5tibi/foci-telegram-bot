@@ -139,17 +139,20 @@ async function editTip(id, tipType) {
   const body = {};
 
   if (isCombo) {
-    // Kombi: lábanként szerkesztés
+    // Kombi: lábanként szerkesztés, üres pick = láb törlése
     const newLegs = [];
     for (let i = 0; i < tipData.legs.length; i++) {
       const leg = tipData.legs[i];
-      const newPick = prompt(`${i+1}. láb – ${leg.match}\nTipp (pick):`, leg.pick);
+      const newPick = prompt(`${i+1}/${tipData.legs.length}. láb – ${leg.match}\n` +
+        `Pick (hagyd ÜRESEN a láb TÖRLÉSÉHEZ):`, leg.pick);
       if (newPick === null) return;
+      if (newPick.trim() === "") continue; // üres = törlés
       const newOddsStr = prompt(`${i+1}. láb odds:`, String(leg.odds));
       if (newOddsStr === null) return;
       const newOdds = parseFloat(newOddsStr.replace(",","."));
-      newLegs.push({ ...leg, pick: newPick || leg.pick, odds: isNaN(newOdds) ? leg.odds : newOdds });
+      newLegs.push({ ...leg, pick: newPick, odds: isNaN(newOdds) ? leg.odds : newOdds });
     }
+    if (newLegs.length === 0) { alert("Legalább 1 lábnak maradnia kell!"); return; }
     body.legs = newLegs;
     body.odds = parseFloat(newLegs.reduce((p,l) => p * l.odds, 1).toFixed(2));
   } else {
