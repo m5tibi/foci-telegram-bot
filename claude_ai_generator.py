@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.6
+# claude_ai_generator.py v1.4.7
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -143,7 +143,7 @@ def call_claude(prompt: str) -> dict:
             "content-type": "application/json"
         },
         json={
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-sonnet-4-6",
             "max_tokens": 4096,
             "messages": [{"role": "user", "content": prompt}]
         },
@@ -606,7 +606,7 @@ def generate_tips_raw() -> dict:
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
-        json={"model": "claude-haiku-4-5-20251001", "max_tokens": 4096,
+        json={"model": "claude-sonnet-4-6", "max_tokens": 4096,
               "tools": [{"type": "web_search_20250305", "name": "web_search"}],
               "messages": [{"role": "user", "content": prompt}]},
         timeout=120
