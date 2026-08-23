@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py
+# ai_eredmeny_ellenorzo.py v1.5.1
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -225,9 +225,16 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     # 1X2 market – csapatnév alapján ha market = 1X2
     market_l = (market or "").lower()
     if "1x2" in market_l or "1X2" in market:
-        if home_team and _norm_team(pick_l) == _norm_team(home_team):
+        # "győzelem", "win" stb. eltávolítása a pick-ből összehasonlítás előtt
+        pick_clean = _re.sub(r'\b(győzelem|win|victory|hazai|away|vendég)\b', '', pick_l).strip()
+        if home_team and _norm_team(pick_clean) == _norm_team(home_team):
             return "Nyert" if h > a else "Veszített"
-        if away_team and _norm_team(pick_l) == _norm_team(away_team):
+        if away_team and _norm_team(pick_clean) == _norm_team(away_team):
+            return "Nyert" if a > h else "Veszített"
+        # Fuzzy egyezés ha pontos nem talált
+        if home_team and _nsim(_norm_team(pick_clean), _norm_team(home_team)):
+            return "Nyert" if h > a else "Veszített"
+        if away_team and _nsim(_norm_team(pick_clean), _norm_team(away_team)):
             return "Nyert" if a > h else "Veszített"
         if "draw" in pick_l or "döntetlen" in pick_l:
             return "Nyert" if h == a else "Veszített"
