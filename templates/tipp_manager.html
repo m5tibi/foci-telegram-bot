@@ -60,7 +60,6 @@
               border-top-color:var(--green); border-radius:50%; animation:spin .7s linear infinite; }
   @keyframes spin { to{transform:rotate(360deg)} }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <header>
@@ -338,39 +337,19 @@ function editLeg(i, li) {
 }
 
 async function exportToExcel() {
-  if (!tips.length) return;
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0,10);
-  const rows = [["Meccs","Pick","Market","Odds","Indoklás","Kezdés","Típus"]];
-  tips.forEach(t => {
-    if (t._role === "skip") return;
-    if (t.type === "single") {
-      rows.push([t.match, t.pick, t.market, t.odds, getNoteVal(t), t.commence, "Single"]);
-    }
-  });
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  // Oszlopszélességek
-  ws["!cols"] = [{wch:35},{wch:25},{wch:12},{wch:8},{wch:60},{wch:12},{wch:10}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Tipp javaslatok");
-  const fileName = `tippek_${dateStr}.xlsx`;
-  const wbout = XLSX.write(wb, {bookType:"xlsx", type:"base64"});
-  // Feltöltés mondomatutit-ra
   try {
-    const r = await fetch("/admin/export-tips-excel", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({file_b64: wbout, file_name: fileName})
-    });
+    const r = await fetch("/admin/export-tips-excel", { method: "POST" });
     const data = await r.json();
     if (data.ok) {
-      console.log("Excel feltöltve:", data.file_url);
-      showStatus("📊 Excel feltöltve a VIP oldalra!");
+      console.log("Excel feltoltve:", data.file_url, data.tips_count + " tipp");
+    } else {
+      console.log("Excel export megjegyzes:", data.error);
     }
   } catch(e) {
     console.log("Excel export hiba:", e.message);
   }
 }
+
 
 function getNoteVal(t) {
   const i = tips.indexOf(t);
