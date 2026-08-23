@@ -1,4 +1,4 @@
-# main.py v2.7.1
+# main.py v2.7.2
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -857,7 +857,6 @@ def _auto_check_loop():
 
 @api.delete("/admin/elemzesek/{record_id}")
 async def delete_elemzes(record_id: str, request: Request):
-    """Elemzes torlese storage + tabla."""
     import json as _jj, requests as _rq
     from fastapi.responses import Response as _RR
     def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
@@ -873,16 +872,16 @@ async def delete_elemzes(record_id: str, request: Request):
     supabase_url = os.environ.get("SUPABASE_URL", "")
     supabase_key = os.environ.get("SUPABASE_KEY", "")
     if file_url and "storage/v1/object/public/elemzesek/" in file_url:
-        storage_path = file_url.split("storage/v1/object/public/elemzesek/")[-1]
-        _rq.delete(supabase_url + "/storage/v1/object/elemzesek/" + storage_path,
+        path = file_url.split("storage/v1/object/public/elemzesek/")[-1]
+        _rq.delete(supabase_url + "/storage/v1/object/elemzesek/" + path,
                    headers={"apikey": supabase_key, "Authorization": "Bearer " + supabase_key}, timeout=10)
     db.table("elemzesek").delete().eq("id", record_id).execute()
     return _ok({"ok": True})
 
 @api.post("/admin/export-tips-excel")
 async def export_tips_excel(request: Request):
-    """Tipp Manager Excel export."""
-    import json as _jj, base64 as _b64, requests as _rq
+    """Supabase pending tippekbol Excel generalas es feltoltes."""
+    import json as _jj, requests as _rq, io
     from fastapi.responses import Response as _RR
     from datetime import datetime as _dt
     import pytz as _pytz
@@ -891,28 +890,88 @@ async def export_tips_excel(request: Request):
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultsag"}, 403)
-    data = await request.json()
-    file_b64 = data.get("file_b64", "")
-    file_name = data.get("file_name", "tippek.xlsx")
-    if not file_b64:
-        return _ok({"error": "Nincs fajl adat"}, 400)
-    file_bytes = _b64.b64decode(file_b64)
     db = get_admin_db()
+    # Supabase-bol osszes jovahagy&aacute;sra varo tipp
+    manual = db.table("manual_slips").select("*").eq("status", "Jovahagy&aacute;sra v&aacute;r").order("created_at", desc=True).execute()
+    free = db.table("free_slips").select("*").eq("status", "Jovahagy&aacute;sra v&aacute;r").order("created_at", desc=True).execute()
+    all_tips = (manual.data or []) + (free.data or [])
+    if not all_tips:
+        return _ok({"error": "Nincs jovahagy&aacute;sra varo tipp"}, 400)
+    # openpyxl Excel generalas
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return _ok({"error": "openpyxl nem elerheto"}, 500)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Tipp javaslatok"
+    # Fejléc
+    headers = ["Meccs", "Pick", "Market", "Odds", "Ind&oacute;kl&aacute;s", "Kezd&eacute;s", "T&iacute;pus"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1a3a5c")
+        cell.alignment = Alignment(horizontal="center")
+    ws.column_dimensions["A"].width = 35
+    ws.column_dimensions["B"].width = 25
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 8
+    ws.column_dimensions["E"].width = 60
+    ws.column_dimensions["F"].width = 14
+    ws.column_dimensions["G"].width = 10
+    # Adatok
+    for row, tip in enumerate(all_tips, 2):
+        tipp_neve = tip.get("tipp_neve", "")
+        match = tip.get("ai_match", "")
+        if not match and " – " in tipp_neve:
+            tv = tipp_neve.replace("[AI FREE] ", "").replace("[AI] ", "")
+            match = tv.split(" – ")[0].strip()
+        pick = tip.get("ai_pick", "") or ""
+        market = tip.get("ai_market", "") or ""
+        odds = tip.get("eredo_odds", "") or ""
+        note = tip.get("ai_note", "") or ""
+        commence = tip.get("ai_commence", "") or ""
+        tip_type = tip.get("tip_type", "single")
+        ws.cell(row=row, column=1, value=match)
+        ws.cell(row=row, column=2, value=pick)
+        ws.cell(row=row, column=3, value=market)
+        ws.cell(row=row, column=4, value=odds)
+        ws.cell(row=row, column=5, value=note[:500] if note else "")
+        ws.cell(row=row, column=6, value=commence)
+        ws.cell(row=row, column=7, value=tip_type)
+        if row % 2 == 0:
+            for col in range(1, 8):
+                ws.cell(row=row, column=col).fill = PatternFill("solid", fgColor="f0f4f8")
+    # Mentés bufferbe
+    buf = io.BytesIO()
+    wb.save(buf)
+    file_bytes = buf.getvalue()
+    # Supabase storage
     supabase_url = os.environ.get("SUPABASE_URL", "")
     supabase_key = os.environ.get("SUPABASE_KEY", "")
     now = _dt.now(_pytz.timezone("Europe/Budapest"))
-    storage_path = "tippek/" + now.strftime("%Y-%m-%d") + "_" + file_name
+    file_name = "tippek_" + now.strftime("%Y-%m-%d") + ".xlsx"
+    storage_path = "tippek/" + file_name
     r = _rq.post(supabase_url + "/storage/v1/object/elemzesek/" + storage_path,
                  data=file_bytes,
                  headers={"apikey": supabase_key, "Authorization": "Bearer " + supabase_key,
                           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                           "x-upsert": "true"}, timeout=30)
     if not r.ok:
-        return _ok({"error": "Storage hiba: " + str(r.status_code) + " " + r.text[:100]}, 500)
+        return _ok({"error": "Storage hiba: " + str(r.status_code)}, 500)
     file_url = supabase_url + "/storage/v1/object/public/elemzesek/" + storage_path
-    db.table("elemzesek").insert({"file_name": file_name, "file_url": file_url,
-                                   "category": "vip", "created_at": now.isoformat()}).execute()
-    return _ok({"ok": True, "file_url": file_url})
+    # Regi napi rekord torlese ha van
+    old = db.table("elemzesek").select("id").eq("file_name", file_name).execute()
+    if old.data:
+        db.table("elemzesek").delete().eq("file_name", file_name).execute()
+    db.table("elemzesek").insert({
+        "file_name": file_name,
+        "file_url": file_url,
+        "category": "vip",
+        "created_at": now.isoformat()
+    }).execute()
+    return _ok({"ok": True, "file_url": file_url, "tips_count": len(all_tips)})
 
 @api.on_event("startup")
 async def startup():
