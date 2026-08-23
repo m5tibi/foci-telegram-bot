@@ -316,6 +316,8 @@ async function publish() {
     });
   }
 
+  // Excel export közzététel után
+  await exportToExcel();
   const msg = `✅ ${ok} küldés sikeres` + (errors.length ? ` · ❌ ${errors.join(", ")}` : "");
   alert(msg);
   document.getElementById("status").textContent = msg;
