@@ -59,7 +59,7 @@
                    transition:opacity 0.2s">
             ⚡ AI tippek generálása most
         </button>
-        <a href="/admin/tipp-manager"
+        <a href="https://mondomatutit.hu/admin/tipp-manager"
            style="display:inline-block;background:#3b82f6;color:#fff;font-weight:800;padding:13px 28px;
                   border-radius:8px;font-size:15px;text-decoration:none;transition:opacity 0.2s"
            onmouseover="this.style.opacity=.85" onmouseout="this.style.opacity=1">
@@ -187,11 +187,10 @@
                         </td>
                         <td style="padding: 10px; color: #a0aec0;">{{ file.created_at[:10] }}</td>
                         <td style="padding: 10px; text-align: right;">
-                            <a href="/admin/delete-file/{{ file.id }}" 
-                               onclick="return confirm('Biztosan törlöd ezt a fájlt? A művelet nem vonható vissza!')"
-                               style="color: #e53e3e; text-decoration: none; font-weight: bold; padding: 5px 10px; border: 1px solid #e53e3e; border-radius: 4px; transition: all 0.2s;">
-                               Törlés
-                            </a>
+                            <button onclick="deleteElemzes('{{ file.id }}')"
+                               style="color: #e53e3e; background: transparent; font-weight: bold; padding: 5px 10px; border: 1px solid #e53e3e; border-radius: 4px; cursor: pointer;">
+                               🗑️ Törlés
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
