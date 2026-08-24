@@ -880,7 +880,6 @@ async def delete_elemzes(record_id: str, request: Request):
 
 @api.post("/admin/export-tips-excel")
 async def export_tips_excel(request: Request):
-    """Supabase pending tippekbol Excel generalas es feltoltes."""
     import json as _jj, requests as _rq, io
     from fastapi.responses import Response as _RR
     from datetime import datetime as _dt
@@ -891,13 +890,11 @@ async def export_tips_excel(request: Request):
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
-    # Supabase-bol osszes jovahagy&aacute;sra varo tipp
-    manual = db.table("manual_slips").select("*").eq("status", "Jovahagy&aacute;sra v&aacute;r").order("created_at", desc=True).execute()
-    free = db.table("free_slips").select("*").eq("status", "Jovahagy&aacute;sra v&aacute;r").order("created_at", desc=True).execute()
+    manual = db.table("manual_slips").select("*").eq("status", "J\u00f3v\u00e1hagy\u00e1sra v\u00e1r").order("created_at", desc=True).execute()
+    free = db.table("free_slips").select("*").eq("status", "J\u00f3v\u00e1hagy\u00e1sra v\u00e1r").order("created_at", desc=True).execute()
     all_tips = (manual.data or []) + (free.data or [])
     if not all_tips:
         return _ok({"error": "Nincs jovahagy&aacute;sra varo tipp"}, 400)
-    # openpyxl Excel generalas
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -906,8 +903,7 @@ async def export_tips_excel(request: Request):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Tipp javaslatok"
-    # Fejléc
-    headers = ["Meccs", "Pick", "Market", "Odds", "Ind&oacute;kl&aacute;s", "Kezd&eacute;s", "T&iacute;pus"]
+    headers = ["Meccs", "Pick", "Market", "Odds", "Indoklas", "Kezdes", "Tipus"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -920,58 +916,204 @@ async def export_tips_excel(request: Request):
     ws.column_dimensions["E"].width = 60
     ws.column_dimensions["F"].width = 14
     ws.column_dimensions["G"].width = 10
-    # Adatok
     for row, tip in enumerate(all_tips, 2):
         tipp_neve = tip.get("tipp_neve", "")
         match = tip.get("ai_match", "")
         if not match and " – " in tipp_neve:
-            tv = tipp_neve.replace("[AI FREE] ", "").replace("[AI] ", "")
+            tv = tipp_neve.replace("[AI FREE] ","").replace("[AI] ","")
             match = tv.split(" – ")[0].strip()
-        pick = tip.get("ai_pick", "") or ""
-        market = tip.get("ai_market", "") or ""
-        odds = tip.get("eredo_odds", "") or ""
-        note = tip.get("ai_note", "") or ""
-        commence = tip.get("ai_commence", "") or ""
-        tip_type = tip.get("tip_type", "single")
-        ws.cell(row=row, column=1, value=match)
-        ws.cell(row=row, column=2, value=pick)
-        ws.cell(row=row, column=3, value=market)
-        ws.cell(row=row, column=4, value=odds)
-        ws.cell(row=row, column=5, value=note[:500] if note else "")
-        ws.cell(row=row, column=6, value=commence)
-        ws.cell(row=row, column=7, value=tip_type)
+        pick = tip.get("ai_pick","") or ""
+        market = tip.get("ai_market","") or ""
+        odds = tip.get("eredo_odds","") or ""
+        note = (tip.get("ai_note","") or "")[:500]
+        commence = tip.get("ai_commence","") or ""
+        tip_type = tip.get("tip_type","single")
+        for col, val in enumerate([match,pick,market,odds,note,commence,tip_type], 1):
+            ws.cell(row=row, column=col, value=val)
         if row % 2 == 0:
-            for col in range(1, 8):
+            for col in range(1,8):
                 ws.cell(row=row, column=col).fill = PatternFill("solid", fgColor="f0f4f8")
-    # Mentés bufferbe
     buf = io.BytesIO()
     wb.save(buf)
     file_bytes = buf.getvalue()
-    # Supabase storage
-    supabase_url = os.environ.get("SUPABASE_URL", "")
-    supabase_key = os.environ.get("SUPABASE_KEY", "")
+    supabase_url = os.environ.get("SUPABASE_URL","")
+    supabase_key = os.environ.get("SUPABASE_KEY","")
     now = _dt.now(_pytz.timezone("Europe/Budapest"))
     file_name = "tippek_" + now.strftime("%Y-%m-%d") + ".xlsx"
     storage_path = "tippek/" + file_name
-    r = _rq.post(supabase_url + "/storage/v1/object/elemzesek/" + storage_path,
-                 data=file_bytes,
+    r = _rq.post(supabase_url + "/storage/v1/object/elemzesek/" + storage_path, data=file_bytes,
                  headers={"apikey": supabase_key, "Authorization": "Bearer " + supabase_key,
                           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                           "x-upsert": "true"}, timeout=30)
     if not r.ok:
         return _ok({"error": "Storage hiba: " + str(r.status_code)}, 500)
     file_url = supabase_url + "/storage/v1/object/public/elemzesek/" + storage_path
-    # Regi napi rekord torlese ha van
     old = db.table("elemzesek").select("id").eq("file_name", file_name).execute()
     if old.data:
         db.table("elemzesek").delete().eq("file_name", file_name).execute()
-    db.table("elemzesek").insert({
-        "file_name": file_name,
-        "file_url": file_url,
-        "category": "vip",
-        "created_at": now.isoformat()
-    }).execute()
+    db.table("elemzesek").insert({"file_name": file_name, "file_url": file_url, "category": "vip", "created_at": now.isoformat()}).execute()
     return _ok({"ok": True, "file_url": file_url, "tips_count": len(all_tips)})
+
+@api.get("/admin/tipp-manager", response_class=HTMLResponse)
+async def tipp_manager_page(request: Request):
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+    from fastapi.responses import FileResponse
+    p = _os.path.join(_BASE_DIR, "templates", "tipp_manager.html")
+    return FileResponse(p)
+
+@api.post("/admin/proxy-perc90")
+async def proxy_perc90(request: Request):
+    import json as _jj, requests as _rq
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultsag"}, 403)
+    data = await request.json()
+    perc90_pass = os.environ.get("PERC90_ADMIN_PASSWORD", "")
+    perc90_url = os.environ.get("PERC90_URL", "https://90perc.hu")
+    try:
+        r = _rq.post(f"{perc90_url}/api/admin/import-tip",
+            headers={"Content-Type": "application/json", "x-admin-password": perc90_pass},
+            json=data, timeout=15)
+        return _ok(r.json() if r.ok else {"error": r.text[:100]}, r.status_code)
+    except Exception as e:
+        return _ok({"error": str(e)}, 500)
+
+@api.post("/admin/import-tip")
+async def admin_import_tip(request: Request):
+    import json as _jj
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultsag"}, 403)
+    data = await request.json()
+    from claude_ai_generator import save_single_tip
+    try:
+        result = save_single_tip(data)
+        return _ok({"ok": True, "id": result.get("id")})
+    except Exception as e:
+        return _ok({"error": str(e)}, 500)
+
+@api.post("/admin/generate-tips-raw")
+async def admin_generate_tips_raw(request: Request):
+    import json as _jj
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultsag"}, 403)
+    from starlette.concurrency import run_in_threadpool
+    try:
+        from claude_ai_generator import generate_tips_raw
+        tips = await run_in_threadpool(generate_tips_raw)
+        return _ok(tips)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return _ok({"error": str(e)}, 500)
+
+@api.get("/admin/ai-tips/{tip_id}/data")
+async def get_ai_tip_data(tip_id: str, request: Request):
+    import json as _jj
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultsag"}, 403)
+    db = get_admin_db()
+    for table in ["free_slips", "manual_slips"]:
+        r = db.table(table).select("*").eq("id", tip_id).execute()
+        if r.data:
+            tip = r.data[0]
+            legs = []
+            if tip.get("ai_legs"):
+                try: legs = _jj.loads(tip["ai_legs"])
+                except: pass
+            if not legs and "\nL\u00e1bak:\n" in (tip.get("ai_note") or ""):
+                for line in tip["ai_note"].split("\nL\u00e1bak:\n")[1].split("\n"):
+                    line = line.strip().lstrip("*").lstrip("\u2022").strip()
+                    if line and ": " in line and " @ " in line:
+                        m_p, rest = line.split(": ", 1)
+                        p_o = rest.split(" @ ")
+                        try: odds_f = float(p_o[1].split(" ")[0]) if len(p_o)>1 else 1.0
+                        except: odds_f = 1.0
+                        commence = " ".join(p_o[1].split(" ")[1:]).strip() if len(p_o)>1 else ""
+                        legs.append({"match": m_p.strip(), "pick": p_o[0].strip(), "odds": odds_f, "commence": commence})
+            if not legs and tip.get("tip_type") == "kombi":
+                legs = [{"match": "?", "pick": "?", "odds": 1.0, "commence": ""}]
+            pick = tip.get("ai_pick") or ""
+            if not pick and not legs:
+                tv = (tip.get("tipp_neve") or "").replace("[AI FREE] ","").replace("[AI] ","")
+                parts = tv.split(" \u2013 ")
+                if len(parts) > 1:
+                    pick = parts[1].split(" @ ")[0].strip()
+            return _ok({"id": tip_id, "pick": pick, "odds": tip.get("eredo_odds") or "",
+                       "note": (tip.get("ai_note") or "").split("\n\nL\u00e1bak:\n")[0],
+                       "legs": legs, "tip_type": tip.get("tip_type") or "",
+                       "match": tip.get("ai_match") or "", "tipp_neve": tip.get("tipp_neve") or "",
+                       "table": table})
+    return _ok({"error": "Nem talalhato"}, 404)
+
+@api.post("/admin/ai-tips/{tip_id}/edit")
+async def edit_ai_tip(tip_id: str, request: Request):
+    import json as _jj
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(content=_jj.dumps(d, ensure_ascii=False), status_code=s, media_type="application/json")
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get("chat_id")) != admin_id:
+        return _ok({"error": "Nincs jogosultsag"}, 403)
+    db = get_admin_db()
+    target_table = None
+    tip_row = None
+    for table in ["manual_slips", "free_slips"]:
+        chk = db.table(table).select("*").eq("id", tip_id).execute()
+        if chk.data:
+            row = chk.data[0]
+            if table == "free_slips" or row.get("tip_type") == "free":
+                target_table = table; tip_row = row; break
+            elif target_table is None:
+                target_table = table; tip_row = row
+    if not target_table:
+        return _ok({"error": "Nem talalhato"}, 404)
+    data = await request.json()
+    updates = {}
+    if "note" in data: updates["ai_note"] = data["note"]
+    if "odds" in data: updates["eredo_odds"] = float(data["odds"])
+    if "pick" in data: updates["ai_pick"] = data["pick"]
+    if "legs" in data:
+        updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
+        if "odds" in data:
+            updates["tipp_neve"] = "[AI] Kombi \u2013 \u00f6ssz odds " + str(data["odds"])
+        old_note = tip_row.get("ai_note") or ""
+        note_text = old_note.split("\n\nL\u00e1bak:\n")[0] if "\n\nL\u00e1bak:\n" in old_note else old_note
+        if "note" in data: note_text = data["note"]
+        legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
+        updates["ai_note"] = note_text + "\n\nL\u00e1bak:\n" + "\n".join(legs_lines)
+    elif "pick" in data or "odds" in data:
+        old_name = tip_row.get("tipp_neve") or ""
+        match = tip_row.get("ai_match") or ""
+        commence = tip_row.get("ai_commence") or ""
+        if not match:
+            tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
+            if " \u2013 " in tv: match = tv.split(" \u2013 ")[0].strip()
+        prefix = "[AI FREE] " if (target_table == "free_slips" or "FREE" in old_name) else "[AI] "
+        name = prefix + (match or "") + " \u2013 " + str(data.get("pick","")) + " @ " + str(data.get("odds",""))
+        if commence: name += " " + commence
+        updates["tipp_neve"] = name
+    if not updates:
+        return _ok({"error": "Nincs modositas"}, 400)
+    db.table(target_table).update(updates).eq("id", tip_id).execute()
+    print(f"[edit] {target_table} frissitve: {tip_id}")
+    return _ok({"ok": True})
 
 @api.on_event("startup")
 async def startup():
