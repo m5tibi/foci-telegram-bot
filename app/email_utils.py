@@ -1,3 +1,4 @@
+import json
 # app/email_utils.py
 """
 Email értesítők – cPanel SMTP-n keresztül.
@@ -230,14 +231,33 @@ def notify_ai_tips(to_emails: list, vip_tips: list, free_tips: list, vip_url: st
     tip_rows = ""
     for t in vip_tips:
         name = t.get("tipp_neve", "").replace("[AI] ", "").replace("[AI FREE] ", "")
-        icon = "🎰" if t.get("tip_type") == "kombi" else "⚽"
+        is_kombi = t.get("tip_type") == "kombi"
+        icon = "🎰" if is_kombi else "⚽"
         odds = t.get("eredo_odds", "")
         note = t.get("ai_note", "").split("\nLábak:")[0].strip()
+        # Kombi lábak kinyerése
+        legs_html = ""
+        if is_kombi:
+            ai_legs = t.get("ai_legs")
+            if ai_legs:
+                try:
+                    legs = json.loads(ai_legs) if isinstance(ai_legs, str) else ai_legs
+                    legs_items = "".join([
+                        f'<li style="margin:2px 0;color:#cbd5e0;">• {l.get("match","?")} – {l.get("pick","?")} @ {l.get("odds","?")} 🕐 {l.get("commence","")}</li>'
+                        for l in legs
+                    ])
+                    legs_html = f'<ul style="margin:4px 0;padding-left:12px;font-size:12px;">{legs_items}</ul>'
+                except: pass
+            elif "\nLábak:\n" in (t.get("ai_note") or ""):
+                raw_legs = t["ai_note"].split("\nLábak:\n")[1]
+                items = "".join([f'<li style="margin:2px 0;color:#cbd5e0;">{l.strip()}</li>' for l in raw_legs.split("\n") if l.strip()])
+                legs_html = f'<ul style="margin:4px 0;padding-left:12px;font-size:12px;">{items}</ul>'
         tip_rows += f"""
         <tr><td style="padding:12px 0;border-bottom:1px solid rgba(212,175,55,.1);">
             <div style="font-size:13px;font-weight:700;color:#D4AF37;margin-bottom:4px">
                 {icon} {name}
             </div>
+            {legs_html}
             {'<div style="font-size:12px;color:#A0A0C0;line-height:1.5;margin-top:4px">' + note + '</div>' if note else ''}
             <div style="font-size:12px;color:#68D391;margin-top:4px;font-weight:700">Odds: {odds}</div>
         </td></tr>"""
