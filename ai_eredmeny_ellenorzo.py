@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.4
+# ai_eredmeny_ellenorzo.py v1.5.6
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
