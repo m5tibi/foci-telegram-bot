@@ -1,4 +1,4 @@
-# main.py v2.7.7
+# main.py v2.7.8
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -966,8 +966,9 @@ async def export_tips_excel(request: Request):
                  headers={"apikey": supabase_key, "Authorization": "Bearer " + supabase_key,
                           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                           "x-upsert": "true"}, timeout=30)
+    print(f"[excel] Storage valasz: {r.status_code} {r.text[:200]}")
     if not r.ok:
-        return _ok({"error": "Storage hiba: " + str(r.status_code)}, 500)
+        return _ok({"error": "Storage hiba: " + str(r.status_code) + " " + r.text[:100]}, 500)
     file_url = supabase_url + "/storage/v1/object/public/elemzesek/" + storage_path
     old = db.table("elemzesek").select("id").eq("file_name", file_name).execute()
     if old.data:
