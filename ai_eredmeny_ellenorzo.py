@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.2
+# ai_eredmeny_ellenorzo.py v1.5.3
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -38,6 +38,7 @@ SPORT_KEYS = [
     "soccer_uefa_champs_league_qualification",
     "soccer_uefa_europa_league_qualification",
     "soccer_uefa_conference_league_qualification",
+    "soccer_england_efl_cup",
     "soccer_korea_kleague1", "soccer_saudi_arabia_pro_league",
     "soccer_chile_campeonato",
 ]
