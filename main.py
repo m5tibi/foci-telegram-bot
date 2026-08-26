@@ -1,4 +1,4 @@
-# main.py v2.7.2
+# main.py v2.7.3
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -833,7 +833,7 @@ def _auto_check_loop():
             now = datetime.now(pytz.timezone("Europe/Budapest"))
             today = now.strftime("%Y-%m-%d")
             # 06:05-kor fut, naponta egyszer
-            if now.hour == 6 and now.minute == 5 and last_run_date != today:
+            if now.hour == 5 and now.minute == 0 and last_run_date != today:
                 last_run_date = today
                 print(f"[auto-eval] Automatikus AI eredmény ellenőrzés indul: {today}")
                 try:
