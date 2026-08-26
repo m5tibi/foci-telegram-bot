@@ -1,4 +1,4 @@
-# main.py v2.7.6
+# main.py v2.7.7
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -960,7 +960,8 @@ async def export_tips_excel(request: Request):
     supabase_key = os.environ.get("SUPABASE_KEY","")
     now = _dt.now(_pytz.timezone("Europe/Budapest"))
     file_name = "tippek_" + now.strftime("%Y-%m-%d") + ".xlsx"
-    storage_path = "tippek/" + file_name
+    storage_path = file_name
+    print(f"[excel] Storage feltoltes: {supabase_url}/storage/v1/object/elemzesek/{storage_path}")
     r = _rq.post(supabase_url + "/storage/v1/object/elemzesek/" + storage_path, data=file_bytes,
                  headers={"apikey": supabase_key, "Authorization": "Bearer " + supabase_key,
                           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
