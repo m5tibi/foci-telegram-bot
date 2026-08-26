@@ -97,6 +97,32 @@
             spinner.style.display = 'none';
         }
     }
+
+async function exportExcel() {
+  const btn = document.getElementById('excel-btn');
+  const status = document.getElementById('excel-status');
+  btn.disabled = true;
+  status.textContent = '⏳ Generálás...';
+  try {
+    const r = await fetch('/admin/export-tips-excel', { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      status.textContent = '✅ ' + (data.tips_count || 0) + ' tipp exportálva!';
+    } else {
+      status.textContent = '❌ ' + (data.error || 'Hiba');
+    }
+  } catch(e) {
+    status.textContent = '❌ ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+async function deleteElemzes(id) {
+  if (!confirm('Biztosan törlöd ezt a fájlt?')) return;
+  const r = await fetch('/admin/elemzesek/' + id, {method: 'DELETE'});
+  if (r.ok) { location.reload(); }
+  else { alert('Hiba a törlésnél!'); }
+}
     </script>
 
     <div style="background: #2d3748; padding: 25px; border-radius: 12px; margin-bottom: 30px; border-left: 5px solid #4299e1; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
