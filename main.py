@@ -1,4 +1,4 @@
-# main.py v2.7.4
+# main.py v2.7.6
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
@@ -890,8 +890,28 @@ async def export_tips_excel(request: Request):
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
-    manual = db.table("manual_slips").select("*").is_("result_status", "null").eq("ai_generated", True).order("created_at", desc=True).execute()
-    free = db.table("free_slips").select("*").is_("result_status", "null").eq("ai_generated", True).order("created_at", desc=True).execute()
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_KEY", "")
+    headers = {"apikey": supabase_key, "Authorization": "Bearer " + supabase_key}
+    from datetime import datetime as _dt2, timedelta as _td
+    import pytz as _pytz2
+    cutoff = (_dt2.now(_pytz2.timezone("Europe/Budapest")) - _td(days=2)).isoformat()
+    manual_r = _rq.get(supabase_url + "/rest/v1/manual_slips",
+                       headers=headers,
+                       params={"select": "*", "created_at": f"gte.{cutoff}", "order": "created_at.desc", "limit": "50"},
+                       timeout=15)
+    free_r = _rq.get(supabase_url + "/rest/v1/free_slips",
+                     headers=headers,
+                     params={"select": "*", "created_at": f"gte.{cutoff}", "order": "created_at.desc", "limit": "20"},
+                     timeout=15)
+    print(f"[excel] manual_slips: {manual_r.status_code}, {len(manual_r.json() if manual_r.ok else [])} sor")
+    print(f"[excel] free_slips: {free_r.status_code}, {len(free_r.json() if free_r.ok else [])} sor")
+    manual_data = manual_r.json() if manual_r.ok else []
+    free_data = free_r.json() if free_r.ok else []
+    class _Obj: 
+        def __init__(self, data): self.data = data
+    manual = _Obj(manual_data)
+    free = _Obj(free_data)
     all_tips = (manual.data or []) + (free.data or [])
     if not all_tips:
         return _ok({"error": "Nincs pending tipp a Supabase-ben"}, 400)
