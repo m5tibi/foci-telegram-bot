@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.3
+# ai_eredmeny_ellenorzo.py v1.5.4
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -171,8 +171,10 @@ def _find_match(name: str, completed: dict):
             return g
     for g in completed.values():
         if _nsim(nh, _norm_team(g.get("away",""))) and _nsim(na, _norm_team(g.get("home",""))):
-            print(f"[ai_eval] Fordított: '{name}' → {g.get('home')} vs {g.get('away')}")
-            return g
+            print(f"[ai_eval] Fordított névsorrend: '{name}' → {g.get('away')} vs {g.get('home')}")
+            # h és a felcserélése: az Odds API-ban fordítva tárolta
+            return {"h": g.get("a", 0), "a": g.get("h", 0),
+                    "home": g.get("away", ""), "away": g.get("home", "")}
     return None
 
 
