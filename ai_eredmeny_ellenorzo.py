@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.7
+# ai_eredmeny_ellenorzo.py v1.5.8
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -321,7 +321,7 @@ def evaluate_combo(legs_json: str, completed: dict) -> str:
         else:
             return "Ismeretlen"
 
-    # Végeredmény a szorzó alapján
+    # Végeredmény a szorzó alapján – (status, actual_multiplier) tuple
     if multiplier > 1.0:
         return "Nyert"
     elif multiplier == 1.0:
@@ -384,9 +384,14 @@ def main():
             tip_type = row.get("tip_type", "single")
             result   = None
 
+            actual_payout = None
             if tip_type == "kombi":
                 legs_json = row.get("ai_legs", "[]")
-                result = evaluate_combo(legs_json, completed)
+                combo_res = evaluate_combo(legs_json, completed)
+                if isinstance(combo_res, tuple):
+                    result, actual_payout = combo_res
+                else:
+                    result = combo_res
             else:
                 pick   = row.get("ai_pick", "")
                 market = row.get("ai_market", "")
