@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.8
+# ai_eredmeny_ellenorzo.py v1.5.9
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -80,6 +80,7 @@ def fetch_completed_matches():
 
     results = {}  # "Csapat A vs Csapat B" -> {home_score, away_score, completed}
 
+    _debug_epl = []  # EPL meccsek debug
     for sport in SPORT_KEYS:
         try:
             r = requests.get(
