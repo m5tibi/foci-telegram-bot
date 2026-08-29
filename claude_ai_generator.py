@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.7
+# claude_ai_generator.py v1.4.8
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -593,7 +593,28 @@ def generate_tips_raw() -> dict:
     if not data.get("matches"):
         return {"error": "Nincs meccsadat", "tips": []}
 
-    matches = data["matches"]
+    # Múltbeli meccsek kiszűrése
+    from datetime import datetime as _dt2
+    import pytz as _ptz2
+    _now = _dt2.now(_ptz2.timezone("Europe/Budapest"))
+    def _is_future(m):
+        c = str(m.get("commence",""))
+        try:
+            mm_dd = c.split(" ")[0]  # "08.28"
+            hh_mm = c.split(" ")[1]  # "20:45"
+            mm, dd = mm_dd.split(".")
+            hh, mi = hh_mm.split(":")
+            d = _dt2(2026, int(mm), int(dd), int(hh), int(mi),
+                     tzinfo=_ptz2.timezone("Europe/Budapest"))
+            return (d - _now).total_seconds() > -3600
+        except: return True
+    all_matches = data["matches"]
+    matches = [m for m in all_matches if _is_future(m)]
+    if len(matches) < len(all_matches):
+        print(f"[claude_gen] {len(all_matches) - len(matches)} régi meccs kiszűrve, {len(matches)} friss maradt")
+    if not matches:
+        print("[claude_gen] Csak régi meccsek voltak, refresh indul...")
+        return {"matches": [], "tippedMatches": data.get("tippedMatches",[]), "tippedPicks": data.get("tippedPicks",[])}
     tipped_picks = fetch_active_supabase_picks()
     print(f"[raw_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
 
