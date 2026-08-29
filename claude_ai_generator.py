@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.9
+# claude_ai_generator.py v1.5.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -676,7 +676,18 @@ def generate_tips() -> dict:
 
     # 1. Meccsek lekérése
     data = fetch_match_list()
-    matches = data.get("matches", [])
+    all_m = data.get("matches", [])
+    # Tegnapi meccsek kiszűrése
+    from datetime import datetime as _dtt, timedelta as _tdd
+    import pytz as _ptzz
+    _now_b = _dtt.now(_ptzz.timezone("Europe/Budapest"))
+    _yday = (_now_b - _tdd(days=1)).strftime("%m.%d")
+    matches = [m for m in all_m if _yday not in str(m.get("commence",""))[:5]]
+    if all_m and not matches:
+        print(f"[claude_gen] Csak tegnapi ({_yday}) meccsek → refresh indul")
+        return {"error": "Csak tegnapi meccsek, kérj frissítést"}
+    if len(matches) < len(all_m):
+        print(f"[claude_gen] {len(all_m)-len(matches)} tegnapi meccs kiszűrve, {len(matches)} maradt")
     tipped = data.get("tippedMatches", [])
     # Tippelt pick-ek összegyűjtése (match | piac | pick formátumban)
     tipped_picks = data.get("tippedPicks", tipped)  # fallback: meccs szintű kizárás
