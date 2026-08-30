@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.5
+# ai_eredmeny_ellenorzo.py v1.6.7
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -167,21 +167,20 @@ def _nsim(a, b):
     if a == b or a in b or b in a: return True
     return _lev(a, b) <= max(2, int(min(len(a), len(b)) * 0.25))
 
-def _find_match(name: str, completed: dict):
+def _find_match(name: str, completed: dict, silent: bool = False):
     """Háromszintű keresés: pontos → normalizált → fordított.
     Kezeli a 'vs' és '@' szeparátorokat egyaránt.
-    '@' jelölés = idegenben játszik (pl. 'PSV @ Utrecht' → PSV a vendég)."""
+    '@' jelölés = idegenben játszik (pl. 'PSV @ Utrecht' → PSV a vendég).
+    silent=True: nem log-ol 'Nem találva'-t (pl. kombi lábak pending esetén)."""
     if not name: return None
     if name in completed: return completed[name]
 
     # Szétbontás vs. vagy @ alapján
-    # '@' esetén a bal oldali csapat a VENDÉG (fordított sorrend az Odds API-hoz képest)
     at_notation = bool(_re.search(r"\s+@\s+", name))
     parts = _re.split(r"\s+(?:vs\.?|@)\s+", name, flags=_re.IGNORECASE)
     if len(parts) != 2: return None
 
     if at_notation:
-        # "Fenerbahce @ Samsunspor" → Samsunspor a hazai, Fenerbahce a vendég
         nh, na = _norm_team(parts[1]), _norm_team(parts[0])
     else:
         nh, na = _norm_team(parts[0]), _norm_team(parts[1])
@@ -196,12 +195,13 @@ def _find_match(name: str, completed: dict):
             print(f"[ai_eval] Fordított névsorrend: '{name}' → {g.get('home')} vs {g.get('away')}")
             return {"h": g.get("a", 0), "a": g.get("h", 0),
                     "home": g.get("away", ""), "away": g.get("home", "")}
-    # Nem találva – logoljuk a legközelebbi neveket
-    candidates = [k for k in completed if nh[:5] in k.lower() or na[:5] in k.lower()][:4]
-    if candidates:
-        print(f"[ai_eval] Nem találva: '{name}' | Hasonló meccsek: {candidates}")
-    else:
-        print(f"[ai_eval] Nem találva: '{name}'")
+    # Nem találva
+    if not silent:
+        candidates = [k for k in completed if nh[:5] in k.lower() or na[:5] in k.lower()][:4]
+        if candidates:
+            print(f"[ai_eval] Nem találva: '{name}' | Hasonló meccsek: {candidates}")
+        else:
+            print(f"[ai_eval] Nem találva: '{name}'")
     return None
 
 
@@ -313,50 +313,58 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
 # ── Kombi kiértékelés ─────────────────────────────────────────────────────────
 
 def evaluate_combo(legs_json: str, completed: dict) -> str:
-    """Pontos ázsiai hendikep kombi kiértékelés szorzó alapon."""
+    """Pontos ázsiai hendikep kombi kiértékelés szorzó alapon.
+    Ha bármelyik láb Veszített → az egész kombi Veszített (pending lábak ellenére is).
+    Ha van pending láb de nincs vesztes → None (még várunk)."""
     try:
         legs = json.loads(legs_json)
     except:
         return "Ismeretlen"
 
-    multiplier = 1.0  # futó szorzó (1.0 = tét visszajár)
+    multiplier = 1.0
+    has_pending = False  # van-e még le nem játszott láb
 
     for leg in legs:
         match  = leg.get("match", "")
         pick   = leg.get("pick", "")
         market = leg.get("market", "")
         odds   = float(leg.get("odds", 1.0) or 1.0)
-        score  = _find_match(match, completed)  # fuzzy + fordított névsor keresés
+        score  = _find_match(match, completed, silent=True)
 
         if not score:
-            return None  # Még nem zárult le minden láb
+            has_pending = True
+            continue  # nem ugrunk ki – hátha egy másik láb már vesztes!
 
-        res = evaluate_pick(pick, market, score["h"], score["a"], 
-                              home_team=score.get("home",""), 
+        res = evaluate_pick(pick, market, score["h"], score["a"],
+                              home_team=score.get("home",""),
                               away_team=score.get("away",""))
 
         if res == "Veszített":
-            return "Veszített"       # az egész kombi elvész
+            print(f"[ai_eval] Kombi láb vesztes → egész kombi vesztes: '{match}' pick='{pick}'")
+            return "Veszített"       # azonnal vesztes, a többi láb mindegy
         elif res == "Nyert":
-            multiplier *= odds       # teljes szorzó
+            multiplier *= odds
         elif res == "Visszajár":
-            multiplier *= 1.0       # semmi változás
+            multiplier *= 1.0
         elif res == "Fél-nyert":
-            multiplier *= (0.5 * odds + 0.5)   # fele nyert, fele visszajár
+            multiplier *= (0.5 * odds + 0.5)
         elif res == "Fél-veszített":
-            multiplier *= 0.5       # fele elvész, fele visszajár
+            multiplier *= 0.5
         else:
             return "Ismeretlen"
 
-    # Végeredmény a szorzó alapján – (status, actual_multiplier) tuple
+    if has_pending:
+        return None  # nincs vesztes láb, de van még pending → várunk
+
+    # Minden láb lejátszódott, szorzó alapján döntés
     if multiplier > 1.0:
         return "Nyert"
     elif multiplier == 1.0:
         return "Visszajár"
     elif multiplier > 0.5:
-        return "Fél-nyert"   # több mint fele visszajár + profit
+        return "Fél-nyert"
     elif multiplier > 0:
-        return "Fél-veszített"  # kevesebb mint fele jár vissza
+        return "Fél-veszített"
     else:
         return "Veszített"
 
@@ -467,8 +475,6 @@ def main():
                     if not pick and len(parts_tv) > 1:
                         pick = parts_tv[1].split(" @ ")[0].strip()
                 score = _find_match(match, completed)
-                if not score:
-                    print(f"[ai_eval] Nem találva: '{match}'")
                 if score:
                     result = evaluate_pick(pick, market, score["h"], score["a"],
                                          home_team=score.get("home",""),
@@ -508,6 +514,20 @@ def main():
         print(f"[ai_eval] {len(updated)} tipp kiértékelve, Telegram értesítő elküldve.")
     else:
         print("[ai_eval] Nincs új lezárt tipp.")
+
+    # Összesítő: még függőben lévő tippek száma
+    for table in ["manual_slips", "free_slips"]:
+        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+        r_pending = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=headers,
+            params={"select": "id", "ai_generated": "eq.true",
+                    "or": "(result_status.eq.Folyamatban,result_status.is.null)"},
+            timeout=10
+        )
+        pending_count = len(r_pending.json()) if r_pending.ok else "?"
+        if pending_count:
+            print(f"[ai_eval] ⏳ {table}: {pending_count} tipp még függőben (mai/jövőbeli meccs)")
 
 
 if __name__ == "__main__":
