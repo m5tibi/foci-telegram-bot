@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.0
+# ai_eredmeny_ellenorzo.py v1.6.3
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -86,7 +86,7 @@ def fetch_completed_matches():
                 f"https://api.the-odds-api.com/v4/sports/{sport}/scores/",
                 params={
                     "apiKey": ODDS_API_KEY,
-                    "daysFrom": 3,
+                    "daysFrom": 5,   # 5 nap visszamenőleg (paid tier szükséges; free tier max 3)
                     "dateFormat": "iso",
                 },
                 timeout=15,
@@ -142,7 +142,13 @@ import unicodedata as _ud
 
 def _norm_team(s: str) -> str:
     s = _ud.normalize("NFD", s or "").encode("ascii", "ignore").decode().lower()
-    s = _re.sub(r"(fc|cf|sc|afc|cd|ac|ssc|as|rc|fk|sk|club|deportivo|united|city|fotball|football)(?!\w)", "", s)
+    # Általános toldalékok, városnevekkel kombinált csapatnevekben (FC Barcelona → barcelona)
+    s = _re.sub(
+        r"\b(fc|cf|sc|afc|cd|ac|ssc|as|rc|fk|sk|club|deportivo|united|city|"
+        r"fotball|football|hotspur|piraeus|wanderers|athletic|rovers|town|"
+        r"bsc|ifk|bk|rfc|asc|vfl|vfb|tsg|rcd|ud|sv|tsv|hsv|rsb|fca)\b",
+        "", s
+    )
     return _re.sub(r"[^a-z0-9]", "", s)
 
 def _lev(a, b):
@@ -161,23 +167,35 @@ def _nsim(a, b):
     return _lev(a, b) <= max(2, int(min(len(a), len(b)) * 0.25))
 
 def _find_match(name: str, completed: dict):
-    """Háromszintű keresés: pontos → normalizált → fordított."""
+    """Háromszintű keresés: pontos → normalizált → fordított.
+    Kezeli a 'vs' és '@' szeparátorokat egyaránt.
+    '@' jelölés = idegenben játszik (pl. 'PSV @ Utrecht' → PSV a vendég)."""
     if not name: return None
     if name in completed: return completed[name]
-    parts = _re.split(r"\s+vs\.?\s+", name, flags=_re.IGNORECASE)
+
+    # Szétbontás vs. vagy @ alapján
+    # '@' esetén a bal oldali csapat a VENDÉG (fordított sorrend az Odds API-hoz képest)
+    at_notation = bool(_re.search(r"\s+@\s+", name))
+    parts = _re.split(r"\s+(?:vs\.?|@)\s+", name, flags=_re.IGNORECASE)
     if len(parts) != 2: return None
-    nh, na = _norm_team(parts[0]), _norm_team(parts[1])
+
+    if at_notation:
+        # "Fenerbahce @ Samsunspor" → Samsunspor a hazai, Fenerbahce a vendég
+        nh, na = _norm_team(parts[1]), _norm_team(parts[0])
+    else:
+        nh, na = _norm_team(parts[0]), _norm_team(parts[1])
+
     # 1. pass: hazai~hazai, vendég~vendég
     for g in completed.values():
         if _nsim(nh, _norm_team(g.get("home",""))) and _nsim(na, _norm_team(g.get("away",""))):
             return g
-    # 2. pass: fordított névsorrend (az AI fordítva generálta)
+    # 2. pass: fordított névsorrend
     for g in completed.values():
         if _nsim(nh, _norm_team(g.get("away",""))) and _nsim(na, _norm_team(g.get("home",""))):
             print(f"[ai_eval] Fordított névsorrend: '{name}' → {g.get('home')} vs {g.get('away')}")
             return {"h": g.get("a", 0), "a": g.get("h", 0),
                     "home": g.get("away", ""), "away": g.get("home", "")}
-    # Nem találva – logoljuk a legközelebbi neveket a debug segítségéhez
+    # Nem találva – logoljuk a legközelebbi neveket
     candidates = [k for k in completed if nh[:5] in k.lower() or na[:5] in k.lower()][:4]
     if candidates:
         print(f"[ai_eval] Nem találva: '{name}' | Hasonló meccsek: {candidates}")
@@ -391,6 +409,40 @@ def main():
         for row in rows:
             tip_type = row.get("tip_type", "single")
             result   = None
+
+            # ── Kickoff ellenőrzés: jövőbeli vagy nemrég kezdett meccset kihagyunk ──
+            from datetime import timezone as _tz
+            now_utc = datetime.now(_tz.utc)
+            commence_raw = row.get("commence") or row.get("kickoff") or row.get("commence_time") or ""
+            if not commence_raw:
+                # Megpróbáljuk a tipp_neve-ből kiolvasni: "🕐 08.30 17:30"
+                import re as _re2
+                tv_raw = row.get("tipp_neve", "")
+                m_time = _re2.search(r"🕐\s*(\d{2})\.(\d{2})\s+(\d{2}):(\d{2})", tv_raw)
+                if m_time:
+                    month, day, hour, minute = (int(x) for x in m_time.groups())
+                    year = now_utc.year
+                    try:
+                        kickoff_utc = datetime(year, month, day, hour, minute, tzinfo=_tz.utc)
+                        # Budapest UTC+2 → kickoff valójában UTC-ben 2 órával korábbi
+                        kickoff_utc = kickoff_utc - timedelta(hours=2)
+                        mins_since = (now_utc - kickoff_utc).total_seconds() / 60
+                        if mins_since < 90:
+                            label = row.get("tipp_neve", row.get("ai_match", "?"))
+                            print(f"[ai_eval] ⏳ Még nem értékelhető ({int(mins_since)} perce kezdett/kezdődik): '{label}'")
+                            continue
+                    except Exception:
+                        pass
+            else:
+                try:
+                    kickoff_utc = datetime.fromisoformat(commence_raw.replace("Z", "+00:00"))
+                    mins_since = (now_utc - kickoff_utc).total_seconds() / 60
+                    if mins_since < 90:
+                        label = row.get("tipp_neve", row.get("ai_match", "?"))
+                        print(f"[ai_eval] ⏳ Még nem értékelhető ({int(mins_since)} perce kezdett/kezdődik): '{label}'")
+                        continue
+                except Exception:
+                    pass
 
             actual_payout = None
             if tip_type == "kombi":
