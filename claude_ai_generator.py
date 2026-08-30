@@ -82,10 +82,12 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - Különböző meccsekről, NEM átfedő kombik.
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
 
-3) "free_tip": KÖTELEZŐ! Minden nap adj 1 ingyenes tippet!
-   - Lehet single (1.60-1.90 odds) VAGY kombi (2-3 láb, 1.20-1.60 odds lábankénti).
-   - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel.
+3) "free_tip": KÖTELEZŐ MEZŐ! Minden nap adj 1 ingyenes tippet – SOHA ne hagyd ki!
+   - Ha nincs teljesen külön jó meccs, a legjobb single tippedet add meg itt is (de KÜLÖNBÖZŐ meccsről ha lehet).
+   - Legalább 1.65 odds! Lehet single (1.65-2.00 odds) VAGY kombi (2-3 láb, 1.20-1.55 odds lábankénti).
+   - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel (ha van ilyen lehetőség).
    - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
+   - SOHA ne hagyd null-on – ez kötelező ingyenes tipp az ingyenes felhasználóknak!
 
 Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL."""
 
@@ -256,7 +258,7 @@ def save_to_supabase(tips: dict) -> dict:
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.65
+        float(free_tip.get("odds", 0) or 0) < 1.65  # 1.65 minimum – összhangban a prompttal
     ):
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
