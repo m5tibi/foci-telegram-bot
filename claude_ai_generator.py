@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.2.0
+# claude_ai_generator.py v1.3.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
