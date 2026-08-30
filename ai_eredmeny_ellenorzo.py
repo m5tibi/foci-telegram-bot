@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.3
+# ai_eredmeny_ellenorzo.py v1.6.4
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -86,7 +86,7 @@ def fetch_completed_matches():
                 f"https://api.the-odds-api.com/v4/sports/{sport}/scores/",
                 params={
                     "apiKey": ODDS_API_KEY,
-                    "daysFrom": 5,   # 5 nap visszamenőleg (paid tier szükséges; free tier max 3)
+                    "daysFrom": 3,
                     "dateFormat": "iso",
                 },
                 timeout=15,
