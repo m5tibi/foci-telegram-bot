@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.5.9
+# ai_eredmeny_ellenorzo.py v1.6.0
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -78,9 +78,8 @@ def fetch_completed_matches():
         print("[ai_eval] ODDS_API_KEY nincs beállítva!")
         return {}
 
-    results = {}  # "Csapat A vs Csapat B" -> {home_score, away_score, completed}
+    results = {}  # "Csapat A vs Csapat B" -> {home, away, h, a}
 
-    _debug_epl = []  # EPL meccsek debug
     for sport in SPORT_KEYS:
         try:
             r = requests.get(
@@ -124,14 +123,15 @@ def fetch_completed_matches():
                 scores = {s["name"]: s["score"] for s in (g.get("scores") or [])}
                 h_score = int(scores.get(home, 0) or 0)
                 a_score = int(scores.get(away, 0) or 0)
-                key1 = f"{home} vs {away}"
-                key2 = f"{away} vs {home}"
-                results[key1] = {"home": home, "away": away, "h": h_score, "a": a_score}
-                results[key2] = {"home": home, "away": away, "h": a_score, "a": h_score}
+                key = f"{home} vs {away}"
+                results[key] = {"home": home, "away": away, "h": h_score, "a": a_score}
+                # EPL debug: valódi csapatnév logolása névegyezés hibakereséshez
+                if sport == "soccer_epl":
+                    print(f"[ai_eval][EPL] {home} vs {away} → {h_score}-{a_score}")
         except Exception as e:
             print(f"[ai_eval] {sport} lekérési hiba: {e}")
 
-    print(f"[ai_eval] {len(results)//2} lezárt meccs betöltve")
+    print(f"[ai_eval] {len(results)} lezárt meccs betöltve")
     return results
 
 
@@ -167,15 +167,22 @@ def _find_match(name: str, completed: dict):
     parts = _re.split(r"\s+vs\.?\s+", name, flags=_re.IGNORECASE)
     if len(parts) != 2: return None
     nh, na = _norm_team(parts[0]), _norm_team(parts[1])
+    # 1. pass: hazai~hazai, vendég~vendég
     for g in completed.values():
         if _nsim(nh, _norm_team(g.get("home",""))) and _nsim(na, _norm_team(g.get("away",""))):
             return g
+    # 2. pass: fordított névsorrend (az AI fordítva generálta)
     for g in completed.values():
         if _nsim(nh, _norm_team(g.get("away",""))) and _nsim(na, _norm_team(g.get("home",""))):
-            print(f"[ai_eval] Fordított névsorrend: '{name}' → {g.get('away')} vs {g.get('home')}")
-            # h és a felcserélése: az Odds API-ban fordítva tárolta
+            print(f"[ai_eval] Fordított névsorrend: '{name}' → {g.get('home')} vs {g.get('away')}")
             return {"h": g.get("a", 0), "a": g.get("h", 0),
                     "home": g.get("away", ""), "away": g.get("home", "")}
+    # Nem találva – logoljuk a legközelebbi neveket a debug segítségéhez
+    candidates = [k for k in completed if nh[:5] in k.lower() or na[:5] in k.lower()][:4]
+    if candidates:
+        print(f"[ai_eval] Nem találva: '{name}' | Hasonló meccsek: {candidates}")
+    else:
+        print(f"[ai_eval] Nem találva: '{name}'")
     return None
 
 
@@ -300,7 +307,7 @@ def evaluate_combo(legs_json: str, completed: dict) -> str:
         pick   = leg.get("pick", "")
         market = leg.get("market", "")
         odds   = float(leg.get("odds", 1.0) or 1.0)
-        score  = completed.get(match)
+        score  = _find_match(match, completed)  # fuzzy + fordított névsor keresés
 
         if not score:
             return None  # Még nem zárult le minden láb
