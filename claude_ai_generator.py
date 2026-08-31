@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.2
+# claude_ai_generator.py v1.3.3
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -368,12 +368,40 @@ def generate_tips() -> dict:
     data = fetch_match_list()
     matches = data.get("matches", [])
     tipped = data.get("tippedMatches", [])
-    # Tippelt pick-ek összegyűjtése (match | piac | pick formátumban)
-    tipped_picks = data.get("tippedPicks", tipped)  # fallback: meccs szintű kizárás
+    tipped_picks = data.get("tippedPicks", tipped)
 
     # Supabase aktív tippek hozzáadása a kizárási listához
     supabase_picks = fetch_active_supabase_picks()
     tipped_picks = list(set(tipped_picks + supabase_picks))
+
+    # ── Múltbeli meccsek kiszűrése ──────────────────────────────────
+    # A match listában lehetnek tegnapi meccsek is – ezeket kizárjuk.
+    # Kickoff formátum: "08.30 12:15" (MM.DD HH:MM, Budapest idő)
+    now_bp = datetime.now(BUDAPEST_TZ)
+    def is_future_match(m: dict) -> bool:
+        commence = m.get("commence", "")
+        if not commence:
+            return True  # ha nincs időpont, megtartjuk
+        try:
+            parts = commence.strip().split(" ")
+            md, hm = parts[0], parts[1] if len(parts) > 1 else "00:00"
+            month, day = md.split(".")
+            hour, minute = hm.split(":")
+            year = now_bp.year
+            kickoff = BUDAPEST_TZ.localize(
+                datetime(year, int(month), int(day), int(hour), int(minute))
+            )
+            # Kizárjuk ha a meccs már több mint 30 perce elkezdődött
+            return (kickoff - now_bp).total_seconds() > -30 * 60
+        except Exception:
+            return True  # parse hiba esetén megtartjuk
+
+    before_filter = len(matches)
+    matches = [m for m in matches if is_future_match(m)]
+    filtered_out = before_filter - len(matches)
+    if filtered_out:
+        print(f"[claude_gen] {filtered_out} múltbeli meccs kiszűrve a listából")
+
     print(f"[claude_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
 
     if not matches:
