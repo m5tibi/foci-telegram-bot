@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.5
+# claude_ai_generator.py v1.3.6
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -335,13 +335,21 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
             print(f"[save] Free tipp fallback (legjobb kombi láb): {free_tip['match']} @ {free_tip['odds']}")
     if free_tip:
         tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
+        # Commence kinyerése a free tippből (single vagy kombi első láb)
+        ft_commence = ""
+        if free_tip.get("type") == "kombi":
+            legs = free_tip.get("legs", [])
+            ft_commence = legs[0].get("commence", "") if legs else ""
+        else:
+            ft_commence = free_tip.get("commence", "")
+        ft_target_date = parse_target_date(ft_commence) if ft_commence else tomorrow
         commence = free_tip.get("commence", "")
         commence_str = f" 🕐 {commence}" if commence else ""
         row = {
             "tipp_neve": f"[AI FREE] {free_tip['match']} – {free_tip['pick']} @ {free_tip['odds']}{commence_str}",
             "eredo_odds": free_tip["odds"],
             "status": "Jóváhagyásra vár",
-            "target_date": tomorrow,
+            "target_date": ft_target_date,
             "ai_generated": True,
             "ai_note": free_tip.get("note", ""),
             "tip_type": "free",
