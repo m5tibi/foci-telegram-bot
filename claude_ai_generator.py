@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.1
+# claude_ai_generator.py v1.3.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -99,7 +99,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
 3) "free_tip": KÖTELEZŐ MEZŐ! Minden nap adj 1 ingyenes tippet – SOHA ne hagyd ki!
    - Ha nincs teljesen külön jó meccs, a legjobb single tippedet add meg itt is (de KÜLÖNBÖZŐ meccsről ha lehet).
-   - Legalább 1.65 odds! Lehet single (1.65-2.00 odds) VAGY kombi (2-3 láb, 1.20-1.55 odds lábankénti).
+   - Legalább 1.30 odds! Lehet single (1.30-2.00 odds) VAGY kombi (2-3 láb, 1.20-1.55 odds lábankénti).
    - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel (ha van ilyen lehetőség).
    - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
    - SOHA ne hagyd null-on – ez kötelező ingyenes tipp az ingyenes felhasználóknak!
@@ -269,14 +269,33 @@ def save_to_supabase(tips: dict) -> dict:
         if ft_key in saved_singles:
             print(f"[save] Free tipp kihagyva: duplikáció egy single tippel ({ft_key[0]})")
             free_tip = None
-    # Érvénytelen free tipp kiszűrése (N/A, 0 odds, hiányzó adatok)
+    # Érvénytelen free tipp kiszűrése – 1.30 minimum (free tipp lehet alacsonyabb oddsú biztos pick)
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.65  # 1.65 minimum – összhangban a prompttal
+        float(free_tip.get("odds", 0) or 0) < 1.30
     ):
         print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
         free_tip = None
+    # Fallback: ha nincs érvényes free tipp, a legjobb kombi láb legyen az
+    if not free_tip:
+        best_leg = None
+        for combo in tips.get("combos", []):
+            for leg in combo.get("legs", []):
+                leg_odds = float(leg.get("odds", 0) or 0)
+                if leg_odds >= 1.30 and (best_leg is None or leg_odds > float(best_leg.get("odds", 0))):
+                    best_leg = leg
+        if best_leg:
+            free_tip = {
+                "type": "single",
+                "match": best_leg.get("match", ""),
+                "market": best_leg.get("market", "1X2"),
+                "pick": best_leg.get("pick", ""),
+                "odds": best_leg.get("odds", 0),
+                "note": "",
+                "commence": best_leg.get("commence", "")
+            }
+            print(f"[save] Free tipp fallback (legjobb kombi láb): {free_tip['match']} @ {free_tip['odds']}")
     if free_tip:
         tomorrow = (datetime.now(pytz.timezone("Europe/Budapest")) + timedelta(days=1)).strftime("%Y-%m-%d")
         commence = free_tip.get("commence", "")
