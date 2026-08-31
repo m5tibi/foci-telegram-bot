@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.3
+# claude_ai_generator.py v1.3.4
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -22,30 +22,64 @@ BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 
 def fetch_match_list(retries: int = 3, retry_delay: int = 30) -> dict:
     """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt pick-eket.
+    MINDIG frissíti az Odds API adatokat (refresh-odds-only) ELŐSZÖR,
+    hogy ne stale tegnapi meccsek legyenek a listában.
     502/503 esetén (Render spin-up) újra próbálja retry_delay másodperc várakozással."""
     import time
     empty = {"matches": [], "tippedMatches": [], "tippedPicks": []}
+    headers = {"X-Admin-Password": PERC90_ADMIN_PASS}
+
+    # 1. lépés: Odds API frissítés a 90perc.hu-n (mindig, stale cache elkerülésére)
     for attempt in range(1, retries + 1):
         try:
-            r = requests.get(
-                f"{PERC90_URL}/api/match-list",
-                headers={"X-Admin-Password": PERC90_ADMIN_PASS},
-                timeout=45
+            rf = requests.post(
+                f"{PERC90_URL}/api/refresh-odds-only",
+                headers=headers,
+                timeout=60
             )
-            if r.status_code in (502, 503, 504) and attempt < retries:
-                print(f"[claude_gen] 90perc.hu {r.status_code} – szerver indul, {retry_delay}s múlva újra ({attempt}/{retries})...")
+            if rf.status_code in (502, 503, 504) and attempt < retries:
+                print(f"[claude_gen] refresh-odds-only {rf.status_code} – szerver indul, {retry_delay}s múlva újra ({attempt}/{retries})...")
                 time.sleep(retry_delay)
                 continue
-            r.raise_for_status()
-            return r.json()
+            if rf.ok:
+                data = rf.json()
+                print(f"[claude_gen] Odds API frissítve: {data.get('matches', '?')} meccs")
+            else:
+                print(f"[claude_gen] refresh-odds-only hiba: {rf.status_code}")
+            break
         except requests.exceptions.ConnectionError:
             if attempt < retries:
                 print(f"[claude_gen] 90perc.hu kapcsolódási hiba – {retry_delay}s múlva újra ({attempt}/{retries})...")
                 time.sleep(retry_delay)
             else:
                 print("[claude_gen] 90perc.hu nem elérhető, generálás kihagyva.")
+                return empty
         except Exception as e:
-            print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
+            print(f"[claude_gen] refresh-odds-only kivétel: {e}")
+            break
+
+    # 2. lépés: frissített meccs lista lekérése
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(
+                f"{PERC90_URL}/api/match-list",
+                headers=headers,
+                timeout=45
+            )
+            if r.status_code in (502, 503, 504) and attempt < retries:
+                print(f"[claude_gen] match-list {r.status_code} – {retry_delay}s múlva újra ({attempt}/{retries})...")
+                time.sleep(retry_delay)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.ConnectionError:
+            if attempt < retries:
+                print(f"[claude_gen] match-list kapcsolódási hiba – {retry_delay}s múlva újra ({attempt}/{retries})...")
+                time.sleep(retry_delay)
+            else:
+                print("[claude_gen] match-list nem elérhető.")
+        except Exception as e:
+            print(f"[claude_gen] match-list lekérési hiba: {e}")
             break
     return empty
 
@@ -375,32 +409,37 @@ def generate_tips() -> dict:
     tipped_picks = list(set(tipped_picks + supabase_picks))
 
     # ── Múltbeli meccsek kiszűrése ──────────────────────────────────
-    # A match listában lehetnek tegnapi meccsek is – ezeket kizárjuk.
-    # Kickoff formátum: "08.30 12:15" (MM.DD HH:MM, Budapest idő)
+    # Két rétegű szűrés: _yday string + commence időpont alapján
     now_bp = datetime.now(BUDAPEST_TZ)
+    _yday = (now_bp - timedelta(days=1)).strftime("%m.%d")  # pl. "08.30"
+
     def is_future_match(m: dict) -> bool:
         commence = m.get("commence", "")
+        # 1. réteg: tegnapi dátum a commence stringben (pl. "08.30 12:15")
+        if _yday in str(commence):
+            return False
         if not commence:
-            return True  # ha nincs időpont, megtartjuk
+            return True
+        # 2. réteg: pontos időpont összehasonlítás
         try:
-            parts = commence.strip().split(" ")
-            md, hm = parts[0], parts[1] if len(parts) > 1 else "00:00"
-            month, day = md.split(".")
-            hour, minute = hm.split(":")
-            year = now_bp.year
+            c = str(commence).replace(",", " ")
+            import re as _re
+            match = _re.search(r'(\d{2})\.(\d{2})\.?\s+(\d{2}):(\d{2})', c)
+            if not match:
+                return True
+            mm, dd, hh, mi = match.groups()
             kickoff = BUDAPEST_TZ.localize(
-                datetime(year, int(month), int(day), int(hour), int(minute))
+                datetime(now_bp.year, int(mm), int(dd), int(hh), int(mi))
             )
-            # Kizárjuk ha a meccs már több mint 30 perce elkezdődött
             return (kickoff - now_bp).total_seconds() > -30 * 60
         except Exception:
-            return True  # parse hiba esetén megtartjuk
+            return True
 
     before_filter = len(matches)
     matches = [m for m in matches if is_future_match(m)]
     filtered_out = before_filter - len(matches)
     if filtered_out:
-        print(f"[claude_gen] {filtered_out} múltbeli meccs kiszűrve a listából")
+        print(f"[claude_gen] {filtered_out} múltbeli meccs kiszűrve (tegnap: {_yday})")
 
     print(f"[claude_gen] {len(matches)} meccs, {len(tipped_picks)} kizárt pick")
 
