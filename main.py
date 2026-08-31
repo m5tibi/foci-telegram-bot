@@ -467,6 +467,24 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
             sent_count += r3.count or 0
         except: pass
 
+    # Display mezők előfeldolgozása a templatehez
+    from datetime import datetime as _dt, timezone as _tz
+    def _enrich(item):
+        # Tisztított tipp név ([AI FREE] / [AI] prefix nélkül)
+        raw = item.get("tipp_neve", "")
+        item["_display_name"] = raw.replace("[AI FREE] ", "").replace("[AI] ", "")
+        # Olvasható dátum a created_at-ból
+        ca = item.get("created_at", "")
+        try:
+            dt = _dt.fromisoformat(str(ca).replace("Z", "+00:00"))
+            budapest = dt.astimezone(_tz(None))  # local
+            item["_display_date"] = dt.strftime("%Y.%m.%d %H:%M")
+        except Exception:
+            item["_display_date"] = str(ca)[:16] if ca else "–"
+        return item
+    pending  = [_enrich(r) for r in pending]
+    approved = [_enrich(r) for r in approved]
+
     return templates.TemplateResponse(request=request, name="ai_tips_review.html", context={
         "request": request, "user": user,
         "pending": pending, "approved": approved,
