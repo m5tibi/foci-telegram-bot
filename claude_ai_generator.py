@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.0
+# claude_ai_generator.py v1.3.1
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -20,19 +20,34 @@ BUDAPEST_TZ = pytz.timezone("Europe/Budapest")
 
 # ── 1. Meccsek lekérése a 90perc.hu-ról ──────────────────────────────────────
 
-def fetch_match_list() -> dict:
-    """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt pick-eket."""
-    try:
-        r = requests.get(
-            f"{PERC90_URL}/api/match-list",
-            headers={"X-Admin-Password": PERC90_ADMIN_PASS},
-            timeout=30
-        )
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
-        return {"matches": [], "tippedMatches": [], "tippedPicks": []}
+def fetch_match_list(retries: int = 3, retry_delay: int = 30) -> dict:
+    """Lekéri a 90perc.hu szerverétől a meccslistát és a már tippelt pick-eket.
+    502/503 esetén (Render spin-up) újra próbálja retry_delay másodperc várakozással."""
+    import time
+    empty = {"matches": [], "tippedMatches": [], "tippedPicks": []}
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(
+                f"{PERC90_URL}/api/match-list",
+                headers={"X-Admin-Password": PERC90_ADMIN_PASS},
+                timeout=45
+            )
+            if r.status_code in (502, 503, 504) and attempt < retries:
+                print(f"[claude_gen] 90perc.hu {r.status_code} – szerver indul, {retry_delay}s múlva újra ({attempt}/{retries})...")
+                time.sleep(retry_delay)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.ConnectionError:
+            if attempt < retries:
+                print(f"[claude_gen] 90perc.hu kapcsolódási hiba – {retry_delay}s múlva újra ({attempt}/{retries})...")
+                time.sleep(retry_delay)
+            else:
+                print("[claude_gen] 90perc.hu nem elérhető, generálás kihagyva.")
+        except Exception as e:
+            print(f"[claude_gen] 90perc.hu match-list lekérési hiba: {e}")
+            break
+    return empty
 
 
 
