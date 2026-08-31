@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.4
+# claude_ai_generator.py v1.3.5
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -203,7 +203,7 @@ def call_claude(prompt: str) -> dict:
 
 # ── 3. Supabase mentés ────────────────────────────────────────────────────────
 
-def save_to_supabase(tips: dict) -> dict:
+def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
     """Menti az AI-generált tippeket a Supabase manual_slips táblába jóváhagyásra."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {"saved": 0, "error": "Supabase nem konfigurált"}
@@ -295,6 +295,9 @@ def save_to_supabase(tips: dict) -> dict:
             print(f"[save] Hiba kombi mentésnél: {r.status_code} {r.text[:200]}")
 
     # Free tipp mentése a free_slips táblába
+    if skip_free:
+        print("[save] Free tipp kihagyva: mai free tipp már létezik")
+        return {"saved": len(saved), "tips": tips}
     free_tip = tips.get("free_tip")
     # Free tipp ne egyezzen egyik single tippel sem (meccs + pick)
     if free_tip:
@@ -446,6 +449,29 @@ def generate_tips() -> dict:
     if not matches:
         return {"error": "Nincs elérhető meccs a 90perc.hu szerverről"}
 
+    # ── Mai free tipp ellenőrzése ───────────────────────────────────
+    # Ha ma már van jóváhagyott/folyamatban lévő free tipp, ne generáljon újat
+    has_free_today = False
+    try:
+        today_str = now_bp.strftime("%Y-%m-%d")
+        sb_headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+        r_free = requests.get(
+            f"{SUPABASE_URL}/rest/v1/free_slips",
+            headers=sb_headers,
+            params={
+                "select": "id,created_at",
+                "ai_generated": "eq.true",
+                "status": "not.in.(Elvetett,Veszített,Nyert,Visszajár)",
+                "created_at": f"gte.{today_str}T00:00:00"
+            },
+            timeout=10
+        )
+        if r_free.ok and r_free.json():
+            has_free_today = True
+            print(f"[claude_gen] Mai free tipp már létezik – nem generál újat")
+    except Exception as e:
+        print(f"[claude_gen] Free tipp ellenőrzési hiba: {e}")
+
     # 2. Claude hívás
     prompt = build_prompt(matches, tipped_picks)
     print("[claude_gen] Claude API hívás...")
@@ -453,7 +479,7 @@ def generate_tips() -> dict:
     print(f"[claude_gen] {len(tips.get('singles', []))} single, {len(tips.get('combos', []))} kombi generálva")
 
     # 3. Mentés
-    result = save_to_supabase(tips)
+    result = save_to_supabase(tips, skip_free=has_free_today)
     print(f"[claude_gen] Mentve: {result['saved']} tétel")
 
     return result
