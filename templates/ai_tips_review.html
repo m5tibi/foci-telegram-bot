@@ -68,12 +68,12 @@
           <span style="margin-left:8px;color:#a0aec0;font-size:12px">{{ tip.ai_confidence }}</span>
         {% endif %}
       </div>
-      <span style="color:#718096;font-size:12px">{{ tip.created_at[:16] if tip.created_at else '' }}</span>
+      <span style="color:#718096;font-size:12px">{{ tip._display_date or '' }}</span>
     </div>
 
     <!-- Tipp neve -->
     <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px">
-      {{ tip.tipp_neve }}
+      {{ tip._display_name or tip.tipp_neve }}
     </div>
 
     <!-- Odds -->
