@@ -769,7 +769,7 @@ async def admin_ai_check_results(request: Request, background_tasks: BackgroundT
 
 
 def _send_daily_stats():
-    """Tegnapi AI tipp statisztika elküldése Telegram-on."""
+    """Tegnapi AI tipp statisztika elküldése Telegram-on – 90perc.hu-val egyező formátum."""
     import requests as _req
     import pytz
     from datetime import datetime, timedelta
@@ -782,55 +782,83 @@ def _send_daily_stats():
 
     db = get_admin_db()
     tz = pytz.timezone("Europe/Budapest")
-    yesterday = (datetime.now(tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+    yest_dt   = datetime.now(tz) - timedelta(days=1)
+    yesterday = yest_dt.strftime("%Y-%m-%d")
+    yest_hu   = yest_dt.strftime("%Y. %m. %d.")
 
-    # Tegnapi AI tippek lekérése
-    won, lost, half_won, half_lost, push = 0, 0, 0, 0, 0
-    profit = 0.0
+    def calc_stats(rows):
+        won = lost = half_won = half_lost = push = 0
+        profit = 0.0
+        for r in rows:
+            s    = r.get("status")
+            odds = float(r.get("eredo_odds") or 1.0)
+            if s == "Nyert":           won      += 1; profit += odds - 1
+            elif s == "Veszített":     lost     += 1; profit -= 1.0
+            elif s == "Fél-nyert":     half_won += 1; profit += (odds - 1) / 2
+            elif s == "Fél-veszített": half_lost+= 1; profit -= 0.5
+            elif s == "Visszajár":     push     += 1
+        dec_n   = won + lost + half_won + half_lost   # push nélkül
+        settled = dec_n + push
+        wr      = round((won + half_won * 0.5) / dec_n * 100, 2) if dec_n else None
+        roi     = round(profit / dec_n * 100, 2) if dec_n else None
+        return {"settled": settled, "dec_n": dec_n,
+                "won": won + half_won, "lost": lost + half_lost, "push": push,
+                "profit": profit, "wr": wr, "roi": roi}
 
-    for table in ["manual_slips", "free_slips"]:
+    vip_rows  = []
+    free_rows = []
+    for table, bucket in [("manual_slips", vip_rows), ("free_slips", free_rows)]:
         try:
             res = db.table(table).select("status, eredo_odds, target_date") \
                 .eq("ai_generated", True) \
                 .eq("target_date", yesterday) \
                 .in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"]) \
                 .execute()
-            for r in (res.data or []):
-                s = r.get("status")
-                odds = float(r.get("eredo_odds") or 1.0)
-                if s == "Nyert":       won += 1;       profit += odds - 1
-                elif s == "Veszített": lost += 1;      profit -= 1.0
-                elif s == "Fél-nyert": half_won += 1;  profit += (odds - 1) / 2
-                elif s == "Fél-veszített": half_lost += 1; profit -= 0.5
-                elif s == "Visszajár": push += 1
+            bucket.extend(res.data or [])
         except Exception as e:
             print(f"[stat] {table} hiba: {e}")
 
-    total = won + lost + half_won + half_lost + push
-    if total == 0:
+    all_rows = vip_rows + free_rows
+    if not all_rows:
         print(f"[auto-eval] Nincs tegnapi ({yesterday}) lezárt AI tipp – stat nem ment ki.")
         return
 
-    win_rate = round((won + half_won * 0.5) / total * 100, 1) if total > 0 else 0
-    roi = round(profit / total * 100, 1) if total > 0 else 0
-    profit_str = f"+{profit:.2f}" if profit >= 0 else f"{profit:.2f}"
+    a = calc_stats(all_rows)
+    v = calc_stats(vip_rows)
+    f = calc_stats(free_rows)
+
+    def sign(x): return (f"+{x:.2f}" if x >= 0 else f"{x:.2f}") if x is not None else "–"
+    def pct(x):  return (f"+{x:.2f}%" if x >= 0 else f"{x:.2f}%") if x is not None else "–"
+
+    push_line = f"- Visszajár: {a['push']} db\n" if a["push"] else ""
+    wr_note   = f" (push nélkül: {a['won']}/{a['dec_n']})" if a["push"] else ""
+    vip_line  = (f"📝 VIP: {v['settled']} lezárt, {v['won']} nyert"
+                 + (f", {v['push']} visszajár" if v["push"] else "")
+                 + f", Profit: {sign(v['profit'])}\n") if v["settled"] else ""
+    free_line = (f"🆓 Free: {f['settled']} lezárt, {f['won']} nyert"
+                 + (f", {f['push']} visszajár" if f["push"] else "")
+                 + f", Profit: {sign(f['profit'])}") if f["settled"] else ""
 
     msg = (
-        f"📊 *AI Tipp Statisztika – {yesterday}*\n\n"
-        f"Kiértékelt: {total} db\n"
-        f"✅ Nyert: {won}" + (f" | ½ {half_won}" if half_won else "") + "\n"
-        f"❌ Veszített: {lost}" + (f" | ½ {half_lost}" if half_lost else "") + "\n"
-        f"Találati arány: {win_rate}%\n"
-        f"Profit: {profit_str} egység\n"
-        f"ROI: {roi}%"
+        f"🔥 <b>Statisztika – Előző nap ({yest_hu})</b>\n\n"
+        f"📊 <b>Összesített</b>\n"
+        f"- Kiértékelt: {a['settled']} db\n"
+        f"- Nyertes: {a['won']} db\n"
+        f"{push_line}"
+        f"- Találati: {a['wr']:.2f}%{wr_note}\n"
+        f"- Profit: {sign(a['profit'])} egység\n"
+        f"- ROI: {pct(a['roi'])}\n\n"
+        f"{vip_line}"
+        f"{free_line}\n\n"
+        f"🌐 www.mondomatutit.hu"
     )
 
     _req.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"},
+        json={"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "HTML"},
         timeout=10
     )
-    print(f"[auto-eval] Napi stat elküldve: {total} tipp, profit {profit_str}")
+    print(f"[auto-eval] Napi stat elküldve: {a['settled']} tipp, profit {sign(a['profit'])}")
 
 
 # ── Automatikus AI eredmény ellenőrzés ───────────────────────────────────────
