@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.7
+# claude_ai_generator.py v1.3.8
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -257,6 +257,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
             print(f"[save] Hiba single mentésnél: {r.status_code} {r.text[:200]}")
 
     # Kombi szelvények mentése
+    _fallback_saved: set = set()  # kombi→single fallbacknél már mentett meccsek
     for i, c in enumerate(tips.get("combos", []), 1):
         legs_str = "\n".join([f"  • {l['match']}: {l['pick']} @ {l['odds']}{' 🕐 '+l['commence'] if l.get('commence') else ''}" for l in c["legs"]])
         # Kombi note tisztítás
@@ -287,30 +288,34 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
-            # Fallback: 1.65+ oddsú lábakat mentjük single-ként, ha még nincs ilyen meccs
-            saved_matches = {s.get("match","") for s in saved}
+            # Fallback: 1.65+ oddsú lábakat single-ként mentjük
             for leg in invalid_legs:
-                leg_odds = float(leg.get("odds", 0) or 0)
+                leg_odds  = float(leg.get("odds", 0) or 0)
                 leg_match = leg.get("match", "")
-                if leg_odds >= 1.65 and leg_match and leg_match not in saved_matches:
-                    single_row = {
-                        "tipp_neve": f"[AI] {leg_match} – {leg.get('pick','')} @ {leg_odds} 🕐 {leg.get('commence','')}",
-                        "eredo_odds": leg_odds,
-                        "ai_pick":    leg.get("pick", ""),
-                        "ai_market":  leg.get("market", "1X2"),
-                        "ai_match":   leg_match,
-                        "ai_commence": leg.get("commence", ""),
-                        "ai_note":    "",
-                        "ai_generated": True,
-                        "tip_type":   "vip",
-                        "status":     "Jóváhagyásra vár",
-                        "target_date": parse_target_date(leg.get("commence", "")),
-                    }
-                    r2 = requests.post(f"{base}/manual_slips", headers=headers, json=single_row, timeout=15)
-                    if r2.status_code in (200, 201):
-                        saved.append(r2.json())
-                        saved_matches.add(leg_match)
-                        print(f"[save] Kombi láb → single mentve: {leg_match} @ {leg_odds}")
+                if leg_odds < 1.65 or not leg_match:
+                    continue
+                if leg_match in _fallback_saved:
+                    continue
+                single_row = {
+                    "tipp_neve":    f"[AI] {leg_match} – {leg.get('pick','')} @ {leg_odds} 🕐 {leg.get('commence','')}",
+                    "eredo_odds":   leg_odds,
+                    "ai_pick":      leg.get("pick", ""),
+                    "ai_market":    leg.get("market", "1X2"),
+                    "ai_match":     leg_match,
+                    "ai_commence":  leg.get("commence", ""),
+                    "ai_note":      "",
+                    "ai_generated": True,
+                    "tip_type":     "vip",
+                    "status":       "Jóváhagyásra vár",
+                    "target_date":  parse_target_date(leg.get("commence", "")),
+                }
+                r2 = requests.post(f"{base}/manual_slips", headers=headers, json=single_row, timeout=15)
+                if r2.status_code in (200, 201):
+                    _fallback_saved.add(leg_match)
+                    saved.append(single_row)   # saját dict, nem a Supabase response
+                    print(f"[save] Kombi láb → single mentve: {leg_match} @ {leg_odds}")
+                else:
+                    print(f"[save] Kombi→single hiba: {r2.status_code} {r2.text[:100]}")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
