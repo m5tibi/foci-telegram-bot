@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.8
+# claude_ai_generator.py v1.3.9
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -296,6 +296,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
                     continue
                 if leg_match in _fallback_saved:
                     continue
+                combo_note_for_leg = c.get("note", "") or ""
                 single_row = {
                     "tipp_neve":    f"[AI] {leg_match} – {leg.get('pick','')} @ {leg_odds} 🕐 {leg.get('commence','')}",
                     "eredo_odds":   leg_odds,
@@ -303,7 +304,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
                     "ai_market":    leg.get("market", "1X2"),
                     "ai_match":     leg_match,
                     "ai_commence":  leg.get("commence", ""),
-                    "ai_note":      "",
+                    "ai_note":      combo_note_for_leg or "Erős favorit – kombiszelvényből kiemelve önálló tippként.",
                     "ai_generated": True,
                     "tip_type":     "vip",
                     "status":       "Jóváhagyásra vár",
