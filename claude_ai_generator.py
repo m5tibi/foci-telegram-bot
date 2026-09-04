@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.3.9
+# claude_ai_generator.py v1.4.0
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -488,7 +488,8 @@ def generate_tips() -> dict:
         return {"error": "Nincs elérhető meccs a 90perc.hu szerverről"}
 
     # ── Mai free tipp ellenőrzése ───────────────────────────────────
-    # Ha ma már van jóváhagyott/folyamatban lévő free tipp, ne generáljon újat
+    # Ha MA-ra már van free tipp (target_date = ma), ne generáljon újat.
+    # Ha a korábbi free tipp HOLNAPI meccsre szól (target_date = holnap), az nem blokkolja a mai tippet.
     has_free_today = False
     try:
         today_str = now_bp.strftime("%Y-%m-%d")
@@ -497,16 +498,16 @@ def generate_tips() -> dict:
             f"{SUPABASE_URL}/rest/v1/free_slips",
             headers=sb_headers,
             params={
-                "select": "id,created_at",
+                "select": "id,target_date",
                 "ai_generated": "eq.true",
                 "status": "not.in.(Elvetett,Veszített,Nyert,Visszajár)",
-                "created_at": f"gte.{today_str}T00:00:00"
+                "target_date": f"eq.{today_str}"
             },
             timeout=10
         )
         if r_free.ok and r_free.json():
             has_free_today = True
-            print(f"[claude_gen] Mai free tipp már létezik – nem generál újat")
+            print(f"[claude_gen] Mai ({today_str}) free tipp már létezik – nem generál újat")
     except Exception as e:
         print(f"[claude_gen] Free tipp ellenőrzési hiba: {e}")
 
