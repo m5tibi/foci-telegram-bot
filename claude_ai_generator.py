@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.0
+# claude_ai_generator.py v1.4.1
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -123,6 +123,11 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - HENDIKEP LIMIT: maximum -1.
    - Ha nincs 1.65+ odds, adj üres tömböt.
    - FONTOS: Ha egy meccset 1.65+ oddsszal kombilábnak ajánlasz, azt ELŐBB ajánld singlenek!
+   - PIACOK: Ne csak 1X2-t adj! Ha az adott mérkőzésen a gólszám (Over 2.5, BTTS/GG) vagy hendikep
+     piac értékesebb, azt válaszd. Minden tipp más-más piacra mehet.
+   - Over 2.5 / Under 2.5: ha mindkét csapat sokat lő, vagy épp zárt meccs várható.
+   - BTTS (mindkét csapat szerez gólt): ha mindkét csapat jó formában van támadásban.
+   - Ázsiai hendikep (-0.5, -1): ha egy csapat egyértelműen erősebb de az 1X2 oddsra alacsony.
 
 2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
    - Ha kevés/nincs single: adj 3 kombiszelvényt!
@@ -130,6 +135,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - Ha egy láb 1.60 felett van, NEM kerülhet kombiba – inkább tedd singlebe!
    - Különböző meccsekről, NEM átfedő kombik.
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
+   - PIACVÁLTOZATOSSÁG: kombi lábak lehetnek Over 1.5, BTTS, hendikep – ne csak győzelmek!
 
 3) "free_tip": KÖTELEZŐ MEZŐ! Minden nap adj 1 ingyenes tippet – SOHA ne hagyd ki!
    - Ha nincs teljesen külön jó meccs, a legjobb single tippedet add meg itt is (de KÜLÖNBÖZŐ meccsről ha lehet).
@@ -140,7 +146,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
 Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL."""
 
-    json_example = '{"singles":[{"match":"Csapat A vs B","market":"1X2","pick":"Csapat A","odds":1.78,"note":"Indoklás.","commence":"08.17 19:00"}],"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.17 19:00"},{"match":"A vs B","pick":"A gyozelem","odds":1.45,"commence":"08.17 21:00"}],"total_odds":1.96,"note":"Indoklás."},{"legs":[{"match":"C vs D","pick":"Over 1.5","odds":1.30,"commence":"08.17 20:00"},{"match":"E vs F","pick":"E gyozelem","odds":1.50,"commence":"08.17 20:30"}],"total_odds":1.95,"note":"Indoklás."}],"free_tip":{"type":"single","match":"X vs Y","market":"1X2","pick":"X","odds":1.72,"note":"Indoklás.","commence":"08.17 19:00"},"summary":"Összegzés."}'
+    json_example = '{"singles":[{"match":"Csapat A vs B","market":"Over 2.5","pick":"Over 2.5","odds":1.78,"note":"Mindkét csapat erős támadójátékkal érkezik.","commence":"08.17 19:00"},{"match":"C vs D","market":"BTTS","pick":"Igen","odds":1.72,"note":"Mindkét csapat betalált az utóbbi 5 meccsén.","commence":"08.17 21:00"}],"combos":[{"legs":[{"match":"X vs Y","pick":"X gyozelem","odds":1.35,"commence":"08.17 19:00"},{"match":"A vs B","pick":"Over 1.5","odds":1.40,"commence":"08.17 21:00"}],"total_odds":1.89,"note":"Indoklás."},{"legs":[{"match":"C vs D","pick":"BTTS Igen","odds":1.30,"commence":"08.17 20:00"},{"match":"E vs F","pick":"E -0.5","odds":1.50,"commence":"08.17 20:30"}],"total_odds":1.95,"note":"Indoklás."}],"free_tip":{"type":"single","match":"X vs Y","market":"Over 2.5","pick":"Over 2.5","odds":1.72,"note":"Indoklás.","commence":"08.17 19:00"},"summary":"Összegzés."}'
 
     return (
         "Te egy profi labdarúgás-fogadási elemző vagy. Használj web keresést az aktuális formához, "
