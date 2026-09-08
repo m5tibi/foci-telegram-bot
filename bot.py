@@ -101,18 +101,28 @@ async def send_smart_broadcast(context: CallbackContext, user_ids: list, message
 async def send_admin_notification(chat_ids, message):
     """
     Körüzenet küldése az admin felületről érkező manuális feltöltésekhez.
+    Timeout esetén 1 automatikus újrapróbálkozás 10 másodperc múlva.
     """
     bot = telegram.Bot(token=os.environ.get("TELEGRAM_TOKEN"))
     success_count = 0
     for c_id in chat_ids:
-        try:
-            # MarkdownV2 helyett sima Markdown-t használunk a kompatibilitás miatt, 
-            # de a speciális karaktereket (pl. pont, kötőjel) védeni kell, ha V2-t választasz.
-            await bot.send_message(chat_id=c_id, text=message, parse_mode='Markdown')
-            success_count += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            print(f"Hiba a kiküldésnél ({c_id}): {e}")
+        sent = False
+        for attempt in range(1, 3):  # max 2 kísérlet
+            try:
+                await bot.send_message(chat_id=c_id, text=message, parse_mode='Markdown')
+                success_count += 1
+                sent = True
+                await asyncio.sleep(0.05)
+                break
+            except telegram.error.Forbidden as e:
+                print(f"Hiba a kiküldésnél ({c_id}): {e}")
+                break  # blokkoltnál nem próbálkozunk újra
+            except Exception as e:
+                if attempt == 1:
+                    print(f"Hiba a kiküldésnél ({c_id}): {e} – újrapróbálkozás 10s múlva...")
+                    await asyncio.sleep(10)
+                else:
+                    print(f"Hiba a kiküldésnél ({c_id}): {e} (2. kísérlet is sikertelen)")
     print(f"✅ Admin értesítés kész! Sikeres: {success_count}/{len(chat_ids)}")
     
 # --- FŐ FUNKCIÓK ---
