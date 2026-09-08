@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.1
+# claude_ai_generator.py v1.4.2
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -128,6 +128,7 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
    - Over 2.5 / Under 2.5: ha mindkét csapat sokat lő, vagy épp zárt meccs várható.
    - BTTS (mindkét csapat szerez gólt): ha mindkét csapat jó formában van támadásban.
    - Ázsiai hendikep (-0.5, -1): ha egy csapat egyértelműen erősebb de az 1X2 oddsra alacsony.
+   - KÖTELEZŐ: a "market" mező mindig ki kell töltve legyen! BTTS esetén: market="BTTS", pick="Igen" vagy "Nem". Over esetén: market="Over 2.5", pick="Over 2.5".
 
 2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
    - Ha kevés/nincs single: adj 3 kombiszelvényt!
@@ -226,6 +227,34 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
 
     all_combo_leg_keys = set()
 
+    def infer_market(pick: str, market: str) -> str:
+        """Ha a market üres vagy 'BTTS'/'Over'/'Under' a pick, automatikusan kitölti."""
+        p = str(pick or "").strip()
+        m = str(market or "").strip()
+        if m:
+            return m
+        pl = p.lower()
+        if "over" in pl:
+            return "Over/Under"
+        if "under" in pl:
+            return "Over/Under"
+        if pl in ("igen", "yes", "btts igen", "btts yes") or "mindkét" in pl:
+            return "BTTS"
+        if pl in ("nem", "no", "btts nem", "btts no"):
+            return "BTTS"
+        return "1X2"
+
+    def validate_tip(t: dict) -> bool:
+        """Ellenőrzi hogy a tipp érvényes-e mentés előtt."""
+        if not t.get("match") or not t.get("pick"):
+            print(f"[save] Tipp kihagyva: hiányzó match vagy pick: {t}")
+            return False
+        t["market"] = infer_market(t.get("pick",""), t.get("market",""))
+        # BTTS tipp: pick legyen explicit "Igen" vagy "Nem"
+        if t["market"] == "BTTS" and t.get("pick","").lower() not in ("igen","nem","yes","no"):
+            t["pick"] = "Igen"  # default BTTS pick
+        return True
+
     # Single tippek mentése
     for t in tips.get("singles", []):
         # Minimum odds validáció
@@ -233,7 +262,9 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         if t_odds < 1.65:
             print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
             continue
-        # Note tisztítás (AI gondolkodás szűrése)
+        if not validate_tip(t):
+            continue
+        # Note tisztítás
         note = t.get("note", "") or ""
         for prefix in ["Sajnos", "FIGYELEM", "Hibás", "Újratervezem", "kihagyjuk"]:
             if prefix.lower() in note.lower()[:50]:
@@ -241,7 +272,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
                 break
         t["note"] = note
         row = {
-            "tipp_neve": f"[AI] {t['match']} – {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
+            "tipp_neve": f"[AI] {t['match']} – {t['market']}: {t['pick']} @ {t['odds']}{' 🕐 '+t.get('commence','') if t.get('commence') else ''}",
             "eredo_odds": t["odds"],
             "status": "Jóváhagyásra vár",
             "ai_generated": True,
@@ -251,7 +282,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
             "tip_type": "single",
             "ai_match": t.get("match", ""),
             "ai_pick": t.get("pick", ""),
-            "ai_market": t.get("market", ""),
+            "ai_market": t["market"],
             "ai_commence": t.get("commence", ""),
             "target_date": parse_target_date(t.get("commence", "")),
             "result_status": "Folyamatban"
