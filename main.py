@@ -1154,27 +1154,32 @@ async def edit_ai_tip(tip_id: str, request: Request):
         return _ok({"error": "Nem talalhato"}, 404)
     data = await request.json()
     updates = {}
-    if "note" in data: updates["ai_note"] = data["note"]
-    if "odds" in data: updates["eredo_odds"] = float(data["odds"])
-    if "pick" in data: updates["ai_pick"] = data["pick"]
+    if "note"   in data: updates["ai_note"]    = data["note"]
+    if "odds"   in data: updates["eredo_odds"] = float(data["odds"])
+    if "pick"   in data: updates["ai_pick"]    = data["pick"]
+    if "market" in data: updates["ai_market"]  = data["market"]
     if "legs" in data:
         updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
         if "odds" in data:
-            updates["tipp_neve"] = "[AI] Kombi \u2013 \u00f6ssz odds " + str(data["odds"])
+            updates["tipp_neve"] = "[AI] Kombi – össz odds " + str(data["odds"])
         old_note = tip_row.get("ai_note") or ""
-        note_text = old_note.split("\n\nL\u00e1bak:\n")[0] if "\n\nL\u00e1bak:\n" in old_note else old_note
+        note_text = old_note.split("\n\nLábak:\n")[0] if "\n\nLábak:\n" in old_note else old_note
         if "note" in data: note_text = data["note"]
         legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
-        updates["ai_note"] = note_text + "\n\nL\u00e1bak:\n" + "\n".join(legs_lines)
-    elif "pick" in data or "odds" in data:
+        updates["ai_note"] = note_text + "\n\nLábak:\n" + "\n".join(legs_lines)
+    elif "pick" in data or "odds" in data or "market" in data:
         old_name = tip_row.get("tipp_neve") or ""
-        match = tip_row.get("ai_match") or ""
+        match    = tip_row.get("ai_match") or ""
         commence = tip_row.get("ai_commence") or ""
+        mkt      = data.get("market") or tip_row.get("ai_market") or ""
+        pick     = data.get("pick")   or tip_row.get("ai_pick")   or ""
+        odds     = data.get("odds")   or tip_row.get("eredo_odds") or ""
         if not match:
             tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
-            if " \u2013 " in tv: match = tv.split(" \u2013 ")[0].strip()
+            if " – " in tv: match = tv.split(" – ")[0].strip()
         prefix = "[AI FREE] " if (target_table == "free_slips" or "FREE" in old_name) else "[AI] "
-        name = prefix + (match or "") + " \u2013 " + str(data.get("pick","")) + " @ " + str(data.get("odds",""))
+        mkt_str = f"{mkt}: " if mkt else ""
+        name = f"{prefix}{match} – {mkt_str}{pick} @ {odds}"
         if commence: name += " " + commence
         updates["tipp_neve"] = name
     if not updates:
