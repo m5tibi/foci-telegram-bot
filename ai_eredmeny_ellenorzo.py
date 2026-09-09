@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.8
+# ai_eredmeny_ellenorzo.py v1.6.9
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -244,6 +244,28 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             mapping = {"Nyert": "Veszített", "Veszített": "Nyert", "Visszajár": "Visszajár",
                        "Fél-nyert": "Fél-veszített", "Fél-veszített": "Fél-nyert"}
             return mapping.get(r, r)
+        except: pass
+
+    # BTTS + Over/Under kombinált piac (pl. "BTTS + Over 2.5", "Igen + Over 2.5")
+    market_l = (market or "").lower()
+    if ("btts" in market_l or "mindkét" in market_l) and "over" in market_l:
+        try:
+            import re as _re2
+            m = _re2.search(r'(\d+\.?\d*)', market_l.split("over")[-1])
+            line = float(m.group(1)) if m else 2.5
+            btts_ok = h > 0 and a > 0
+            over_ok = total > line
+            return "Nyert" if btts_ok and over_ok else "Veszített"
+        except: pass
+
+    if ("btts" in market_l or "mindkét" in market_l) and "under" in market_l:
+        try:
+            import re as _re2
+            m = _re2.search(r'(\d+\.?\d*)', market_l.split("under")[-1])
+            line = float(m.group(1)) if m else 2.5
+            btts_ok = h > 0 and a > 0
+            under_ok = total < line
+            return "Nyert" if btts_ok and under_ok else "Veszített"
         except: pass
 
     # BTTS
