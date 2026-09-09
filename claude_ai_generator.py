@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.2
+# claude_ai_generator.py v1.4.3
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -132,8 +132,13 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
 2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
    - Ha kevés/nincs single: adj 3 kombiszelvényt!
-   - Minden kombi 2-3 lábból áll, 1.20-1.60 odds között lábankénti.
+   - Minden kombi 2-3 lábból áll, MINIMUM 1.20 és MAXIMUM 1.60 odds között lábankénti.
    - Ha egy láb 1.60 felett van, NEM kerülhet kombiba – inkább tedd singlebe!
+   - Ha egy láb 1.20 alatt van (pl. 1.04, 1.10, 1.15), NEM kerülhet kombiba – hagyd ki!
+   - KÖTELEZŐ MINIMÁLIS ÖSSZ ODDS (szerver oldalon is ellenőrzik):
+     * 2 lábas kombi: MINIMUM 2.00
+     * 3 lábas kombi: MINIMUM 2.80 – 3 × 1.26 = 2.02 → NEM ELÉG, tedd magasabb lábakat!
+     * 4+ lábas kombi: MINIMUM 3.50
    - Különböző meccsekről, NEM átfedő kombik.
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
    - PIACVÁLTOZATOSSÁG: kombi lábak lehetnek Over 1.5, BTTS, hendikep – ne csak győzelmek!
@@ -317,11 +322,17 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
             "target_date": parse_target_date((c.get("legs") or [{}])[0].get("commence", "")),
             "result_status": "Folyamatban"
         }
-        # Kombi validáció: minden láb max 1.55 odds, legalább 2 láb
+        # Kombi validáció
         legs_check = c.get("legs", [])
         if len(legs_check) < 2:
             print(f"[save] Kombi kihagyva: kevesebb mint 2 láb")
             continue
+        # Minimum odds: 1.20 per láb
+        low_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) < 1.20]
+        if low_legs:
+            print(f"[save] Kombi kihagyva: túl alacsony odds láb(ak): {[l.get('odds') for l in low_legs]}")
+            continue
+        # Maximum odds: 1.55 per láb (felette → single fallback)
         invalid_legs = [l for l in legs_check if float(l.get("odds", 0) or 0) > 1.55]
         if invalid_legs:
             print(f"[save] Kombi kihagyva: túl magas odds láb(ak): {[l.get('odds') for l in invalid_legs]}")
@@ -354,6 +365,13 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
                     print(f"[save] Kombi láb → single mentve: {leg_match} @ {leg_odds}")
                 else:
                     print(f"[save] Kombi→single hiba: {r2.status_code} {r2.text[:100]}")
+            continue
+        # Minimális össz odds (lábak számától függően)
+        total_odds = float(c.get("total_odds", 0) or 0)
+        n_legs = len(legs_check)
+        min_total = 2.00 if n_legs <= 2 else 2.80 if n_legs == 3 else 3.50
+        if total_odds < min_total:
+            print(f"[save] Kombi kihagyva: össz odds {total_odds:.2f} < {min_total} ({n_legs} láb)")
             continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
