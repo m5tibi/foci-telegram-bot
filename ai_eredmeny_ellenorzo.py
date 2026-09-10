@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.9
+# ai_eredmeny_ellenorzo.py v1.6.10
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -246,7 +246,30 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             return mapping.get(r, r)
         except: pass
 
-    # BTTS + Over/Under kombinált piac (pl. "BTTS + Over 2.5", "Igen + Over 2.5")
+    # 1X2 + Over/Under kombinált piac (pl. "PSV Eindhoven + Over 1.5", "Arsenal + Over 2.5")
+    # Piac: "1X2 + Over X.Y" vagy pick: "Csapat + Over X.Y"
+    import re as _re2
+    _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', pick_l)
+    if not _combined_match:
+        _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', market_l)
+    if _combined_match:
+        try:
+            direction = _combined_match.group(1)
+            line      = float(_combined_match.group(2))
+            # Csapatnév kinyerése (a + előtti rész)
+            team_part = pick_l.split("+")[0].strip()
+            # 1X2 eldöntése
+            home_ok = _nsim(_norm_team(team_part), _norm_team(home_team))
+            away_ok = _nsim(_norm_team(team_part), _norm_team(away_team))
+            if home_ok:   result_ok = h > a
+            elif away_ok: result_ok = a > h
+            else:         result_ok = False
+            # Gólszám feltétel
+            goals_ok = (total > line) if direction == "over" else (total < line)
+            return "Nyert" if result_ok and goals_ok else "Veszített"
+        except: pass
+
+    # BTTS + Over/Under kombinált piac
     market_l = (market or "").lower()
     if ("btts" in market_l or "mindkét" in market_l) and "over" in market_l:
         try:
