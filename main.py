@@ -1178,7 +1178,13 @@ async def edit_ai_tip(tip_id: str, request: Request):
             tv = old_name.replace("[AI FREE] ","").replace("[AI] ","")
             if " – " in tv: match = tv.split(" – ")[0].strip()
         prefix = "[AI FREE] " if (target_table == "free_slips" or "FREE" in old_name) else "[AI] "
-        mkt_str = f"{mkt}: " if mkt else ""
+        # Ne ismételje a piacot ha ugyanaz mint a pick, vagy ha 1X2 (a pick maga beszédes)
+        mkt_l = mkt.lower().strip()
+        pick_l = (str(pick) or "").lower().strip()
+        if not mkt or mkt_l == "1x2" or mkt_l == pick_l:
+            mkt_str = ""
+        else:
+            mkt_str = f"{mkt}: "
         name = f"{prefix}{match} – {mkt_str}{pick} @ {odds}"
         if commence: name += " " + commence
         updates["tipp_neve"] = name
