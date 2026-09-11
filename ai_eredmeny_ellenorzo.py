@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.10
+# ai_eredmeny_ellenorzo.py v1.6.11
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -251,7 +251,8 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     import re as _re2
     _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', pick_l)
     if not _combined_match:
-        _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', market_l)
+        _market_l = (market or "").lower()
+        _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', _market_l)
     if _combined_match:
         try:
             direction = _combined_match.group(1)
