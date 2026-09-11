@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.11
+# ai_eredmeny_ellenorzo.py v1.6.13
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -226,8 +226,29 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     """Meghatározza hogy nyert-e a tipp."""
     pick_l = pick.lower().strip()
     total = h + a
+    import re as _re2
 
-    # Over/Under
+    # 1X2 + Over/Under kombinált piac – ELŐBB ellenőrizzük mint az alap Over/Under!
+    # (pl. "PSV Eindhoven + Over 1.5" tartalmaz "over"-t, de nem sima Over tipp)
+    _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', pick_l)
+    if not _combined_match:
+        _market_l = (market or "").lower()
+        _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', _market_l)
+    if _combined_match:
+        try:
+            direction = _combined_match.group(1)
+            line      = float(_combined_match.group(2))
+            team_part = pick_l.split("+")[0].strip()
+            home_ok = _nsim(_norm_team(team_part), _norm_team(home_team))
+            away_ok = _nsim(_norm_team(team_part), _norm_team(away_team))
+            if home_ok:   result_ok = h > a
+            elif away_ok: result_ok = a > h
+            else:         result_ok = False
+            goals_ok = (total > line) if direction == "over" else (total < line)
+            return "Nyert" if result_ok and goals_ok else "Veszített"
+        except: pass
+
+    # Over/Under (sima, csapatnév nélkül)
     if "over" in pick_l:
         try:
             nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
@@ -244,30 +265,6 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             mapping = {"Nyert": "Veszített", "Veszített": "Nyert", "Visszajár": "Visszajár",
                        "Fél-nyert": "Fél-veszített", "Fél-veszített": "Fél-nyert"}
             return mapping.get(r, r)
-        except: pass
-
-    # 1X2 + Over/Under kombinált piac (pl. "PSV Eindhoven + Over 1.5", "Arsenal + Over 2.5")
-    # Piac: "1X2 + Over X.Y" vagy pick: "Csapat + Over X.Y"
-    import re as _re2
-    _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', pick_l)
-    if not _combined_match:
-        _market_l = (market or "").lower()
-        _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', _market_l)
-    if _combined_match:
-        try:
-            direction = _combined_match.group(1)
-            line      = float(_combined_match.group(2))
-            # Csapatnév kinyerése (a + előtti rész)
-            team_part = pick_l.split("+")[0].strip()
-            # 1X2 eldöntése
-            home_ok = _nsim(_norm_team(team_part), _norm_team(home_team))
-            away_ok = _nsim(_norm_team(team_part), _norm_team(away_team))
-            if home_ok:   result_ok = h > a
-            elif away_ok: result_ok = a > h
-            else:         result_ok = False
-            # Gólszám feltétel
-            goals_ok = (total > line) if direction == "over" else (total < line)
-            return "Nyert" if result_ok and goals_ok else "Veszített"
         except: pass
 
     # BTTS + Over/Under kombinált piac
@@ -295,6 +292,15 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     # BTTS
     if "mindkét" in pick_l or "btts" in pick_l or "gól-gól" in pick_l:
         return "Nyert" if h > 0 and a > 0 else "Veszített"
+
+    # Kétesély (Double Chance): 1X, X2, 12
+    pick_stripped = pick_l.replace(" ", "").replace("_", "")
+    if pick_stripped in ("1x", "hazaivagydöntetlen", "drawnobet_home"):
+        return "Nyert" if h >= a else "Veszített"   # hazai nyer VAGY döntetlen
+    if pick_stripped in ("x2", "döntetlenvagy2", "vendégvagydöntetlen", "drawnobet_away"):
+        return "Nyert" if a >= h else "Veszített"   # vendég nyer VAGY döntetlen
+    if pick_stripped == "12":
+        return "Nyert" if h != a else "Veszített"   # bármelyik csapat nyer (nem döntetlen)
 
     # 1X2 market – csapatnév alapján ha market = 1X2
     market_l = (market or "").lower()
