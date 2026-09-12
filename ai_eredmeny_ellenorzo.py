@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.13
+# ai_eredmeny_ellenorzo.py v1.6.14
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -290,7 +290,11 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
         except: pass
 
     # BTTS
-    if "mindkét" in pick_l or "btts" in pick_l or "gól-gól" in pick_l:
+    market_l = (market or "").lower()
+    btts_market = "btts" in market_l or "mindkét" in market_l or "gól-gól" in market_l
+    if "mindkét" in pick_l or "btts" in pick_l or "gól-gól" in pick_l or (btts_market and pick_l in ("igen", "yes", "nem", "no")):
+        if pick_l in ("nem", "no"):
+            return "Nyert" if not (h > 0 and a > 0) else "Veszített"
         return "Nyert" if h > 0 and a > 0 else "Veszített"
 
     # Kétesély (Double Chance): 1X, X2, 12
