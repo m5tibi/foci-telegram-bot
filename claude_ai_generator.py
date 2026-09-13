@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.5
+# claude_ai_generator.py v1.4.6
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -119,36 +119,39 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
     rules = """HÁROM dolgot adj:
 
 1) "singles": 0-3 ERŐS single tipp.
-   - CSAK legalább 1.65 oddsú single tippet adj.
+   - CSAK legalább 1.65 oddsú single tippet adj – a valós odds listából válassz!
    - HENDIKEP LIMIT: maximum -1.
    - Ha nincs 1.65+ odds, adj üres tömböt.
-   - FONTOS: Ha egy meccset 1.65+ oddsszal kombilábnak ajánlasz, azt ELŐBB ajánld singlenek!
-   - PIACOK: Ne csak 1X2-t adj! Ha az adott mérkőzésen a gólszám (Over 2.5, BTTS/GG) vagy hendikep
-     piac értékesebb, azt válaszd. Minden tipp más-más piacra mehet.
-   - Over 2.5 / Under 2.5: ha mindkét csapat sokat lő, vagy épp zárt meccs várható.
-   - BTTS (mindkét csapat szerez gólt): ha mindkét csapat jó formában van támadásban.
-   - Ázsiai hendikep (-0.5, -1): ha egy csapat egyértelműen erősebb de az 1X2 oddsra alacsony.
-   - KÖTELEZŐ: a "market" mező mindig ki kell töltve legyen! BTTS esetén: market="BTTS", pick="Igen" vagy "Nem". Over esetén: market="Over 2.5", pick="Over 2.5".
+   - MINDEN MECCS CSAK EGYSZER szerepelhet az egész JSON-ban – ha single-ként adod meg, NE legyen kombi lábként is!
+   - PIACOK: Ne csak 1X2-t adj! Over 2.5, Under 2.5, BTTS, ázsiai hendikep is megengedett.
+   - KÖTELEZŐ: a "market" mező mindig ki kell töltve legyen! BTTS: market="BTTS", pick="Igen"/"Nem". Over: market="Over 2.5", pick="Over 2.5".
+   - NOTE SZABÁLY: a note KIZÁRÓLAG az adott meccsről szóljon! SOHA ne keverj bele más meccset, más csapatot!
 
 2) "combos": KÖTELEZŐ! Mindig adj legalább 2 kombiszelvényt!
    - Ha kevés/nincs single: adj 3 kombiszelvényt!
    - Minden kombi 2-3 lábból áll, MINIMUM 1.20 és MAXIMUM 1.60 odds között lábankénti.
-   - Ha egy láb 1.60 felett van, NEM kerülhet kombiba – inkább tedd singlebe!
-   - Ha egy láb 1.20 alatt van (pl. 1.04, 1.10, 1.15), NEM kerülhet kombiba – hagyd ki!
-   - KÖTELEZŐ MINIMÁLIS ÖSSZ ODDS (szerver oldalon is ellenőrzik):
+   - Ha egy láb 1.60 felett van, NEM kerülhet kombiba!
+   - Ha egy láb 1.20 alatt van (pl. 1.04, 1.10), NEM kerülhet kombiba!
+   - KÖTELEZŐ MINIMÁLIS ÖSSZ ODDS:
      * 2 lábas kombi: MINIMUM 2.00
-     * 3 lábas kombi: MINIMUM 2.80 – 3 × 1.26 = 2.02 → NEM ELÉG, tedd magasabb lábakat!
+     * 3 lábas kombi: MINIMUM 2.80
      * 4+ lábas kombi: MINIMUM 3.50
    - Különböző meccsekről, NEM átfedő kombik.
    - TILOS: -1.5 vagy agresszívabb hendikep kombi lábban.
-   - PIACVÁLTOZATOSSÁG: kombi lábak lehetnek Over 1.5, BTTS, hendikep – ne csak győzelmek!
+   - PIACVÁLTOZATOSSÁG: Over 1.5, BTTS, hendikep is megengedett lábként.
+   - NOTE SZABÁLY: a kombi note-jába CSAK a kombi lábairól írj – más meccseket ne keverj bele!
+   - DUPLIKÁCIÓ TILOS: Ha egy meccs single-ként szerepel, NE legyen kombi lábként is!
 
 3) "free_tip": KÖTELEZŐ MEZŐ! Minden nap adj 1 ingyenes tippet – SOHA ne hagyd ki!
-   - Ha nincs teljesen külön jó meccs, a legjobb single tippedet add meg itt is (de KÜLÖNBÖZŐ meccsről ha lehet).
-   - Legalább 1.30 odds! Lehet single (1.30-2.00 odds) VAGY kombi (2-3 láb, 1.20-1.55 odds lábankénti).
-   - TELJESEN MÁS MECCS mint ami a kizárt listán szerepel (ha van ilyen lehetőség).
-   - SOHA ne írd a note-ba hogy valami kizárt vagy FIGYELEM.
-   - SOHA ne hagyd null-on – ez kötelező ingyenes tipp az ingyenes felhasználóknak!
+   - KÜLÖNBÖZŐ meccs mint a singles és combos lábai, ha lehetséges.
+   - Legalább 1.30 odds! Single (1.30-2.00) VAGY kombi (1.20-1.55 lábankénti).
+   - SOHA ne hagyd null-on!
+   - NOTE: csak erről a meccsről írj – más csapatokat NE keverj bele!
+
+KRITIKUS SZABÁLYOK:
+- Minden note KIZÁRÓLAG az adott meccs csapatairól szóljon – SOHA ne kerüljön más meccs csapata egy note-ba!
+- Minden meccs csak egyszer szerepelhet az egész JSON-ban (single VAGY kombi láb VAGY free_tip)
+- A valós odds listából dolgozz – ne találj ki oddsokat!
 
 Válaszolj KIZÁRÓLAG JSON OBJEKTUMMAL."""
 
@@ -229,6 +232,11 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
     base = f"{SUPABASE_URL}/rest/v1"
     now = datetime.now(BUDAPEST_TZ).strftime("%Y-%m-%d")
     saved = []
+    # Duplikáció szűrés: minden mentett meccs nyilvántartása (single, kombi, free)
+    _all_used_matches: set = set()
+
+    def _norm_match(m: str) -> str:
+        return (m or "").lower().strip()
 
     all_combo_leg_keys = set()
 
@@ -267,6 +275,11 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         if t_odds < 1.65:
             print(f"[save] Single kihagyva: odds {t_odds} < 1.65")
             continue
+        # Duplikáció ellenőrzés
+        match_key = _norm_match(t.get("match", ""))
+        if match_key in _all_used_matches:
+            print(f"[save] Single kihagyva (duplikáció): {t.get('match','')}")
+            continue
         if not validate_tip(t):
             continue
         # Note tisztítás
@@ -299,6 +312,7 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
             saved.append(r.json())
+            _all_used_matches.add(match_key)
         else:
             print(f"[save] Hiba single mentésnél: {r.status_code} {r.text[:200]}")
 
@@ -377,9 +391,16 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         if total_odds < min_total:
             print(f"[save] Kombi kihagyva: össz odds {total_odds:.2f} < {min_total} ({n_legs} láb)")
             continue
+        # Duplikáció: ha bármely kombiláb már single-ként volt mentve, kihagyjuk a lábat
+        dup_legs = [l for l in legs_check if _norm_match(l.get("match","")) in _all_used_matches]
+        if dup_legs:
+            print(f"[save] Kombi kihagyva (duplikált lábak): {[l.get('match') for l in dup_legs]}")
+            continue
         r = requests.post(f"{base}/manual_slips", headers=headers, json=row, timeout=15)
         if r.status_code in (200, 201):
             saved.append(r.json())
+            for l in legs_check:
+                _all_used_matches.add(_norm_match(l.get("match", "")))
         else:
             print(f"[save] Hiba kombi mentésnél: {r.status_code} {r.text[:200]}")
 
