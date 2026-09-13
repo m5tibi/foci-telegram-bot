@@ -734,8 +734,11 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
                 free_lines.append(f"🆓 *{name}*")
                 note = (t.get("ai_note") or "").split("\nLábak:")[0].strip()
                 if note:
-                    # Max 2 sor az indoklásból
-                    note_short = ". ".join(note.split(". ")[:2])
+                    # Max 300 karakter, mondat határon vágva
+                    if len(note) > 300:
+                        note_short = note[:300].rsplit(". ", 1)[0] + "..."
+                    else:
+                        note_short = note
                     free_lines.append(f"_{note_short}_")
             msg = f"✅ *Ingyenes napi tipp!*\n\n" + "\n".join(free_lines) + f"\n\n🚀 [Megtekintés]({site_url}/vip)"
             background_tasks.add_task(send_telegram_broadcast_task, all_ids, msg)
