@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.14
+# ai_eredmeny_ellenorzo.py v1.6.15
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -237,14 +237,22 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     if _combined_match:
         try:
             direction = _combined_match.group(1)
-            line      = float(_combined_match.group(2))
+            line      = float(_combined_match.group(2).replace(",", "."))
             team_part = pick_l.split("+")[0].strip()
+            goals_ok = (total > line) if direction == "over" else (total < line)
+            # BTTS + Over/Under: "Igen + Over 2.5" vagy "Yes + Over 2.5"
+            if team_part in ("igen", "yes"):
+                btts_ok = h > 0 and a > 0
+                return "Nyert" if btts_ok and goals_ok else "Veszített"
+            if team_part in ("nem", "no"):
+                btts_ok = not (h > 0 and a > 0)
+                return "Nyert" if btts_ok and goals_ok else "Veszített"
+            # 1X2 + Over/Under: csapatnév + Over/Under
             home_ok = _nsim(_norm_team(team_part), _norm_team(home_team))
             away_ok = _nsim(_norm_team(team_part), _norm_team(away_team))
             if home_ok:   result_ok = h > a
             elif away_ok: result_ok = a > h
             else:         result_ok = False
-            goals_ok = (total > line) if direction == "over" else (total < line)
             return "Nyert" if result_ok and goals_ok else "Veszített"
         except: pass
 
