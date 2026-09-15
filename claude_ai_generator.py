@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.6
+# claude_ai_generator.py v1.4.7
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -109,8 +109,22 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
             for o in odds_list[:6]
         ])
 
+    def fmt_standings(m):
+        hs = m.get("homeStandings")
+        as_ = m.get("awayStandings")
+        if not hs and not as_:
+            return ""
+        parts = (m.get("match","") + " vs ").split(" vs ")
+        home_name, away_name = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+        def fmt_t(d, name):
+            if not d: return ""
+            form = (d.get("form") or "").replace(",","")
+            return f"{name}: {d.get('position','?')}. hely/{d.get('points','?')}p Forma:{form} G:{d.get('scored','?')}-{d.get('conceded','?')}"
+        parts_str = " | ".join(filter(None, [fmt_t(hs, home_name), fmt_t(as_, away_name)]))
+        return f"\n  Tabella: {parts_str}" if parts_str else ""
+
     match_text = "\n".join([
-        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Valós odds: {fmt_odds(m.get('odds', []))}"
+        f"- {m.get('sport','')} | {m['match']} | Kezdés: {m.get('commence','?')}\n  Valós odds: {fmt_odds(m.get('odds', []))}{fmt_standings(m)}"
         for m in matches
     ]) or "Nincs elérhető meccs."
 
