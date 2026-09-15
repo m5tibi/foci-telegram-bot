@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.7
+# claude_ai_generator.py v1.4.8
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -114,8 +114,9 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
         as_ = m.get("awayStandings")
         if not hs and not as_:
             return ""
-        parts = (m.get("match","") + " vs ").split(" vs ")
-        home_name, away_name = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+        parts = m.get("match", "").split(" vs ", 1)
+        home_name = parts[0].strip() if parts else ""
+        away_name = parts[1].strip() if len(parts) > 1 else ""
         def fmt_t(d, name):
             if not d: return ""
             form = (d.get("form") or "").replace(",","")
