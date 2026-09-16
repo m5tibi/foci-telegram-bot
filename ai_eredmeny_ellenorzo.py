@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.15
+# ai_eredmeny_ellenorzo.py v1.6.16
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -227,6 +227,11 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     pick_l = pick.lower().strip()
     total = h + a
     import re as _re2
+
+    # Fogadáskészítő: manuális kiértékelés szükséges, automatikusan nem kezeljük
+    market_str = (market or "").lower()
+    if "fogadáskészítő" in market_str or "fogadaskeszito" in market_str or "bet builder" in market_str:
+        return "Ismeretlen"
 
     # 1X2 + Over/Under kombinált piac – ELŐBB ellenőrizzük mint az alap Over/Under!
     # (pl. "PSV Eindhoven + Over 1.5" tartalmaz "over"-t, de nem sima Over tipp)
