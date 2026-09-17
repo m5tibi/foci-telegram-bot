@@ -512,7 +512,44 @@ async def admin_ai_approve(
     except Exception as e:
         return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
 
-@api.post("/admin/ai-tips/reject/{tip_id}")
+@api.post("/admin/ai-tips/make-free/{tip_id}")
+async def admin_ai_make_free(request: Request, tip_id: int):
+    """VIP tippet free tippként publikál: átmásolja free_slips-be, törli manual_slips-ből."""
+    user = get_current_user(request)
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+    if not user or str(user.get('chat_id')) != admin_id:
+        return RedirectResponse(url="/", status_code=303)
+    from app.database import get_admin_db
+    db = get_admin_db()
+    try:
+        # Eredeti tipp lekérése
+        r = db.table("manual_slips").select("*").eq("id", tip_id).execute()
+        if not r.data:
+            return RedirectResponse(url="/admin/ai-tips?error=Tipp nem található.", status_code=303)
+        tip = r.data[0]
+        # Átmásolás free_slips-be
+        free_row = {
+            "tipp_neve":    tip.get("tipp_neve", "").replace("[AI] ", "[AI FREE] "),
+            "eredo_odds":   tip.get("eredo_odds"),
+            "ai_note":      tip.get("ai_note", ""),
+            "ai_pick":      tip.get("ai_pick", ""),
+            "ai_market":    tip.get("ai_market", ""),
+            "ai_match":     tip.get("ai_match", ""),
+            "ai_commence":  tip.get("ai_commence", ""),
+            "ai_generated": True,
+            "tip_type":     "free",
+            "status":       "Folyamatban",
+            "target_date":  tip.get("target_date"),
+        }
+        db.table("free_slips").insert(free_row).execute()
+        # Törlés manual_slips-ből
+        db.table("manual_slips").delete().eq("id", tip_id).execute()
+        return RedirectResponse(url="/admin/ai-tips?message=Free tippként publikálva!", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
+
+
+
 async def admin_ai_reject(request: Request, tip_id: int, tip_type: str = Form("vip")):
     """Törli az AI tippet."""
     user = get_current_user(request)
