@@ -1,4 +1,4 @@
-# claude_ai_generator.py v1.4.8
+# claude_ai_generator.py v1.4.9
 # Automatikus tipp generálás Claude API segítségével
 # A meccslistát a 90perc.hu szerverétől kapja (nincs extra Odds-API kredit)
 
@@ -159,7 +159,9 @@ def build_prompt(matches: list, tipped_matches: list) -> str:
 
 3) "free_tip": KÖTELEZŐ MEZŐ! Minden nap adj 1 ingyenes tippet – SOHA ne hagyd ki!
    - KÜLÖNBÖZŐ meccs mint a singles és combos lábai, ha lehetséges.
-   - Legalább 1.30 odds! Single (1.30-2.00) VAGY kombi (1.20-1.55 lábankénti).
+   - MINIMUM 1.50 odds! Az 1.30-1.49-es tippek TILOSAK – túl alacsony értéket képviselnek az ingyenes követőknek.
+   - Legjobb: 1.65-2.20 odds között – vonzó, de nem túl kockázatos.
+   - Lehet single (1.50-2.20 odds) VAGY kombi (1.20-1.55 lábankénti).
    - SOHA ne hagyd null-on!
    - NOTE: csak erről a meccsről írj – más csapatokat NE keverj bele!
 
@@ -431,21 +433,21 @@ def save_to_supabase(tips: dict, skip_free: bool = False) -> dict:
         if ft_key in saved_singles:
             print(f"[save] Free tipp kihagyva: duplikáció egy single tippel ({ft_key[0]})")
             free_tip = None
-    # Érvénytelen free tipp kiszűrése – 1.30 minimum (free tipp lehet alacsonyabb oddsú biztos pick)
+    # Érvénytelen free tipp kiszűrése – 1.50 minimum (vonzó legyen az ingyenes követőknek)
     if free_tip and (
         not free_tip.get("match") or
         free_tip.get("match") in ("N/A", "null", "", None) or
-        float(free_tip.get("odds", 0) or 0) < 1.30
+        float(free_tip.get("odds", 0) or 0) < 1.50
     ):
-        print(f"[save] Free tipp kiszűrve (érvénytelen): {free_tip}")
+        print(f"[save] Free tipp kiszűrve (odds < 1.50 vagy érvénytelen): {free_tip.get('match')} @ {free_tip.get('odds')}")
         free_tip = None
-    # Fallback: ha nincs érvényes free tipp, a legjobb kombi láb legyen az
+    # Fallback: ha nincs érvényes free tipp, a legjobb kombi láb legyen az (min 1.50)
     if not free_tip:
         best_leg = None
         for combo in tips.get("combos", []):
             for leg in combo.get("legs", []):
                 leg_odds = float(leg.get("odds", 0) or 0)
-                if leg_odds >= 1.30 and (best_leg is None or leg_odds > float(best_leg.get("odds", 0))):
+                if leg_odds >= 1.50 and (best_leg is None or leg_odds > float(best_leg.get("odds", 0))):
                     best_leg = leg
         if best_leg:
             free_tip = {
