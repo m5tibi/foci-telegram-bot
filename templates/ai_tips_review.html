@@ -112,6 +112,16 @@
           ✅ Jóváhagyás
         </button>
       </form>
+      {% if tip.tip_type != 'free' %}
+      <form method="POST" action="/admin/ai-tips/make-free/{{ tip.id }}" style="margin:0"
+            onsubmit="return confirm('Free tippként publikálod ezt a tippet?')">
+        <button type="submit"
+          style="background:#00c853;color:#000;border:none;padding:10px 18px;border-radius:8px;
+                 font-weight:700;cursor:pointer;font-size:14px">
+          🆓 Free-nek
+        </button>
+      </form>
+      {% endif %}
       <form method="POST" action="/admin/ai-tips/reject/{{ tip.id }}" style="margin:0"
             onsubmit="return confirm('Biztosan törlöd ezt a tippet?')">
         <input type="hidden" name="tip_type" value="{{ tip.tip_type or 'vip' }}">
@@ -156,20 +166,14 @@ async function editTip(id, tipType) {
     body.legs = newLegs;
     body.odds = parseFloat(newLegs.reduce((p,l) => p * l.odds, 1).toFixed(2));
   } else {
-    // Single/Free: market + pick + odds
-    const curMkt  = tipData ? (tipData.market || tipData.ai_market || "") : "";
-    const curPick = tipData ? (tipData.pick   || tipData.ai_pick   || "") : "";
-    const curOdds = tipData ? String(tipData.odds || tipData.eredo_odds || "") : "";
-
-    const newMkt = prompt("Piac (pl. 1X2 / Over 2.5 / BTTS / BTTS + Over 2.5):", curMkt);
-    if (newMkt === null) return;
+    // Single/Free: pick + odds
+    const curPick = tipData ? tipData.pick : "";
+    const curOdds = tipData ? String(tipData.odds) : "";
     const newPick = prompt("Tipp (pick):", curPick);
     if (newPick === null) return;
     const newOddsStr = prompt("Odds:", curOdds);
     if (newOddsStr === null) return;
-
-    if (newMkt.trim())  body.market = newMkt.trim();
-    if (newPick.trim()) body.pick   = newPick.trim();
+    if (newPick.trim()) body.pick = newPick.trim();
     const parsed = parseFloat(newOddsStr.replace(",","."));
     if (!isNaN(parsed) && parsed > 1) body.odds = parsed;
   }
