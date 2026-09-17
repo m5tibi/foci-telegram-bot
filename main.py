@@ -550,6 +550,7 @@ async def admin_ai_make_free(request: Request, tip_id: int):
 
 
 
+@api.post("/admin/ai-tips/reject/{tip_id}")
 async def admin_ai_reject(request: Request, tip_id: int, tip_type: str = Form("vip")):
     """Törli az AI tippet."""
     user = get_current_user(request)
