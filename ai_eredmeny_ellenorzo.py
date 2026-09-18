@@ -1,4 +1,4 @@
-# ai_eredmeny_ellenorzo.py v1.6.16
+# ai_eredmeny_ellenorzo.py v1.6.17
 # AI-generált tippek (manual_slips, free_slips) kiértékelése The-Odds-API alapján
 # Ugyanazt az API kulcsot használja mint a 90perc.hu
 
@@ -245,8 +245,8 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             line      = float(_combined_match.group(2).replace(",", "."))
             team_part = pick_l.split("+")[0].strip()
             goals_ok = (total > line) if direction == "over" else (total < line)
-            # BTTS + Over/Under: "Igen + Over 2.5" vagy "Yes + Over 2.5"
-            if team_part in ("igen", "yes"):
+            # BTTS + Over/Under: "Igen + Over 2.5" vagy "BTTS + Over 2.5"
+            if team_part in ("igen", "yes", "btts"):
                 btts_ok = h > 0 and a > 0
                 return "Nyert" if btts_ok and goals_ok else "Veszített"
             if team_part in ("nem", "no"):
