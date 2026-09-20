@@ -538,13 +538,14 @@ async def admin_ai_make_free(request: Request, tip_id: int):
             "ai_commence":  tip.get("ai_commence", ""),
             "ai_generated": True,
             "tip_type":     "free",
-            "status":       "Folyamatban",
+            "status":       "Jóváhagyásra vár",
+            "result_status": "Folyamatban",
             "target_date":  tip.get("target_date"),
         }
         db.table("free_slips").insert(free_row).execute()
         # Törlés manual_slips-ből
         db.table("manual_slips").delete().eq("id", tip_id).execute()
-        return RedirectResponse(url="/admin/ai-tips?message=Free tippként publikálva!", status_code=303)
+        return RedirectResponse(url="/admin/ai-tips?message=Free tippként áthelyezve – jóváhagyás szükséges!", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/admin/ai-tips?error={str(e)}", status_code=303)
 
