@@ -1169,6 +1169,67 @@ async def edit_ai_tip(tip_id: str, request: Request):
     print(f"[edit] {target_table} frissitve: {tip_id}")
     return _ok({"ok": True})
 
+# ── /api/receive-tip – 90perc.hu tippek fogadása ─────────────────────────────
+# A 90perc.hu szerver hívja ezt az endpointot, amikor az admin a
+# "→ Mondomatutit" gombra kattint. Jelszóval védett (X-Admin-Password header).
+@api.post("/api/receive-tip")
+async def receive_tip_from_perc90(request: Request):
+    """Fogadja a 90perc.hu-tól érkező tippet és elmenti Supabase-be jóváhagyásra."""
+    import json as _jj
+    from fastapi.responses import Response as _RR
+    def _ok(d, s=200): return _RR(
+        content=_jj.dumps(d, ensure_ascii=False),
+        status_code=s, media_type="application/json"
+    )
+
+    # Jelszó ellenőrzés – ugyanaz a PERC90_ADMIN_PASSWORD, amit a claude_ai_generator is használ
+    password = request.headers.get("X-Admin-Password", "")
+    expected = os.environ.get("PERC90_ADMIN_PASSWORD", "")
+    if not expected or password != expected:
+        print(f"[receive-tip] Jogosulatlan kísérlet (jelszó: {'hiányzik' if not password else 'hibás'})")
+        return _ok({"error": "Unauthorized"}, 403)
+
+    try:
+        tip = await request.json()
+    except Exception:
+        return _ok({"error": "Érvénytelen JSON"}, 400)
+
+    tip_type = tip.get("tip_type", "single")
+    table    = "free_slips" if tip_type == "free" else "manual_slips"
+
+    db = get_admin_db()
+
+    row = {
+        "tipp_neve":     tip.get("tipp_neve", ""),
+        "eredo_odds":    tip.get("eredo_odds"),
+        "status":        "Jóváhagyásra vár",
+        "ai_generated":  True,
+        "ai_note":       tip.get("ai_note", "") or "",
+        "tip_type":      tip_type,
+        "ai_match":      tip.get("ai_match", "") or "",
+        "ai_pick":       tip.get("ai_pick", "") or "",
+        "ai_market":     tip.get("ai_market", "") or "",
+        "ai_commence":   tip.get("ai_commence", "") or "",
+        "ai_legs":       tip.get("ai_legs"),       # kombikhoz: JSON string
+        "target_date":   tip.get("target_date"),
+        "result_status": "Folyamatban"
+    }
+    # None értékek eltávolítása (Supabase nem fogad el None-t egyes mezőknél)
+    row = {k: v for k, v in row.items() if v is not None}
+
+    try:
+        res = db.table(table).insert(row).execute()
+        if res.data:
+            tip_id = res.data[0].get("id")
+            print(f"[receive-tip] ✓ {table} → '{row.get('tipp_neve','?')}' (id: {tip_id})")
+            return _ok({"ok": True, "id": tip_id})
+        print(f"[receive-tip] DB insert nem adott vissza adatot: {res}")
+        return _ok({"error": "DB insert sikertelen"}, 500)
+    except Exception as e:
+        print(f"[receive-tip] Hiba: {e}")
+        return _ok({"error": str(e)}, 500)
+
+
 @api.on_event("startup")
 async def startup():
     global application
