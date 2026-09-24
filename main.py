@@ -536,6 +536,7 @@ async def admin_ai_make_free(request: Request, tip_id: int):
             "ai_market":    tip.get("ai_market", ""),
             "ai_match":     tip.get("ai_match", ""),
             "ai_commence":  tip.get("ai_commence", ""),
+            "ai_legs":      tip.get("ai_legs"),
             "ai_generated": True,
             "tip_type":     "free",
             "status":       "Jóváhagyásra vár",
