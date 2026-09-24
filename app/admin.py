@@ -128,8 +128,20 @@ async def handle_manual_upload(
         
         image_url = supabase.storage.from_(target_bucket).get_public_url(storage_path)
 
-        # 5. Mentés az adatbázisba
+        # 5. Mentés az adatbázisba – duplikáció védelem (Render spin-up retry ellen)
+        # Ha az elmúlt 60 másodpercben már volt azonos nevű feltöltés, kihagyjuk.
         table_name = "manual_slips" if tip_type == "vip" else "free_slips"
+        from datetime import timedelta
+        cutoff = (datetime.now(pytz.utc) - timedelta(seconds=60)).isoformat()
+        existing = supabase.table(table_name) \
+            .select("id") \
+            .eq("tipp_neve", tipp_neve) \
+            .gte("created_at", cutoff) \
+            .execute()
+        if existing.data:
+            print(f"[upload] Duplikáció kiszűrve: '{tipp_neve}' már feltöltve az elmúlt 60mp-ben.")
+            return RedirectResponse(url="/admin/upload?message=Már fel van töltve (duplikáció kiszűrve).", status_code=303)
+
         data = {
             "tipp_neve": tipp_neve,
             "eredo_odds": eredo_odds,
