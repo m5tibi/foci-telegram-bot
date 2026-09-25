@@ -536,7 +536,8 @@ async def admin_ai_make_free(request: Request, tip_id: int):
             "ai_market":    tip.get("ai_market", ""),
             "ai_match":     tip.get("ai_match", ""),
             "ai_commence":  tip.get("ai_commence", ""),
-            "ai_legs":      tip.get("ai_legs"),
+            # ai_legs szándékosan kihagyva – free_slips táblában nincs ilyen oszlop.
+            # A lábak az ai_note-ban szerepelnek '\nLábak:\n' szeparátorral.
             "ai_generated": True,
             "tip_type":     "free",
             "status":       "Jóváhagyásra vár",
@@ -1212,10 +1213,12 @@ async def receive_tip_from_perc90(request: Request):
         "ai_pick":       tip.get("ai_pick", "") or "",
         "ai_market":     tip.get("ai_market", "") or "",
         "ai_commence":   tip.get("ai_commence", "") or "",
-        "ai_legs":       tip.get("ai_legs"),       # kombikhoz: JSON string
         "target_date":   tip.get("target_date"),
         "result_status": "Folyamatban"
     }
+    # ai_legs csak manual_slips-ben létezik, free_slips-ben nincs ilyen oszlop
+    if tip_type != "free" and tip.get("ai_legs"):
+        row["ai_legs"] = tip.get("ai_legs")
     # None értékek eltávolítása (Supabase nem fogad el None-t egyes mezőknél)
     row = {k: v for k, v in row.items() if v is not None}
 
