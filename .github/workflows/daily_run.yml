@@ -59,6 +59,7 @@ jobs:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }} 
           # A Python kód 'TELEGRAM_TOKEN'-ként keresi
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}

@@ -24,20 +24,25 @@ SMTP_USER  = os.environ.get("SMTP_USER",  "info@mondomatutit.hu")
 SMTP_PASS  = os.environ.get("SMTP_PASS",  "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL",  SMTP_USER)
 SITE_URL   = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
-SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123")
-
-_signer = URLSafeTimedSerializer(SECRET_KEY)
+SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 
 
 # ── LEIRATKOZÓ TOKEN ──────────────────────────────────────────────────────────
 
+def _signer() -> URLSafeTimedSerializer:
+    # Nincs alapértelmezett kulcs, különben a leiratkozó token bárki által hamisítható
+    if not SECRET_KEY:
+        raise RuntimeError("A SESSION_SECRET_KEY környezeti változó nincs beállítva!")
+    return URLSafeTimedSerializer(SECRET_KEY)
+
+
 def make_unsub_token(email: str) -> str:
-    return _signer.dumps(email, salt="email-unsub")
+    return _signer().dumps(email, salt="email-unsub")
 
 
 def verify_unsub_token(token: str) -> str | None:
     try:
-        return _signer.loads(token, salt="email-unsub", max_age=60 * 60 * 24 * 365)
+        return _signer().loads(token, salt="email-unsub", max_age=60 * 60 * 24 * 365)
     except (BadSignature, SignatureExpired):
         return None
 

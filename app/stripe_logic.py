@@ -19,6 +19,7 @@ RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bo
 ADMIN_CHAT_ID = 1326707238
 
 processed_invoice_ids = set()
+processed_checkout_ids = set()
 
 # ── SEGÉDFÜGGVÉNYEK ───────────────────────────────────────────────────────────
 
@@ -138,8 +139,13 @@ async def stripe_webhook(request: Request):
         if event.type == 'checkout.session.completed':
             u_id = get_val(metadata, "user_id")
             p_name = get_val(metadata, "plan", "monthly")
-        
-            if u_id:
+            cs_id = getattr(obj, 'id', None)
+
+            # Stripe újraküldés esetén ne írjuk jóvá kétszer az időt
+            if u_id and cs_id in processed_checkout_ids:
+                print(f"[WEBHOOK] Már feldolgozott checkout session: {cs_id}")
+            elif u_id:
+                if cs_id: processed_checkout_ids.add(cs_id)
                 # LEJÁRATI IDŐ SZÁMÍTÁS ÉS TELEGRAM MEGJELENÍTÉS AZ ÖSSZES CSOMAGRA
                 if p_name == 'lifetime':
                     new_exp = datetime(2050, 12, 31, 23, 59, 59, tzinfo=pytz.utc).isoformat()
@@ -154,7 +160,19 @@ async def stripe_webhook(request: Request):
                         'annual': 365
                     }
                     dur = days_map.get(p_name, 31)
-                    new_exp = (datetime.now(pytz.utc) + timedelta(days=dur)).isoformat()
+                    # Ha még van érvényes hozzáférése, ahhoz adjuk hozzá, ne vesszen el a hátralévő idő
+                    start_dt = datetime.now(pytz.utc)
+                    try:
+                        cur = client.table("felhasznalok").select("subscription_status, subscription_expires_at") \
+                            .eq("id", u_id).maybe_single().execute()
+                        cur_exp = cur.data.get("subscription_expires_at") if cur and cur.data else None
+                        if cur_exp and cur.data.get("subscription_status") == "active":
+                            old_exp = datetime.fromisoformat(cur_exp.replace('Z', '+00:00'))
+                            if old_exp > start_dt:
+                                start_dt = old_exp
+                    except Exception as e:
+                        print(f"[WEBHOOK] Meglévő lejárat lekérési hiba: {e}")
+                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
                     dur_text = f"{dur} nap"
                 
                     display_names = {
@@ -166,11 +184,15 @@ async def stripe_webhook(request: Request):
                     }
                     plan_display = display_names.get(p_name, f"Csomag: {p_name}")
             
-                client.table("felhasznalok").update({
+                updates = {
                     "subscription_status": "active", 
                     "subscription_expires_at": new_exp, 
-                    "stripe_customer_id": getattr(obj, 'customer', None)
-                }).eq("id", u_id).execute()
+                }
+                # Egyszeri fizetésnél nincs customer – ilyenkor ne töröljük a meglévő (előfizetéses) customer ID-t
+                cust_id = getattr(obj, 'customer', None)
+                if cust_id:
+                    updates["stripe_customer_id"] = cust_id
+                client.table("felhasznalok").update(updates).eq("id", u_id).execute()
             
                 cust_details = getattr(obj, 'customer_details', {})
                 email = get_val(cust_details, 'email', 'Ismeretlen')
