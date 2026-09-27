@@ -14,10 +14,6 @@ requests
 python-dateutil
 pytz
 
-# Matematikai és Statisztikai Modellek (PhD Protokollhoz)
-numpy>=1.23.5
-pandas
-
 # Adatkezelés és Logisztika
 openpyxl
 python-telegram-bot
