@@ -2,7 +2,9 @@
 import os
 import secrets
 import smtplib
+import time
 import pytz
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from fastapi import APIRouter, Form, Request
@@ -31,6 +33,39 @@ def verify_password(plain_password, hashed_password):
         return pwd_context.verify(plain_password, hashed_password)
     except Exception:
         return False
+
+# --- Próbálkozás-korlátozás (brute force ellen) ---
+# Memóriában tárolt időbélyegek; újraindításkor nullázódik, ami itt elfogadható.
+LOGIN_WINDOW_SEC = 15 * 60
+LOGIN_MAX_PER_EMAIL = 5     # sikertelen belépés / email / ablak
+LOGIN_MAX_PER_IP = 20       # sikertelen belépés / IP / ablak
+RESET_WINDOW_SEC = 60 * 60
+RESET_MAX_PER_EMAIL = 3     # jelszó-visszaállító email / cím / óra
+
+_attempts = defaultdict(deque)
+
+def _client_ip(request: Request) -> str:
+    # Render proxy mögött fut: az eredeti kliens IP az X-Forwarded-For első eleme
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+def _recent(key: str, window: int) -> deque:
+    q = _attempts[key]
+    cutoff = time.time() - window
+    while q and q[0] < cutoff:
+        q.popleft()
+    if not q:
+        _attempts.pop(key, None)
+        return deque()
+    return q
+
+def _is_limited(key: str, window: int, limit: int) -> bool:
+    return len(_recent(key, window)) >= limit
+
+def _record(key: str):
+    _attempts[key].append(time.time())
 
 # --- Jelszóvisszaállító Email küldése ---
 def send_reset_email(to_email: str, token: str):
@@ -65,6 +100,13 @@ def send_reset_email(to_email: str, token: str):
         print(f"✅ Reset email elküldve: {to_email}")
     except Exception as e:
         print(f"❌ Email hiba: {e}")
+
+# --- Admin azonosítás ---
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "1326707238")
+
+def is_admin_user(user) -> bool:
+    """Az admin az a felhasználó, akinek a Telegram chat_id-ja ADMIN_CHAT_ID."""
+    return bool(user) and str(s_get(user, 'chat_id')) == ADMIN_CHAT_ID
 
 # --- Felhasználó lekérése ---
 def get_current_user(request: Request):
@@ -106,11 +148,20 @@ async def handle_registration(request: Request, email: str = Form(...), password
 # --- Bejelentkezési útvonal ---
 @router.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    email_key = "login:email:" + email.strip().lower()
+    ip_key = "login:ip:" + _client_ip(request)
+    if _is_limited(email_key, LOGIN_WINDOW_SEC, LOGIN_MAX_PER_EMAIL) or \
+       _is_limited(ip_key, LOGIN_WINDOW_SEC, LOGIN_MAX_PER_IP):
+        print(f"[LOGIN] Túl sok próbálkozás: {email} / {_client_ip(request)}")
+        return RedirectResponse(url="/?login_error=too_many#login-register", status_code=303)
     try:
         user_res = supabase.table("felhasznalok").select("*").eq("email", email).maybe_single().execute()
         if not user_res.data or not verify_password(password, user_res.data.get('hashed_password')):
+            _record(email_key)
+            _record(ip_key)
             return RedirectResponse(url="/?login_error=true#login-register", status_code=303)
         
+        _attempts.pop(email_key, None)
         request.session["user_id"] = user_res.data['id']
         return RedirectResponse(url="/vip", status_code=303)
     except Exception as e:
@@ -130,9 +181,16 @@ async def forgot_password_page(request: Request):
 @router.post("/forgot-password")
 async def handle_forgot_password(request: Request, email: str = Form(...)):
     admin_supabase = get_admin_db()
-    user_res = admin_supabase.table("felhasznalok").select("*").eq("email", email).execute()
+    reset_key = "reset:email:" + email.strip().lower()
+    if _is_limited(reset_key, RESET_WINDOW_SEC, RESET_MAX_PER_EMAIL):
+        # Ugyanazt az üzenetet adjuk, hogy ne derüljön ki, létezik-e a fiók
+        print(f"[RESET] Túl sok kérés: {email}")
+        user_res = None
+    else:
+        _record(reset_key)
+        user_res = admin_supabase.table("felhasznalok").select("*").eq("email", email).execute()
     
-    if user_res.data:
+    if user_res and user_res.data:
         token = secrets.token_urlsafe(32)
         expiry = (datetime.now(pytz.utc) + timedelta(hours=1)).isoformat()
         admin_supabase.table("felhasznalok").update({

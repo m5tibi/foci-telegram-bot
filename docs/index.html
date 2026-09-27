@@ -960,7 +960,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var params = new URLSearchParams(window.location.search);
     if (params.get('login_error')) {
         var msg = document.createElement('p'); msg.className = 'form-error';
-        msg.textContent = 'Hibás e-mail cím vagy jelszó.';
+        msg.textContent = params.get('login_error') === 'too_many'
+            ? 'Túl sok sikertelen próbálkozás. Kérjük, próbáld újra 15 perc múlva.'
+            : 'Hibás e-mail cím vagy jelszó.';
         document.getElementById('login').querySelector('form').appendChild(msg);
     }
     if (params.get('register_error') === 'email_exists') {

@@ -84,3 +84,12 @@ where schemaname = 'storage' and tablename = 'objects';
 
 -- Mely bucketek nyilvánosak? (a nyilvános bucket fájljai URL-lel bárkinek elérhetők)
 select id, public from storage.buckets;
+
+
+-- ═══ 5. PRIVÁT BUCKETEK (a szerver aláírt linkekkel adja ki a fájlokat) ════
+-- Csak azután futtasd, hogy az aláírt linkeket kezelő verzió élesben fut!
+-- A free-slips bucket nyilvános marad (a free_tips.html közvetlenül olvassa).
+update storage.buckets set public = false where id in ('slips', 'elemzesek');
+
+-- Visszaállítás, ha valami nem jelenik meg:
+-- update storage.buckets set public = true where id in ('slips', 'elemzesek');
