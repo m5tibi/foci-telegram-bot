@@ -13,5 +13,6 @@ Sportfogadási tippek webes VIP felülete és Telegram botja (mondomatutit.hu).
 - `supabase/rls.sql` – adatbázis és Storage jogosultságok (RLS)
 
 ## Környezeti változók (Render)
-`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`, `SESSION_SECRET_KEY`, `TELEGRAM_TOKEN`, `ADMIN_CHAT_ID`,
+`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`, `SESSION_SECRET_KEY`, `TELEGRAM_TOKEN`, `ADMIN_CHAT_ID` (a bot admin Telegram azonosítója),
+`ADMIN_EMAILS` (a weboldal admin fiókjainak email címe, vesszővel elválasztva),
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PERC90_ADMIN_PASSWORD`, SMTP beállítások (`SMTP_*`, `EMAIL_PASSWORD`).

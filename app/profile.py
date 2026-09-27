@@ -7,12 +7,11 @@ from datetime import datetime
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+from .templating import templates
 
 @router.get("/profile")
 async def profile_page(request: Request):

@@ -7,7 +7,6 @@ import pytz
 from datetime import datetime
 from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user, is_admin_user
 
@@ -25,7 +24,7 @@ except Exception:
     notify_marketing = None
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+from .templating import templates
 
 
 def _active_emails(data: list) -> list:

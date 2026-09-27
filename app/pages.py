@@ -6,13 +6,12 @@ import pytz
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from .database import get_admin_db
 from .auth import get_current_user, is_admin_user
 from bot import get_tip_details
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+from .templating import templates
 _BASE_DIR = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 
