@@ -9,7 +9,6 @@ from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 import os as _os
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application, PicklePersistence
@@ -25,7 +24,6 @@ from app.ai_tips import router as ai_tips_router, _auto_check_loop
 from bot import add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
-templates = Jinja2Templates(directory="templates")
 _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
 if _os.path.exists(_docs_path):

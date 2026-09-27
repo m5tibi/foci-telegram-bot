@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
 from .database import get_db, get_admin_db, s_get
 
@@ -19,8 +18,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # az anon kulcs nyilvános (docs/free_tips.html), ezért azzal nem szabad olvasni.
 supabase = get_admin_db()
 
-# Saját templates objektum definiálása
-templates = Jinja2Templates(directory="templates")
+from .templating import templates
 
 # --- Jelszókezelő segédfüggvények ---
 MIN_PASSWORD_LENGTH = 8
@@ -102,11 +100,26 @@ def send_reset_email(to_email: str, token: str):
         print(f"❌ Email hiba: {e}")
 
 # --- Admin azonosítás ---
+# ADMIN_EMAILS: vesszővel elválasztott email címek, pontosan úgy, ahogy a fiók
+# regisztrálva van (kis-/nagybetű is számít, így egy eltérő írásmóddal
+# regisztrált új fiók nem kaphat admin jogot).
+ADMIN_EMAILS = {e.strip() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+# Csak átmeneti tartalék, amíg az ADMIN_EMAILS nincs beállítva
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "1326707238")
 
+if not ADMIN_EMAILS:
+    print("⚠️ ADMIN_EMAILS nincs beállítva – admin azonosítás a Telegram chat_id alapján (tartalék).")
+
 def is_admin_user(user) -> bool:
-    """Az admin az a felhasználó, akinek a Telegram chat_id-ja ADMIN_CHAT_ID."""
-    return bool(user) and str(s_get(user, 'chat_id')) == ADMIN_CHAT_ID
+    """Admin az a felhasználó, akinek az email címe szerepel az ADMIN_EMAILS-ben.
+    A Telegram összekötés így nem ad és nem vesz el admin jogot."""
+    if not user:
+        return False
+    if ADMIN_EMAILS:
+        return (s_get(user, 'email') or "").strip() in ADMIN_EMAILS
+    return str(s_get(user, 'chat_id')) == ADMIN_CHAT_ID
+
+templates.env.globals["is_admin_user"] = is_admin_user
 
 # --- Felhasználó lekérése ---
 def get_current_user(request: Request):

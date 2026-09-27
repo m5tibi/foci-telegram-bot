@@ -443,7 +443,7 @@
     {% if user %}
         <a href="/vip?t={{ range(1, 99999) | random }}">VIP Tippek</a>
         <a href="/profile">Profil</a>
-        {% if user.chat_id == 1326707238 %}
+        {% if is_admin_user(user) %}
             <a href="/admin/upload">Admin Feltöltés</a>
         {% endif %}
         <a href="/logout">Kijelentkezés</a>
