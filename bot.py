@@ -300,20 +300,9 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
         [InlineKeyboardButton("👥 Felh. Száma", callback_data="admin_show_users"), InlineKeyboardButton("❤️ Rendszer Státusz", callback_data="admin_check_status")],
         [InlineKeyboardButton("📣 Körüzenet (Mindenki)", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton("💎 VIP Körüzenet (Előfizetők)", callback_data="admin_vip_broadcast_start")],
-        [InlineKeyboardButton("🎲 Új Tipp Generálása", callback_data="generate_new_tips")],
         [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]
     ]
     await update.message.reply_text("🛠️ **Mondom a Tutit Admin Panel**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-@admin_only
-async def generate_new_tips(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; await query.answer()
-    await query.message.reply_text("🎲 Tippgenerátor indítása... (Ez eltarthat pár percig)")
-    try:
-        from tipp_generator import main as run_generator
-        await asyncio.to_thread(run_generator) 
-        await query.message.reply_text("✅ Generálás kész! Ellenőrizd a Napi Tutik menüpontban.")
-    except Exception as e: await query.message.reply_text(f"❌ Hiba a generálás közben: {e}")
 
 @admin_only
 async def admin_manage_manual_slips(update: telegram.Update, context: CallbackContext):
@@ -646,7 +635,6 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_vip_broadcast_start": 
         await query.answer()
     elif command == "admin_manage_manual": await admin_manage_manual_slips(update, context)
-    elif command == "generate_new_tips": await generate_new_tips(update, context)
     elif command.startswith("manual_result_"): await handle_manual_slip_action(update, context)
     elif command.startswith("confirm_send:"): await confirm_and_send_notification(update, context)
     elif command.startswith("noop_"): await query.answer()
