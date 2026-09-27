@@ -16,7 +16,7 @@ STRIPE_TEST_SECRET_KEY = os.environ.get("STRIPE_TEST_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
-ADMIN_CHAT_ID = 1326707238
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 
 processed_invoice_ids = set()
 processed_checkout_ids = set()

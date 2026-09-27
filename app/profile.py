@@ -1,10 +1,12 @@
 # app/profile.py
 import os
+import secrets
 import stripe
 import pytz
 from datetime import datetime
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user
@@ -90,3 +92,60 @@ async def email_toggle(request: Request):
     except Exception as e:
         print(f"[EMAIL TOGGLE] Hiba: {e}")
     return RedirectResponse(url="/profile", status_code=303)
+
+
+# --- TELEGRAM ÖSSZEKÖTÉS ---
+_bot_username = None
+
+def _get_bot_username():
+    """A bot felhasználóneve (TELEGRAM_BOT_USERNAME env, különben getMe, gyorsítótárazva)."""
+    global _bot_username
+    if _bot_username:
+        return _bot_username
+    name = os.environ.get("TELEGRAM_BOT_USERNAME")
+    if not name:
+        import requests
+        token = os.environ.get("TELEGRAM_TOKEN")
+        r = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+        r.raise_for_status()
+        name = r.json()["result"]["username"]
+    _bot_username = name.lstrip("@")
+    return _bot_username
+
+
+@router.post("/generate-telegram-link")
+async def generate_telegram_link(request: Request):
+    """Egyszer használatos összekötő link: a bot /start <token> paranccsal köti a chat_id-t a fiókhoz."""
+    user = get_current_user(request)
+    if not user:
+        return HTMLResponse("Nincs bejelentkezve.", status_code=401)
+    try:
+        token = secrets.token_urlsafe(24)
+        get_admin_db().table("felhasznalok").update({"telegram_connect_token": token}) \
+            .eq("id", user["id"]).execute()
+        link = f"https://t.me/{await run_in_threadpool(_get_bot_username)}?start={token}"
+    except Exception as e:
+        print(f"[TELEGRAM LINK] Hiba: {e}")
+        return HTMLResponse("Hiba", status_code=500)
+    return HTMLResponse(f"""
+        <p>Kattints az alábbi gombra, majd a Telegramban nyomd meg a <strong>Start</strong> gombot.
+        A link egyszer használható.</p>
+        <a href="{link}" target="_blank" rel="noopener" class="button" style="background-color:#0088cc;">
+            🚀 Összekötés a Telegram Bottal
+        </a>
+        <p style="margin-top:10px;"><small>Az összekötés után frissítsd ezt az oldalt.</small></p>""")
+
+
+@router.post("/unlink-telegram")
+async def unlink_telegram(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Nincs bejelentkezve."}, status_code=401)
+    try:
+        get_admin_db().table("felhasznalok") \
+            .update({"chat_id": None, "telegram_connect_token": None}) \
+            .eq("id", user["id"]).execute()
+    except Exception as e:
+        print(f"[TELEGRAM UNLINK] Hiba: {e}")
+        return JSONResponse({"success": False, "error": "Adatbázis hiba."}, status_code=500)
+    return JSONResponse({"success": True})

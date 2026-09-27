@@ -23,7 +23,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 
-ADMIN_CHAT_ID = 1326707238
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 AWAITING_BROADCAST = 0
 AWAITING_VIP_BROADCAST = 1
 

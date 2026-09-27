@@ -1,6 +1,7 @@
 # app/admin.py
 import os
 import re
+import secrets
 import unicodedata
 import pytz
 from datetime import datetime
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from .database import get_db, get_admin_db, s_get
-from .auth import get_current_user
+from .auth import get_current_user, is_admin_user
 
 # Telegram értesítő funkció beemelése a bot.py-ból
 try:
@@ -26,7 +27,6 @@ except Exception:
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-ADMIN_CHAT_ID = "1326707238"
 
 def _active_emails(data: list) -> list:
     """Kiszűri a leiratkozott és email nélküli felhasználókat."""
@@ -54,8 +54,7 @@ async def admin_root(request: Request):
 
 # --- ADMIN ELLENŐRZŐ SEGÉDFÜGGVÉNY ---
 def is_admin(request: Request):
-    user = get_current_user(request)
-    return user and str(s_get(user, 'chat_id')) == ADMIN_CHAT_ID
+    return is_admin_user(get_current_user(request))
 
 # --- 1. ADMIN OLDAL MEGJELENÍTÉSE ---
 @router.get("/admin/upload", response_class=HTMLResponse)
@@ -106,7 +105,8 @@ async def handle_manual_upload(
         # 1. Kép beolvasása és fájlnév generálása
         image_content = await slip_image.read()
         file_ext = slip_image.filename.split('.')[-1].lower()
-        filename = f"{datetime.now(tz).strftime('%Y%m%d_%H%M%S')}.{file_ext}"
+        # Véletlen utótag: a fájlnév ne legyen kitalálható az időbélyegből
+        filename = f"{datetime.now(tz).strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(8)}.{file_ext}"
         
         # 2. Útvonal meghatározása a meglévő Supabase struktúrád szerint
         if tip_type == "vip":
