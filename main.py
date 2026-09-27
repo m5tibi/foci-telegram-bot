@@ -899,7 +899,7 @@ async def delete_elemzes(record_id: str, request: Request):
         return _ok({"error": "Nem talalhato"}, 404)
     file_url = rec.data[0].get("file_url", "")
     supabase_url = os.environ.get("SUPABASE_URL", "")
-    supabase_key = os.environ.get("SUPABASE_KEY", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY", "")
     if file_url and "storage/v1/object/public/elemzesek/" in file_url:
         path = file_url.split("storage/v1/object/public/elemzesek/")[-1]
         _rq.delete(supabase_url + "/storage/v1/object/elemzesek/" + path,
@@ -920,7 +920,7 @@ async def export_tips_excel(request: Request):
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
     supabase_url = os.environ.get("SUPABASE_URL", "")
-    supabase_key = os.environ.get("SUPABASE_KEY", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY", "")
     headers = {"apikey": supabase_key, "Authorization": "Bearer " + supabase_key}
     from datetime import datetime as _dt2, timedelta as _td
     import pytz as _pytz2
@@ -986,7 +986,7 @@ async def export_tips_excel(request: Request):
     wb.save(buf)
     file_bytes = buf.getvalue()
     supabase_url = os.environ.get("SUPABASE_URL","")
-    supabase_key = os.environ.get("SUPABASE_KEY","")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY", "")
     now = _dt.now(_pytz.timezone("Europe/Budapest"))
     file_name = "tippek_" + now.strftime("%Y-%m-%d") + ".xlsx"
     storage_path = file_name
