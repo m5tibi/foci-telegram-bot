@@ -228,6 +228,17 @@ def notify_marketing(to_emails: list, subject: str, body_html: str,
     """Marketing / akciós email."""
     return _send(to_emails, subject, subject, body_html, cta_text, cta_url)
 
+def _legs_html(tip: dict) -> str:
+    """Kombi lábai HTML listaként (ai_legs mezőből vagy az ai_note "Lábak:" részéből)."""
+    from html import escape
+    from .tip_dates import tip_legs
+    legs = tip_legs(tip)
+    if not legs:
+        return ""
+    items = "".join(f'<li style="margin:2px 0;color:#cbd5e0;">• {escape(l)}</li>' for l in legs)
+    return f'<ul style="margin:4px 0;padding-left:12px;font-size:12px;list-style:none;">{items}</ul>'
+
+
 def notify_ai_tips(to_emails: list, vip_tips: list, free_tips: list, vip_url: str) -> dict:
     """AI-generált tippek értesítője – szépen formázva."""
     if not vip_tips and not free_tips:
@@ -240,23 +251,7 @@ def notify_ai_tips(to_emails: list, vip_tips: list, free_tips: list, vip_url: st
         icon = "🎰" if is_kombi else "⚽"
         odds = t.get("eredo_odds", "")
         note = t.get("ai_note", "").split("\nLábak:")[0].strip()
-        # Kombi lábak kinyerése
-        legs_html = ""
-        if is_kombi:
-            ai_legs = t.get("ai_legs")
-            if ai_legs:
-                try:
-                    legs = json.loads(ai_legs) if isinstance(ai_legs, str) else ai_legs
-                    legs_items = "".join([
-                        f'<li style="margin:2px 0;color:#cbd5e0;">• {l.get("match","?")} – {l.get("pick","?")} @ {l.get("odds","?")} 🕐 {l.get("commence","")}</li>'
-                        for l in legs
-                    ])
-                    legs_html = f'<ul style="margin:4px 0;padding-left:12px;font-size:12px;">{legs_items}</ul>'
-                except: pass
-            elif "\nLábak:\n" in (t.get("ai_note") or ""):
-                raw_legs = t["ai_note"].split("\nLábak:\n")[1]
-                items = "".join([f'<li style="margin:2px 0;color:#cbd5e0;">{l.strip()}</li>' for l in raw_legs.split("\n") if l.strip()])
-                legs_html = f'<ul style="margin:4px 0;padding-left:12px;font-size:12px;">{items}</ul>'
+        legs_html = _legs_html(t)
         tip_rows += f"""
         <tr><td style="padding:12px 0;border-bottom:1px solid rgba(212,175,55,.1);">
             <div style="font-size:13px;font-weight:700;color:#D4AF37;margin-bottom:4px">
@@ -276,6 +271,7 @@ def notify_ai_tips(to_emails: list, vip_tips: list, free_tips: list, vip_url: st
         <tr><td style="padding:12px 0;border-bottom:1px solid rgba(56,161,105,.2);">
             <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:4px">🆓 INGYENES TIPP</div>
             <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:4px">{name}</div>
+            {_legs_html(t)}
             {'<div style="font-size:12px;color:#A0A0C0;line-height:1.5;margin-top:4px">' + note + '</div>' if note else ''}
             <div style="font-size:12px;color:#68D391;margin-top:4px;font-weight:700">Odds: {odds}</div>
         </td></tr>"""

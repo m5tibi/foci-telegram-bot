@@ -329,9 +329,10 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         ids = [u["chat_id"] for u in (subs.data or []) if u.get("chat_id")]
         if ids:
             import json as _json
-            # Dátum szerinti csoportosítás, singlek előbb
+            # Dátum szerinti csoportosítás (a kezdés napja), singlek előbb, időrendben
+            from app.tip_dates import enrich_tips
             by_date = {}
-            for t in vip_tips:
+            for t in enrich_tips(vip_tips):
                 d = t.get("_sort_date") or t.get("target_date") or today
                 by_date.setdefault(d, {"singles": [], "combos": []})
                 if t.get("tip_type") == "kombi":
@@ -349,16 +350,8 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
                 for t in grp["combos"]:
                     name = t["tipp_neve"].replace("[AI] ", "")
                     lines.append(f"\n🎰 *{name}*")
-                    try:
-                        legs = _parse_legs(t.get("ai_legs"))
-                        for leg in legs:
-                            pick = leg.get("pick","")
-                            odds = leg.get("odds","")
-                            match = leg.get("match","")
-                            commence = leg.get("commence","")
-                            lines.append(f"   • {match}: {pick} @ {odds}" + (f" 🕐 {commence}" if commence else ""))
-                    except Exception:
-                        pass
+                    for leg in t.get("_legs") or []:
+                        lines.append(f"   • {leg}")
                 lines.append("─────────────")
 
             if lines and lines[-1] == "─────────────":
@@ -380,10 +373,13 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
         all_subs = db.table("felhasznalok").select("chat_id").execute()
         all_ids  = [u["chat_id"] for u in (all_subs.data or []) if u.get("chat_id")]
         if all_ids:
+            from app.tip_dates import tip_legs
             free_lines = []
             for t in free_tips_list:
                 name = t["tipp_neve"].replace("[AI FREE] ", "").replace("[AI] ", "")
                 free_lines.append(f"🆓 *{name}*")
+                for leg in tip_legs(t):
+                    free_lines.append(f"   • {leg}")
                 note = (t.get("ai_note") or "").split("\nLábak:")[0].strip()
                 if note:
                     # Max 300 karakter, mondat határon vágva
