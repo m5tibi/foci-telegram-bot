@@ -632,7 +632,7 @@
                 </div>
                 <div class="form-group">
                     <label for="r-pw">Jelszó</label>
-                    <input type="password" id="r-pw" name="password" required>
+                    <input type="password" id="r-pw" name="password" required minlength="8">
                 </div>
                 <button type="submit" class="auth-submit">Regisztráció & Tovább →</button>
             </form>
@@ -967,6 +967,12 @@ document.addEventListener('DOMContentLoaded', function () {
         var msg2 = document.createElement('p'); msg2.className = 'form-error';
         msg2.textContent = 'Ez az e-mail cím már regisztrálva van.';
         document.getElementById('register').querySelector('form').appendChild(msg2);
+        document.querySelector('.auth-tabs button:last-child').click();
+    }
+    if (params.get('register_error') === 'weak_password') {
+        var msg3 = document.createElement('p'); msg3.className = 'form-error';
+        msg3.textContent = 'A jelszónak legalább 8 karakter hosszúnak kell lennie.';
+        document.getElementById('register').querySelector('form').appendChild(msg3);
         document.querySelector('.auth-tabs button:last-child').click();
     }
 });

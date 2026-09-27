@@ -20,11 +20,18 @@ def get_db():
     """Visszaadja az alap Supabase klienst."""
     return supabase
 
+_admin_supabase = None
+
 def get_admin_db():
-    """Visszaadja a Service Key klienst a magasabb jogosultságú műveletekhez."""
-    if SUPABASE_SERVICE_KEY:
-        return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    return supabase
+    """Visszaadja a Service Key klienst a magasabb jogosultságú műveletekhez.
+    Minden szerveroldali művelet ezt használja, így a táblák RLS-sel lezárhatók az anon kulcs elől."""
+    global _admin_supabase
+    if not SUPABASE_SERVICE_KEY:
+        print("⚠️ SUPABASE_SERVICE_KEY hiányzik – fallback az anon kulcsra (RLS mellett nem fog működni)!")
+        return supabase
+    if _admin_supabase is None:
+        _admin_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return _admin_supabase
 
 def s_get(obj, key, default=None):
     """

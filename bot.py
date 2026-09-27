@@ -248,7 +248,7 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
     original_message_text = query.message.text_markdown.split("\n\nBiztosan kiküldöd")[0]
     await query.edit_message_text(text=f"{original_message_text}\n\n*🚀 Értesítés Küldése Folyamatban...*", parse_mode='Markdown')
     try:
-        supabase = get_db_client()
+        supabase = get_admin_db_client()
         now_iso = datetime.now(pytz.utc).isoformat()
         res = supabase.table("felhasznalok").select("chat_id").eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute()
         vip_ids = [u['chat_id'] for u in res.data if u.get('chat_id')]
@@ -321,7 +321,7 @@ async def admin_manage_manual_slips(update: telegram.Update, context: CallbackCo
     message = await query.message.edit_text("📝 Folyamatban lévő tippek keresése...")
     try:
         def sync_fetch_manual():
-            db = get_db_client()
+            db = get_admin_db_client()
             pending_manual = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
             pending_free = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
             return pending_manual, pending_free
@@ -388,7 +388,7 @@ async def admin_broadcast_message_handler(update: telegram.Update, context: Call
     msg = update.message.text
 
     def fetch_all_users():
-        db = get_db_client()
+        db = get_admin_db_client()
         res = db.table("felhasznalok").select("chat_id").not_.is_("chat_id", "null").execute()
         return [u['chat_id'] for u in res.data if u.get('chat_id')]
 
@@ -421,7 +421,7 @@ async def admin_vip_broadcast_message_handler(update: telegram.Update, context: 
     msg = update.message.text
 
     def fetch_vip_users():
-        db = get_db_client()
+        db = get_admin_db_client()
         now_iso = datetime.now(pytz.utc).isoformat()
         res = db.table("felhasznalok").select("chat_id") \
             .eq("subscription_status", "active") \
@@ -585,6 +585,44 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         await message_to_edit.edit_text(f"❌ Hiba a statisztika generálása közben: {e}")
 
 @admin_only
+@admin_only
+async def admin_show_users(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query; await query.answer()
+    try:
+        def sync_count():
+            db = get_admin_db_client()
+            now_iso = datetime.now(pytz.utc).isoformat()
+            total = db.table("felhasznalok").select("id", count="exact").execute().count or 0
+            vip = db.table("felhasznalok").select("id", count="exact") \
+                .eq("subscription_status", "active").gt("subscription_expires_at", now_iso).execute().count or 0
+            tg = db.table("felhasznalok").select("id", count="exact") \
+                .not_.is_("chat_id", "null").execute().count or 0
+            return total, vip, tg
+        total, vip, tg = await asyncio.to_thread(sync_count)
+        await query.message.reply_text(
+            f"👥 *Felhasználók*\n\n"
+            f"Regisztrált: {total}\n"
+            f"Aktív VIP: {vip}\n"
+            f"Telegrammal összekötve: {tg}",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        await query.message.reply_text(f"❌ Hiba a felhasználók lekérésekor: {e}")
+
+@admin_only
+async def admin_check_status(update: telegram.Update, context: CallbackContext):
+    query = update.callback_query; await query.answer()
+    lines = ["❤️ Rendszer Státusz", ""]
+    try:
+        await asyncio.to_thread(lambda: get_admin_db_client().table("felhasznalok").select("id").limit(1).execute())
+        lines.append("✅ Adatbázis: elérhető")
+    except Exception as e:
+        lines.append(f"❌ Adatbázis: {e}")
+    for key in ["SUPABASE_SERVICE_KEY", "SESSION_SECRET_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]:
+        lines.append(f"{'✅' if os.environ.get(key) else '⚠️'} {key}: {'beállítva' if os.environ.get(key) else 'HIÁNYZIK'}")
+    lines.append(f"\n🕐 {datetime.now(HUNGARY_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
+    await query.message.reply_text("\n".join(lines))
+
 async def button_handler(update: telegram.Update, context: CallbackContext):
     query = update.callback_query
     command = query.data

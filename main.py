@@ -39,9 +39,14 @@ api.add_middleware(
     allow_headers=["*"]
 )
 
+# Nincs alapértelmezett kulcs: ismert kulccsal bárki hamisíthatna session sütit (pl. admin user_id-val).
+SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
+if not SESSION_SECRET_KEY:
+    raise RuntimeError("A SESSION_SECRET_KEY környezeti változó nincs beállítva!")
+
 api.add_middleware(
     SessionMiddleware, 
-    secret_key=os.environ.get("SESSION_SECRET_KEY", "fix-secret-key-123"), 
+    secret_key=SESSION_SECRET_KEY, 
     same_site="lax"
 )
 
@@ -204,7 +209,7 @@ async def vip_area(request: Request):
     if not user:
         return RedirectResponse(url="/", status_code=303)
     
-    db = get_db()
+    db = get_admin_db()
     admin_id = os.environ.get("ADMIN_CHAT_ID", "1326707238")
     
     # --- JOGOSULTSÁG ELLENŐRZÉS ---

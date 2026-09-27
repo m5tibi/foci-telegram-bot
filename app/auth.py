@@ -13,12 +13,16 @@ from .database import get_db, get_admin_db, s_get
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-supabase = get_db()
+# A felhasznalok tábla (jelszó-hash, reset token) csak service key-jel érhető el,
+# az anon kulcs nyilvános (docs/free_tips.html), ezért azzal nem szabad olvasni.
+supabase = get_admin_db()
 
 # Saját templates objektum definiálása
 templates = Jinja2Templates(directory="templates")
 
 # --- Jelszókezelő segédfüggvények ---
+MIN_PASSWORD_LENGTH = 8
+
 def get_password_hash(password):
     return pwd_context.hash(password)
 
@@ -75,6 +79,8 @@ def get_current_user(request: Request):
 # --- REGISZTRÁCIÓS ÚTVONAL (Ez hiányzott!) ---
 @router.post("/register")
 async def handle_registration(request: Request, email: str = Form(...), password: str = Form(...)):
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return RedirectResponse(url="/?register_error=weak_password#login-register", status_code=303)
     try:
         # Ellenőrizzük, létezik-e már a felhasználó
         existing_user = supabase.table("felhasznalok").select("id").eq("email", email).execute()
@@ -169,6 +175,24 @@ async def handle_new_password(request: Request, token: str = Form(...), password
         })
     
     user = user_res.data[0]
+
+    # A lejáratot itt is ellenőrizni kell, nem csak a GET oldalon
+    expiry_str = user.get('reset_token_expiry')
+    try:
+        expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00')) if expiry_str else None
+    except ValueError:
+        expiry = None
+    if not expiry or datetime.now(pytz.utc) > expiry:
+        return templates.TemplateResponse(request=request, name="new_password.html", context={
+            "request": request, "token": token, "error": "A link lejárt. Kérj újat!"
+        })
+
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return templates.TemplateResponse(request=request, name="new_password.html", context={
+            "request": request, "token": token,
+            "form_error": f"A jelszónak legalább {MIN_PASSWORD_LENGTH} karakter hosszúnak kell lennie."
+        })
+
     new_hashed = get_password_hash(password)
     admin_supabase.table("felhasznalok").update({
         "hashed_password": new_hashed, 
