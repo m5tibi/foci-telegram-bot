@@ -65,6 +65,32 @@ def calculate_roi(records):
     if total_staked == 0: return 0
     return round(((total_return - total_staked) / total_staked) * 100, 1)
 
+def _parse_legs(raw):
+    """ai_legs mező → lista (a DB-ből szövegként és JSON listaként is jöhet)."""
+    import json as _json
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        legs = _json.loads(raw)
+        return legs if isinstance(legs, list) else []
+    except Exception:
+        return []
+
+def _legs_note_lines(legs):
+    """Lábak szöveges formája az ai_note-ban (free_slips-ben nincs ai_legs oszlop)."""
+    return "\n".join(
+        "  * " + str(l.get("match", "")) + ": " + str(l.get("pick", "")) + " @ " + str(l.get("odds", ""))
+        + (" " + str(l.get("commence", "")) if l.get("commence") else "")
+        for l in legs
+    )
+
+def _tip_table(request: Request):
+    """A kliens által megadott tábla (manual_slips / free_slips), ha érvényes."""
+    t = request.query_params.get("table")
+    return t if t in ("manual_slips", "free_slips") else None
+
 # --- 5. Útvonalak ---
 
 @api.get("/unsubscribe", response_class=HTMLResponse)
@@ -532,11 +558,16 @@ async def admin_ai_make_free(request: Request, tip_id: int):
         if not r.data:
             return RedirectResponse(url="/admin/ai-tips?error=Tipp nem található.", status_code=303)
         tip = r.data[0]
+        # Kombi lábai: free_slips-ben nincs ai_legs oszlop, ezért a note-ba kerülnek
+        note = tip.get("ai_note", "") or ""
+        legs = _parse_legs(tip.get("ai_legs"))
+        if legs and "\nLábak:\n" not in note:
+            note = note + "\n\nLábak:\n" + _legs_note_lines(legs)
         # Átmásolás free_slips-be
         free_row = {
             "tipp_neve":    tip.get("tipp_neve", "").replace("[AI] ", "[AI FREE] "),
             "eredo_odds":   tip.get("eredo_odds"),
-            "ai_note":      tip.get("ai_note", ""),
+            "ai_note":      note,
             "ai_pick":      tip.get("ai_pick", ""),
             "ai_market":    tip.get("ai_market", ""),
             "ai_match":     tip.get("ai_match", ""),
@@ -678,7 +709,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
                     name = t["tipp_neve"].replace("[AI] ", "")
                     lines.append(f"\n🎰 *{name}*")
                     try:
-                        legs = _json.loads(t.get("ai_legs") or "[]")
+                        legs = _parse_legs(t.get("ai_legs"))
                         for leg in legs:
                             pick = leg.get("pick","")
                             odds = leg.get("odds","")
@@ -1080,14 +1111,12 @@ async def get_ai_tip_data(tip_id: str, request: Request):
     if not user or str(user.get("chat_id")) != admin_id:
         return _ok({"error": "Nincs jogosultsag"}, 403)
     db = get_admin_db()
-    for table in ["free_slips", "manual_slips"]:
+    requested = _tip_table(request)
+    for table in ([requested] if requested else ["free_slips", "manual_slips"]):
         r = db.table(table).select("*").eq("id", tip_id).execute()
         if r.data:
             tip = r.data[0]
-            legs = []
-            if tip.get("ai_legs"):
-                try: legs = _jj.loads(tip["ai_legs"])
-                except: pass
+            legs = _parse_legs(tip.get("ai_legs"))
             if not legs and "\nL\u00e1bak:\n" in (tip.get("ai_note") or ""):
                 for line in tip["ai_note"].split("\nL\u00e1bak:\n")[1].split("\n"):
                     line = line.strip().lstrip("*").lstrip("\u2022").strip()
@@ -1125,7 +1154,8 @@ async def edit_ai_tip(tip_id: str, request: Request):
     db = get_admin_db()
     target_table = None
     tip_row = None
-    for table in ["manual_slips", "free_slips"]:
+    requested = _tip_table(request)
+    for table in ([requested] if requested else ["manual_slips", "free_slips"]):
         chk = db.table(table).select("*").eq("id", tip_id).execute()
         if chk.data:
             row = chk.data[0]
@@ -1142,14 +1172,16 @@ async def edit_ai_tip(tip_id: str, request: Request):
     if "pick"   in data: updates["ai_pick"]    = data["pick"]
     if "market" in data: updates["ai_market"]  = data["market"]
     if "legs" in data:
-        updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
+        is_free = target_table == "free_slips"
+        # free_slips-ben nincs ai_legs oszlop – ott a lábak csak az ai_note-ban élnek
+        if not is_free:
+            updates["ai_legs"] = _jj.dumps(data["legs"], ensure_ascii=False)
         if "odds" in data:
-            updates["tipp_neve"] = "[AI] Kombi – össz odds " + str(data["odds"])
+            updates["tipp_neve"] = ("[AI FREE] " if is_free else "[AI] ") + "Kombi – össz odds " + str(data["odds"])
         old_note = tip_row.get("ai_note") or ""
-        note_text = old_note.split("\n\nLábak:\n")[0] if "\n\nLábak:\n" in old_note else old_note
+        note_text = old_note.split("\nLábak:\n")[0].rstrip("\n")
         if "note" in data: note_text = data["note"]
-        legs_lines = ["  * " + str(l.get("match","")) + ": " + str(l.get("pick","")) + " @ " + str(l.get("odds","")) + (" " + str(l.get("commence","")) if l.get("commence") else "") for l in data["legs"]]
-        updates["ai_note"] = note_text + "\n\nLábak:\n" + "\n".join(legs_lines)
+        updates["ai_note"] = note_text + "\n\nLábak:\n" + _legs_note_lines(data["legs"])
     elif "pick" in data or "odds" in data or "market" in data:
         old_name = tip_row.get("tipp_neve") or ""
         match    = tip_row.get("ai_match") or ""
@@ -1173,7 +1205,11 @@ async def edit_ai_tip(tip_id: str, request: Request):
         updates["tipp_neve"] = name
     if not updates:
         return _ok({"error": "Nincs modositas"}, 400)
-    db.table(target_table).update(updates).eq("id", tip_id).execute()
+    try:
+        db.table(target_table).update(updates).eq("id", tip_id).execute()
+    except Exception as e:
+        print(f"[edit] {target_table} mentési hiba ({tip_id}): {e}")
+        return _ok({"error": f"Mentési hiba: {e}"}, 500)
     print(f"[edit] {target_table} frissitve: {tip_id}")
     return _ok({"ok": True})
 
