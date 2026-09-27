@@ -200,7 +200,19 @@
                             const name = (slip.tipp_neve || '')
                                 .replace('[AI FREE] ', '')
                                 .replace('[AI] ', '');
-                            const note = (slip.ai_note || '').split('\nLábak:')[0].trim();
+                            const esc = (t) => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                            const noteParts = (slip.ai_note || '').split('\nLábak:\n');
+                            const note = noteParts[0].split('\nLábak:')[0].trim();
+                            // Kombi lábai (free tippeknél az ai_note "Lábak:" részében vannak)
+                            const legs = noteParts.length > 1
+                                ? noteParts[1].split('\n').map(l => l.trim().replace(/^[*•]\s*/, '')).filter(Boolean)
+                                : [];
+                            const legsHtml = legs.length
+                                ? `<div style="background:#0a2014;border-radius:6px;padding:10px;margin-bottom:10px">
+                                     <div style="color:#68D391;font-size:10px;font-weight:700;margin-bottom:6px">📋 LÁBAK</div>
+                                     ${legs.map(l => `<div style="color:#e2e8f0;font-size:12px;padding:3px 0">${esc(l)}</div>`).join('')}
+                                   </div>`
+                                : '';
 
                             const card = document.createElement('div');
                             card.className = 'slip-card';
@@ -208,10 +220,11 @@
 
                             card.innerHTML = `
                                 <div style="font-size:11px;font-weight:700;color:#38A169;margin-bottom:10px">🆓 INGYENES NAPI TIPP</div>
-                                <div style="font-weight:700;color:#e2e8f0;font-size:15px;margin-bottom:10px">${name}</div>
-                                ${note ? `<div style="color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:10px">${note}</div>` : ''}
-                                <div style="font-size:13px;color:#68D391;font-weight:700">Odds: ${slip.eredo_odds || ''}</div>
-                                ${slip.target_date ? `<div style="font-size:11px;color:#718096;margin-top:6px">Lejárat: ${slip.target_date}</div>` : ''}
+                                <div style="font-weight:700;color:#e2e8f0;font-size:15px;margin-bottom:10px">${esc(name)}</div>
+                                ${note ? `<div style="color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:10px">${esc(note)}</div>` : ''}
+                                ${legsHtml}
+                                <div style="font-size:13px;color:#68D391;font-weight:700">Odds: ${esc(slip.eredo_odds || '')}</div>
+                                ${slip.target_date ? `<div style="font-size:11px;color:#718096;margin-top:6px">Lejárat: ${esc(slip.target_date)}</div>` : ''}
                             `;
                             container.appendChild(card);
                         }
