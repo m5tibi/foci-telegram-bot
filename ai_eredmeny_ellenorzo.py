@@ -139,8 +139,60 @@ def fetch_completed_matches():
 import re as _re
 import unicodedata as _ud
 
+# Válogatottak: a 90perc.hu magyar néven küldi őket, a The-Odds-API angolul adja.
+# Kulcs: ékezet és szóköz nélküli kisbetűs név (magyar vagy angol változat) → egységes angol név.
+_COUNTRY_ALIASES = {
+    # Európa
+    "anglia": "england", "skocia": "scotland", "wales": "wales",
+    "eszakirorszag": "northernireland", "irorszag": "ireland", "irkoztarsasag": "ireland",
+    "republicofireland": "ireland", "ireland": "ireland",
+    "svajc": "switzerland", "spanyolorszag": "spain", "horvatorszag": "croatia",
+    "csehorszag": "czechrepublic", "czechia": "czechrepublic", "czechrepublic": "czechrepublic",
+    "nemetorszag": "germany", "gorogorszag": "greece", "svedorszag": "sweden",
+    "lengyelorszag": "poland", "franciaorszag": "france", "belgium": "belgium",
+    "hollandia": "netherlands", "netherlands": "netherlands", "holland": "netherlands",
+    "olaszorszag": "italy", "portugalia": "portugal", "ausztria": "austria",
+    "magyarorszag": "hungary", "szerbia": "serbia", "szlovakia": "slovakia",
+    "szlovenia": "slovenia", "romania": "romania", "bulgaria": "bulgaria",
+    "ukrajna": "ukraine", "oroszorszag": "russia", "torokorszag": "turkey",
+    "turkiye": "turkey", "dania": "denmark", "norvegia": "norway",
+    "finnorszag": "finland", "izland": "iceland",
+    "boszniaeshercegovina": "bosniaandherzegovina", "boszniahercegovina": "bosniaandherzegovina",
+    "bosznia": "bosniaandherzegovina", "bosniaandherzegovina": "bosniaandherzegovina",
+    "bosniaherzegovina": "bosniaandherzegovina",
+    "montenegro": "montenegro", "albania": "albania",
+    "eszakmacedonia": "northmacedonia", "macedonia": "northmacedonia",
+    "koszovo": "kosovo", "gruzia": "georgia",
+    "ormenyorszag": "armenia", "azerbajdzsan": "azerbaijan", "kazahsztan": "kazakhstan",
+    "izrael": "israel", "ciprus": "cyprus", "malta": "malta", "luxemburg": "luxembourg",
+    "liechtenstein": "liechtenstein", "andorra": "andorra", "sanmarino": "sanmarino",
+    "feroerszigetek": "faroeislands", "feroer": "faroeislands", "gibraltar": "gibraltar",
+    "esztorszag": "estonia", "esztonia": "estonia", "lettorszag": "latvia",
+    "litvania": "lithuania", "feheroroszorszag": "belarus", "belorusszia": "belarus",
+    "moldova": "moldova", "moldavia": "moldova",
+    # Amerika
+    "brazilia": "brazil", "argentina": "argentina", "uruguay": "uruguay",
+    "kolumbia": "colombia", "chile": "chile", "peru": "peru", "ecuador": "ecuador",
+    "paraguay": "paraguay", "bolivia": "bolivia", "venezuela": "venezuela",
+    "mexiko": "mexico", "egyesultallamok": "usa", "usa": "usa", "unitedstates": "usa",
+    "kanada": "canada", "costarica": "costarica", "panama": "panama", "jamaica": "jamaica",
+    # Ázsia, Óceánia, Afrika
+    "japan": "japan", "delkorea": "southkorea", "koreaikoztarsasag": "southkorea",
+    "southkorea": "southkorea", "korearepublic": "southkorea",
+    "ausztralia": "australia", "ujzeland": "newzealand",
+    "szaudarabia": "saudiarabia", "iran": "iran", "katar": "qatar",
+    "marokko": "morocco", "egyiptom": "egypt", "szenegal": "senegal", "nigeria": "nigeria",
+    "kamerun": "cameroon", "ghana": "ghana", "tunezia": "tunisia", "algeria": "algeria",
+    "elefantcsontpart": "ivorycoast", "cotedivoire": "ivorycoast", "ivorycoast": "ivorycoast",
+    "delafrika": "southafrica", "delafrikaikoztarsasag": "southafrica",
+}
+
 def _norm_team(s: str) -> str:
     s = _ud.normalize("NFD", s or "").encode("ascii", "ignore").decode().lower()
+    # Válogatott név (magyar vagy angol változat) → egységes angol név
+    alias = _COUNTRY_ALIASES.get(_re.sub(r"[^a-z0-9]", "", s))
+    if alias:
+        return alias
     # Általános toldalékok, városnevekkel kombinált csapatnevekben (FC Barcelona → barcelona)
     s = _re.sub(
         r"\b(fc|cf|sc|afc|cd|ac|ssc|as|rc|fk|sk|club|deportivo|united|city|"
@@ -176,6 +228,9 @@ def _find_match(name: str, completed: dict, silent: bool = False):
     # Szétbontás vs. vagy @ alapján
     at_notation = bool(_re.search(r"\s+@\s+", name))
     parts = _re.split(r"\s+(?:vs\.?|@)\s+", name, flags=_re.IGNORECASE)
+    if len(parts) != 2:
+        # "Hazai - Vendég" alak (szóközzel körülvett kötőjel; a "Bosznia-Hercegovina" nem vágódik)
+        parts = _re.split(r"\s+[-–]\s+", name)
     if len(parts) != 2: return None
 
     if at_notation:
@@ -220,6 +275,68 @@ def settle_quarter(value: float, line: float) -> str:
     if r_low == "Visszajár" and r_high == "Veszített": return "Fél_veszített"
     if r_low == "Nyert" and r_high == "Veszített": return "Nyert"  # ritka eset
     return "Veszített"
+
+
+def _ah_settle(diff: float, line: float) -> str:
+    """Ázsiai hendikep: diff = a választott csapat gólkülönbsége, line = hendikep.
+    Negyedvonal (pl. -1.25) esetén a tét fele line-0.25-re, fele line+0.25-re megy."""
+    if round(line * 4) % 2 == 1:
+        r1, r2 = _ah_settle(diff, line - 0.25), _ah_settle(diff, line + 0.25)
+        if r1 == r2:
+            return r1
+        pair = {r1, r2}
+        if pair == {"Nyert", "Visszajár"}:
+            return "Fél-nyert"
+        if pair == {"Veszített", "Visszajár"}:
+            return "Fél-veszített"
+        return "Ismeretlen"
+    v = diff + line
+    if v > 0: return "Nyert"
+    if v == 0: return "Visszajár"
+    return "Veszített"
+
+
+_AH_LINE_RE = _re.compile(r"(?:^|\s)([+-]?\d+(?:[.,]\d+)?)\s*$")
+_AH_MARKET_WORDS = ("hendikep", "handicap", "ázsiai", "azsiai", "asian")
+
+def _eval_handicap(pick: str, market: str, h: int, a: int, home_team: str, away_team: str):
+    """Ázsiai hendikep tipp ("Mallorca -0.25", "Németország -1.25", "Svédország 0").
+    None, ha a tipp nem hendikep; "Ismeretlen", ha nem dönthető el, melyik csapatra szól."""
+    pick_l = (pick or "").lower().strip()
+    market_l = (market or "").lower()
+    is_ah_market = any(w in market_l for w in _AH_MARKET_WORDS)
+    m = _AH_LINE_RE.search(pick_l)
+    if not m:
+        return None
+    line_txt = m.group(1)
+    # Előjel nélküli szám csak hendikep piacon számít hendikepnek – kivéve a 0-t
+    # ("Svédország 0" = 0-s hendikep; más piacon csapatnév + 0 nem értelmes)
+    if not is_ah_market and line_txt[0] not in "+-" and float(line_txt.replace(",", ".")) != 0:
+        return None
+    line = float(line_txt.replace(",", "."))
+    team = pick_l[:m.start()].strip()
+    team = _re.sub(r"^(ázsiai\s+)?(hendikep|handicap|ah)\s*:?\s*", "", team).strip(" :")
+
+    def _raw(x):  # teljes név (a "City"/"United" sem vész el), válogatottnál angolra fordítva
+        r = _re.sub(r"[^a-z0-9]", "", _ud.normalize("NFD", x or "").encode("ascii", "ignore").decode().lower())
+        return _COUNTRY_ALIASES.get(r, r)
+    rt, rh, ra = _raw(team), _raw(home_team), _raw(away_team)
+    nt, nh, na = _norm_team(team), _norm_team(home_team), _norm_team(away_team)
+    if rt and rt == ra:
+        diff = a - h
+    elif rt and rt == rh:
+        diff = h - a
+    elif nt and _nsim(nt, na) and not _nsim(nt, nh):
+        diff = a - h
+    elif nt and _nsim(nt, nh) and not _nsim(nt, na):
+        diff = h - a
+    elif team in ("2", "vendég", "vendeg", "away"):
+        diff = a - h
+    elif team in ("", "1", "hazai", "home"):
+        diff = h - a
+    else:
+        return "Ismeretlen"
+    return _ah_settle(diff, line)
 
 
 def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", away_team: str = "") -> str:
@@ -274,7 +391,7 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
         try:
             nums = [x for x in pick_l.replace(",", ".").split() if x.replace(".", "").isdigit()]
             line = float(nums[0]) if nums else 0
-            r = settle_quarter(total, line)
+            r = settle_quarter(total, line).replace("_", "-")   # "Fél_nyert" → "Fél-nyert"
             mapping = {"Nyert": "Veszített", "Veszített": "Nyert", "Visszajár": "Visszajár",
                        "Fél-nyert": "Fél-veszített", "Fél-veszített": "Fél-nyert"}
             return mapping.get(r, r)
@@ -346,7 +463,12 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     if "döntetlen" in pick_l or "draw" in pick_l:
         return "Nyert" if h == a else "Veszített"
 
-    # Hendikep
+    # Hendikep (általános: bármely vonal, a tippben szereplő csapat szemszögéből)
+    ah = _eval_handicap(pick, market, h, a, home_team, away_team)
+    if ah is not None:
+        return ah
+
+    # Régi, fix vonalas hendikep (csapatnév nélküli tippekhez)
     if "-1.5" in pick_l or "-1,5" in pick_l: return "Nyert" if (h-a) > 1.5 else "Veszített"
     if "+1.5" in pick_l or "+1,5" in pick_l: return "Nyert" if (h-a) > -1.5 else "Veszített"
     if "-2.5" in pick_l: return "Nyert" if (h-a) > 2.5 else "Veszített"
@@ -379,17 +501,43 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
 
 # ── Kombi kiértékelés ─────────────────────────────────────────────────────────
 
+def _legs_from_note(note: str) -> list:
+    """Kombi lábai az ai_note "Lábak:" részéből (free_slips-ben nincs ai_legs oszlop).
+    Sorformátum: "  * Meccs: pick @ odds [kezdés]"."""
+    if "\nLábak:\n" not in (note or ""):
+        return []
+    legs = []
+    for line in note.split("\nLábak:\n", 1)[1].split("\n"):
+        line = line.strip().lstrip("*•").strip()
+        if ": " not in line or " @ " not in line:
+            continue
+        match, rest = line.split(": ", 1)
+        pick, odds_part = rest.rsplit(" @ ", 1)
+        try:
+            odds = float(odds_part.split()[0].replace(",", "."))
+        except (ValueError, IndexError):
+            odds = 1.0
+        legs.append({"match": match.strip(), "pick": pick.strip(), "odds": odds, "market": ""})
+    return legs
+
+
 def evaluate_combo(legs_json: str, completed: dict) -> str:
     """Pontos ázsiai hendikep kombi kiértékelés szorzó alapon.
     Ha bármelyik láb Veszített → az egész kombi Veszített (pending lábak ellenére is).
     Ha van pending láb de nincs vesztes → None (még várunk)."""
-    try:
-        legs = json.loads(legs_json)
-    except:
+    if isinstance(legs_json, list):
+        legs = legs_json
+    else:
+        try:
+            legs = json.loads(legs_json)
+        except:
+            return "Ismeretlen"
+    if not legs:
         return "Ismeretlen"
 
     multiplier = 1.0
     has_pending = False  # van-e még le nem játszott láb
+    has_partial = False  # van-e fél-nyert / fél-veszített láb
 
     for leg in legs:
         match  = leg.get("match", "")
@@ -405,6 +553,8 @@ def evaluate_combo(legs_json: str, completed: dict) -> str:
         res = evaluate_pick(pick, market, score["h"], score["a"],
                               home_team=score.get("home",""),
                               away_team=score.get("away",""))
+        res = (res or "").replace("_", "-")   # settle_quarter "Fél_nyert" alakot ad
+        print(f"[ai_eval]   kombi láb: {match} → {score['h']}-{score['a']} | pick='{pick}' → {res}")
 
         if res == "Veszített":
             print(f"[ai_eval] Kombi láb vesztes → egész kombi vesztes: '{match}' pick='{pick}'")
@@ -415,25 +565,26 @@ def evaluate_combo(legs_json: str, completed: dict) -> str:
             multiplier *= 1.0
         elif res == "Fél-nyert":
             multiplier *= (0.5 * odds + 0.5)
+            has_partial = True
         elif res == "Fél-veszített":
             multiplier *= 0.5
+            has_partial = True
         else:
             return "Ismeretlen"
 
     if has_pending:
         return None  # nincs vesztes láb, de van még pending → várunk
 
-    # Minden láb lejátszódott, szorzó alapján döntés
-    if multiplier > 1.0:
-        return "Nyert"
-    elif multiplier == 1.0:
+    # Minden láb lejátszódott, a kifizetési szorzó alapján döntünk:
+    # nyereség → Nyert (fél-lábbal Fél-nyert), tét vissza → Visszajár, veszteség → Fél-veszített
+    print(f"[ai_eval]   kombi kifizetési szorzó: {multiplier:.3f}")
+    if abs(multiplier - 1.0) < 1e-9:
         return "Visszajár"
-    elif multiplier > 0.5:
-        return "Fél-nyert"
-    elif multiplier > 0:
+    if multiplier > 1.0:
+        return "Fél-nyert" if has_partial else "Nyert"
+    if multiplier > 0:
         return "Fél-veszített"
-    else:
-        return "Veszített"
+    return "Veszített"
 
 
 # ── Telegram értesítő ─────────────────────────────────────────────────────────
@@ -521,8 +672,9 @@ def main():
                     pass
 
             actual_payout = None
-            if tip_type == "kombi":
-                legs_json = row.get("ai_legs", "[]")
+            note_legs = [] if row.get("ai_legs") else _legs_from_note(row.get("ai_note") or "")
+            if tip_type == "kombi" or note_legs:
+                legs_json = row.get("ai_legs") or note_legs or "[]"
                 combo_res = evaluate_combo(legs_json, completed)
                 if isinstance(combo_res, tuple):
                     result, actual_payout = combo_res
