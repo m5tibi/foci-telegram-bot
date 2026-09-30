@@ -101,6 +101,14 @@ def tip_legs(tip: dict) -> list:
     return lines
 
 
+def tip_day(tip: dict) -> str:
+    """A tipp napja (YYYY-MM-DD): a kezdés napja, ha ismert, különben a target_date."""
+    dt = tip_commence(tip)
+    if dt:
+        return dt.strftime("%Y-%m-%d")
+    return tip.get("target_date") or str(tip.get("created_at") or "")[:10]
+
+
 def enrich_tips(tips: list) -> list:
     """Beállítja a _sort_date (nap) és _legs mezőt, és kezdési idő szerint rendez:
     napon belül előbb a singlek, aztán a kombik, mindkettő időrendben."""

@@ -457,14 +457,19 @@ def _send_daily_stats():
 
     vip_rows  = []
     free_rows = []
+    # A target_date a tipp küldésének napja lehet, ezért tágabb ablakot kérünk le,
+    # és a meccs kezdésének napja szerint szűrünk
+    from app.tip_dates import tip_day
+    w_start = (yest_dt - timedelta(days=4)).strftime("%Y-%m-%d")
+    w_end   = (yest_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     for table, bucket in [("manual_slips", vip_rows), ("free_slips", free_rows)]:
         try:
-            res = db.table(table).select("status, eredo_odds, target_date") \
+            res = db.table(table).select("*") \
                 .eq("ai_generated", True) \
-                .eq("target_date", yesterday) \
+                .gte("target_date", w_start).lte("target_date", w_end) \
                 .in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"]) \
                 .execute()
-            bucket.extend(res.data or [])
+            bucket.extend(r for r in (res.data or []) if tip_day(r) == yesterday)
         except Exception as e:
             print(f"[stat] {table} hiba: {e}")
 
