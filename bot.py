@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQ
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from app.tip_dates import tip_day
 import math
 
 # --- Konfiguráció ---
@@ -456,8 +457,13 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{target_date}%")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", t_start).lte("kezdes", t_end)
-                man_q = sb.table("manual_slips").select("*").eq("target_date", target_date)
-                free_q = sb.table("free_slips").select("*").eq("target_date", target_date)
+                # A target_date a tipp küldésének napja lehet (akár 1-3 nappal a meccs előtt),
+                # ezért tágabb ablakot kérünk le, és lent a kezdés napja szerint szűrünk.
+                w_start = (target_date_obj - timedelta(days=4)).strftime('%Y-%m-%d')
+                w_end = (target_date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+                man_q = sb.table("manual_slips").select("*").gte("target_date", w_start).lte("target_date", w_end)
+                free_q = sb.table("free_slips").select("*").gte("target_date", w_start).lte("target_date", w_end)
+                day_filter = lambda d: d == target_date
                 header = f"Előző nap ({target_date})"
                 
             elif period == "all":
@@ -465,6 +471,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds")
                 man_q = sb.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"])
                 free_q = sb.table("free_slips").select("*").in_("status", ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"])
+                day_filter = lambda d: True
                 header = "Összesített (All-Time)"
                 
             else:
@@ -474,13 +481,19 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 
                 tuti_q = sb.table("napi_tuti").select("*").ilike("tipp_neve", f"%{year_month}%")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", target_month_start.isoformat()).lt("kezdes", next_month_start.isoformat())
-                man_q = sb.table("manual_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
-                free_q = sb.table("free_slips").select("*").gte("target_date", target_month_start.strftime('%Y-%m-%d')).lt("target_date", next_month_start.strftime('%Y-%m-%d'))
+                # Tágabb ablak a hónap szélein (target_date ≠ kezdés napja), lent kezdés szerint szűrünk
+                w_start = (target_month_start - timedelta(days=4)).strftime('%Y-%m-%d')
+                w_end = (next_month_start + timedelta(days=1)).strftime('%Y-%m-%d')
+                man_q = sb.table("manual_slips").select("*").gte("target_date", w_start).lt("target_date", w_end)
+                free_q = sb.table("free_slips").select("*").gte("target_date", w_start).lt("target_date", w_end)
+                day_filter = lambda d: d[:7] == year_month
                 header = f"{target_month_start.year}. {HUNGARIAN_MONTHS[target_month_start.month - 1]}"
 
-            return tuti_q.execute(), meccsek_q.execute(), man_q.execute(), free_q.execute(), header
+            man_rows = [d for d in (man_q.execute().data or []) if day_filter(tip_day(d))]
+            free_rows = [d for d in (free_q.execute().data or []) if day_filter(tip_day(d))]
+            return tuti_q.execute(), meccsek_q.execute(), man_rows, free_rows, header
 
-        res_tuti, res_meccsek, res_man, res_free, header = await asyncio.to_thread(sync_task_stat)
+        res_tuti, res_meccsek, man_rows, free_rows, header = await asyncio.to_thread(sync_task_stat)
         
         bot_ids = set()
         if res_tuti.data:
@@ -524,11 +537,11 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             elif status == "Visszajár":
                 s[cat]["c"] += 1; s[cat]["w"] += 1
 
-        for d in (res_man.data or []):
+        for d in man_rows:
             calc_profit(d, "vip")
 
         # Free tippek feldolgozása (csak lezárt szelvények)
-        for d in (res_free.data or []):
+        for d in free_rows:
             calc_profit(d, "free")
 
         ev_tot = s["bot"]["c"] + s["vip"]["c"] + s["free"]["c"]
@@ -573,7 +586,6 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         print(traceback.format_exc())
         await message_to_edit.edit_text(f"❌ Hiba a statisztika generálása közben: {e}")
 
-@admin_only
 @admin_only
 async def admin_show_users(update: telegram.Update, context: CallbackContext):
     query = update.callback_query; await query.answer()
