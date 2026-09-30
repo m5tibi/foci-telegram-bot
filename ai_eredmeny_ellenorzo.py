@@ -339,8 +339,27 @@ def _eval_handicap(pick: str, market: str, h: int, a: int, home_team: str, away_
     return _ah_settle(diff, line)
 
 
+_NUM = r"(\d+(?:[.,]\d+)?)"
+
+def _hu_to_en(text: str) -> str:
+    """Magyar gólszám-kifejezések angol alakra, hogy a kiértékelő felismerje:
+    "több, mint 2,5" / "2,5 felett" → "over 2.5", "kevesebb mint 2,5" / "2,5 alatt" → "under 2.5",
+    "gólszám"/"gól" szavak törlése, tizedesvessző → pont."""
+    t = (text or "").lower()
+    t = _re.sub(r"(\d),(\d)", r"\1.\2", t)
+    t = _re.sub(r"\b(?:gólszám|gólok száma|összes gól)\b", " ", t)
+    t = _re.sub(r"\btöbb\s*,?\s*mint\s+" + _NUM, r"over \1", t)
+    t = _re.sub(r"\bkevesebb\s*,?\s*mint\s+" + _NUM, r"under \1", t)
+    t = _re.sub(_NUM + r"\s*(?:gól\s*)?(?:felett|fölött)\b", r"over \1", t)
+    t = _re.sub(_NUM + r"\s*(?:gól\s*)?alatt\b", r"under \1", t)
+    t = _re.sub(r"(over|under)\s+([\d.]+)\s+gól\b", r"\1 \2", t)
+    return _re.sub(r"\s+", " ", t).strip()
+
+
 def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", away_team: str = "") -> str:
     """Meghatározza hogy nyert-e a tipp."""
+    # Magyar kifejezések ("Több mint 2,5 gól", "győz + gólszám több, mint 2,5") angol alakra
+    pick, market = _hu_to_en(pick), _hu_to_en(market) if market else market
     pick_l = pick.lower().strip()
     total = h + a
     import re as _re2
@@ -361,6 +380,8 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             direction = _combined_match.group(1)
             line      = float(_combined_match.group(2).replace(",", "."))
             team_part = pick_l.split("+")[0].strip()
+            # "Spanyolország győz + over 2.5" → csapatnév a győzelem-szó nélkül
+            team_part = _re.sub(r"\b(győz\w*|nyer\w*|win\w*|victory)\b", "", team_part).strip()
             goals_ok = (total > line) if direction == "over" else (total < line)
             # BTTS + Over/Under: "Igen + Over 2.5" vagy "BTTS + Over 2.5"
             if team_part in ("igen", "yes", "btts"):
@@ -440,7 +461,7 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     market_l = (market or "").lower()
     if "1x2" in market_l or "1X2" in market:
         # "győzelem", "win" stb. eltávolítása a pick-ből összehasonlítás előtt
-        pick_clean = _re.sub(r'\b(győzelem|nyerés|nyer|win|victory|hazai|away|vendég|home|winner)\b', '', pick_l).strip()
+        pick_clean = _re.sub(r'\b(győz\w*|nyer\w*|win|victory|hazai|away|vendég|home|winner)\b', '', pick_l).strip()
         if home_team and _norm_team(pick_clean) == _norm_team(home_team):
             return "Nyert" if h > a else "Veszített"
         if away_team and _norm_team(pick_clean) == _norm_team(away_team):
@@ -452,6 +473,16 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
             return "Nyert" if a > h else "Veszített"
         if "draw" in pick_l or "döntetlen" in pick_l:
             return "Nyert" if h == a else "Veszített"
+
+    # 1X2 piac nélkül: a tipp csak egy csapatnév (+ "győz"/"nyer"), szám nélkül
+    # (számmal pl. "Arsenal -1" hendikep, azt lent kezeljük)
+    pick_team = _re.sub(r'\b(győz\w*|nyer\w*|win|victory|winner)\b', '', pick_l).strip()
+    if pick_team and not _re.search(r"\d", pick_team):
+        pt, nh, na = _norm_team(pick_team), _norm_team(home_team), _norm_team(away_team)
+        if pt and nh and pt == nh:
+            return "Nyert" if h > a else "Veszített"
+        if pt and na and pt == na:
+            return "Nyert" if a > h else "Veszített"
 
     # 1X2 – kulcsszó alapján
     if "győzelem" in pick_l or "hazai" in pick_l or "home" in pick_l:
