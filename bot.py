@@ -7,6 +7,7 @@ import asyncio
 import stripe
 import requests
 import json
+import re
 import random
 from functools import wraps
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -27,6 +28,7 @@ HUNGARY_TZ = pytz.timezone('Europe/Budapest')
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 AWAITING_BROADCAST = 0
 AWAITING_VIP_BROADCAST = 1
+AWAITING_STAT_RANGE = 2
 
 # --- Segédfüggvények ---
 def get_db_client():
@@ -438,11 +440,73 @@ async def cancel_conversation(update: telegram.Update, context: CallbackContext)
     await update.message.reply_text("❌ Folyamat megszakítva.")
     return ConversationHandler.END
     
+# --- EGYÉNI IDŐSZAK ---
+_STAT_DATE_RE = re.compile(r"(?:(\d{4})[.\-/])?(\d{1,2})[.\-/](\d{1,2})\.?")
+
+def parse_stat_range(text: str, today):
+    """"2026.09.01-2026.09.30", "2026-09-01 2026-09-30", "09.01-09.30", "09.15" → (date_from, date_to).
+    Év nélkül az aktuális év; ha így a kezdet jövőbeli lenne, az előző év. Hibánál None."""
+    found = []
+    for m in _STAT_DATE_RE.finditer(text or ""):
+        y, mo, d = m.groups()
+        try:
+            dt = datetime(int(y) if y else today.year, int(mo), int(d)).date()
+        except ValueError:
+            return None
+        if not y and dt > today:
+            dt = dt.replace(year=dt.year - 1)
+        found.append(dt)
+    if len(found) == 1:
+        return found[0], found[0]
+    if len(found) != 2:
+        return None
+    a, b = found
+    if a > b:
+        a, b = b, a
+    return a, b
+
+def _stat_range_help():
+    return ("📆 Írd be az időszakot, pl.:\n"
+            "`2026.09.01-2026.09.30`\n`09.01-09.30`  (aktuális év)\n`09.15`  (egy nap)\n\n"
+            "Megszakításhoz: /cancel")
+
 @admin_only
-async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0):
+async def admin_stat_range_start(update: telegram.Update, context: CallbackContext):
+    await update.callback_query.answer()
+    await update.callback_query.message.reply_text(_stat_range_help(), parse_mode='Markdown')
+    return AWAITING_STAT_RANGE
+
+@admin_only
+async def admin_stat_range_message_handler(update: telegram.Update, context: CallbackContext):
+    rng = parse_stat_range(update.message.text, datetime.now(HUNGARY_TZ).date())
+    if not rng:
+        await update.message.reply_text("❌ Nem értelmezhető dátum.\n\n" + _stat_range_help(), parse_mode='Markdown')
+        return AWAITING_STAT_RANGE
+    await stat(update, context, period="range", date_from=rng[0], date_to=rng[1])
+    return ConversationHandler.END
+
+@admin_only
+async def stat_command(update: telegram.Update, context: CallbackContext):
+    """/stat [időszak] – időszak nélkül az aktuális hónap."""
+    text = " ".join(context.args or [])
+    if not text:
+        await stat(update, context)
+        return
+    rng = parse_stat_range(text, datetime.now(HUNGARY_TZ).date())
+    if not rng:
+        await update.message.reply_text("❌ Nem értelmezhető dátum.\n\n" + _stat_range_help(), parse_mode='Markdown')
+        return
+    await stat(update, context, period="range", date_from=rng[0], date_to=rng[1])
+
+@admin_only
+async def stat(update: telegram.Update, context: CallbackContext, period="current_month", month_offset=0,
+               date_from=None, date_to=None):
     query = update.callback_query
-    message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
-    await query.answer()
+    if query:
+        message_to_edit = await query.message.edit_text("📈 Statisztika készítése...")
+        await query.answer()
+    else:
+        message_to_edit = await update.effective_message.reply_text("📈 Statisztika készítése...")
     
     try:
         def sync_task_stat():
@@ -466,6 +530,21 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
                 day_filter = lambda d: d == target_date
                 header = f"Előző nap ({target_date})"
                 
+            elif period == "range":
+                d_from, d_to = date_from.strftime('%Y-%m-%d'), date_to.strftime('%Y-%m-%d')
+                # target_date ≠ kezdés napja → tágabb ablak, lent a kezdés napja szerint szűrünk
+                w_start = (date_from - timedelta(days=4)).strftime('%Y-%m-%d')
+                w_end = (date_to + timedelta(days=1)).strftime('%Y-%m-%d')
+                t_start = datetime.combine(date_from, datetime.min.time()).isoformat()
+                t_end = datetime.combine(date_to, datetime.max.time()).isoformat()
+                tuti_q = sb.table("napi_tuti").select("*").gte("created_at", w_start).lte("created_at", w_end + "T23:59:59")
+                meccsek_q = sb.table("meccsek").select("id, eredmeny, odds").gte("kezdes", t_start).lte("kezdes", t_end)
+                man_q = sb.table("manual_slips").select("*").gte("target_date", w_start).lte("target_date", w_end)
+                free_q = sb.table("free_slips").select("*").gte("target_date", w_start).lte("target_date", w_end)
+                day_filter = lambda d: d_from <= d <= d_to
+                header = (f"{date_from.strftime('%Y.%m.%d')}" if d_from == d_to
+                          else f"{date_from.strftime('%Y.%m.%d')} – {date_to.strftime('%Y.%m.%d')}")
+
             elif period == "all":
                 tuti_q = sb.table("napi_tuti").select("*")
                 meccsek_q = sb.table("meccsek").select("id, eredmeny, odds")
@@ -565,7 +644,7 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
         stat_msg += f"🆓 *Free*: {s['free']['c']} lezárt, {s['free']['w']} nyert, Profit: {s['free']['p']:+.2f}"
 
         keyboard = []
-        if period not in ["all", "yesterday"]:
+        if period not in ["all", "yesterday", "range"]:
             keyboard.append([
                 InlineKeyboardButton("⬅️ Előző Hónap", callback_data=f"admin_show_stat_month_{month_offset + 1}"),
                 InlineKeyboardButton("Következő ➡️", callback_data=f"admin_show_stat_month_{max(0, month_offset - 1)}")
@@ -576,8 +655,9 @@ async def stat(update: telegram.Update, context: CallbackContext, period="curren
             row2.append(InlineKeyboardButton("🏛️ Teljes Stat", callback_data="admin_show_stat_all_0"))
         keyboard.append(row2)
         
-        if month_offset > 0 or period in ["all", "yesterday"]:
+        if month_offset > 0 or period in ["all", "yesterday", "range"]:
             keyboard.append([InlineKeyboardButton("🗓️ Aktuális Hónap", callback_data="admin_show_stat_current_month_0")])
+        keyboard.append([InlineKeyboardButton("📆 Egyéni időszak", callback_data="admin_stat_range_start")])
 
         await message_to_edit.edit_text(stat_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         
@@ -664,10 +744,18 @@ def add_handlers(application: Application):
         fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
     
+    stat_range_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_stat_range_start, pattern='^admin_stat_range_start$')],
+        states={AWAITING_STAT_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_stat_range_message_handler)]},
+        fallbacks=[CommandHandler("cancel", cancel_conversation)]
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_menu))
+    application.add_handler(CommandHandler("stat", stat_command))
     application.add_handler(broadcast_conv)
     application.add_handler(vip_broadcast_conv)
+    application.add_handler(stat_range_conv)
     
     # Ha ezek a függvények léteznek a fájlban, hagyd bent:
     try:
