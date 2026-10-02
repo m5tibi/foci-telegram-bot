@@ -657,7 +657,7 @@ def main():
                 "select": "*",
                 "ai_generated": "eq.true",
                 "or": "(result_status.eq.Folyamatban,result_status.is.null)",
-                "status": "not.in.(Nyert,Veszített,Visszajár)"
+                "status": "not.in.(Nyert,Veszített,Visszajár,Fél-nyert,Fél-veszített)"
             },
             timeout=15
         )
