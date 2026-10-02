@@ -307,63 +307,117 @@ async def admin_menu(update: telegram.Update, context: CallbackContext):
     ]
     await update.message.reply_text("🛠️ **Mondom a Tutit Admin Panel**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-@admin_only
-async def admin_manage_manual_slips(update: telegram.Update, context: CallbackContext):
+# --- TIPPEK KÉZI LEZÁRÁSA / JAVÍTÁSA ---
+# Rövid kódok a callback_data-ban (Telegram limit: 64 bájt)
+RESULT_CODES = {"W": "Nyert", "L": "Veszített", "P": "Visszajár", "HW": "Fél-nyert", "HL": "Fél-veszített"}
+CLOSED_STATUSES = ["Nyert", "Veszített", "Visszajár", "Fél-nyert", "Fél-veszített"]
+RESULT_ICONS = {"Nyert": "✅", "Veszített": "❌", "Visszajár": "↩️", "Fél-nyert": "½✅", "Fél-veszített": "½❌"}
+MAX_TIPS_IN_LIST = 14   # 6 gomb / tipp → a Telegram 100 gombos limitje alatt marad
+
+def _result_buttons(kind: str, slip_id) -> list:
+    cb = lambda code: f"manual_result_{kind}_{slip_id}_{code}"
+    return [
+        [InlineKeyboardButton("✅ Nyert", callback_data=cb("W")),
+         InlineKeyboardButton("❌ Veszített", callback_data=cb("L")),
+         InlineKeyboardButton("↩️ Visszajár", callback_data=cb("P"))],
+        [InlineKeyboardButton("½✅ Fél-nyert", callback_data=cb("HW")),
+         InlineKeyboardButton("½❌ Fél-veszített", callback_data=cb("HL"))],
+    ]
+
+def _slip_label(slip: dict, kind: str) -> str:
+    name = (slip.get("tipp_neve") or "").replace("[AI FREE] ", "").replace("[AI] ", "")
+    prefix = "🆓 " if kind == "free" else ""
+    status = slip.get("status")
+    icon = f"{RESULT_ICONS[status]} " if status in RESULT_ICONS else ""
+    return f"{icon}{prefix}{tip_day(slip)[5:].replace('-', '.')} {name} @ {slip.get('eredo_odds', '')}"
+
+async def _show_slip_list(update: telegram.Update, closed: bool):
+    """Tippek listája eredmény-gombokkal. closed=False: nyitott tippek, True: az utolsó 7 nap lezártjai."""
     query = update.callback_query; await query.answer()
-    message = await query.message.edit_text("📝 Folyamatban lévő tippek keresése...")
+    message = await query.message.edit_text("📝 Tippek keresése...")
     try:
-        def sync_fetch_manual():
+        def sync_fetch():
             db = get_admin_db_client()
-            pending_manual = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
-            pending_free = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute().data or []
-            return pending_manual, pending_free
-            
-        pending_manual, pending_free = await asyncio.to_thread(sync_fetch_manual)
-        
-        if not pending_manual and not pending_free:
-            await message.edit_text("Nincs folyamatban lévő, kiértékelésre váró tipp.")
+            statuses = CLOSED_STATUSES if closed else ["Folyamatban", "Kiküldve"]
+            rows = []
+            for table, kind in [("manual_slips", "vip"), ("free_slips", "free")]:
+                q = db.table(table).select("*").in_("status", statuses)
+                if closed:
+                    since = (datetime.now(HUNGARY_TZ) - timedelta(days=10)).strftime('%Y-%m-%d')
+                    q = q.gte("target_date", since)
+                rows += [(kind, r) for r in (q.execute().data or [])]
+            if closed:
+                limit = (datetime.now(HUNGARY_TZ) - timedelta(days=7)).strftime('%Y-%m-%d')
+                rows = [(k, r) for k, r in rows if tip_day(r) >= limit]
+                rows.sort(key=lambda kr: tip_day(kr[1]), reverse=True)   # legfrissebb elöl
+            else:
+                rows.sort(key=lambda kr: tip_day(kr[1]))                 # legkorábbi elöl
+            return rows
+
+        rows = await asyncio.to_thread(sync_fetch)
+        other = ("📝 Nyitott tippek", "admin_manage_manual") if closed else ("🔁 Lezárt tippek javítása (7 nap)", "admin_manage_closed")
+        nav = [[InlineKeyboardButton(other[0], callback_data=other[1])],
+               [InlineKeyboardButton("🚪 Bezárás", callback_data="admin_close")]]
+
+        if not rows:
+            text = "Nincs lezárt tipp az elmúlt 7 napban." if closed else "Nincs folyamatban lévő, kiértékelésre váró tipp."
+            await message.edit_text(text, reply_markup=InlineKeyboardMarkup(nav))
             return
 
-        response_text = "Válassz szelvényt az eredmény rögzítéséhez:\n"; keyboard = []
-        
-        if pending_manual:
-            keyboard.append([InlineKeyboardButton("--- VIP (Szerkesztői) Tippek ---", callback_data="noop_0")])
-            for slip in pending_manual:
-                slip_text = f"{slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
-                keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
-                keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_vip_{slip['id']}_Nyert"), InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_vip_{slip['id']}_Veszített")])
-        
-        if pending_free:
-            keyboard.append([InlineKeyboardButton("--- Ingyenes Tippek ---", callback_data="noop_0")])
-            for slip in pending_free:
-                slip_text = f"FREE: {slip['tipp_neve']} ({slip['target_date']}) - Odds: {slip['eredo_odds']}"
-                keyboard.append([InlineKeyboardButton(slip_text, callback_data=f"noop_{slip['id']}")])
-                keyboard.append([InlineKeyboardButton("✅ Nyert", callback_data=f"manual_result_free_{slip['id']}_Nyert"), InlineKeyboardButton("❌ Veszített", callback_data=f"manual_result_free_{slip['id']}_Veszített")])
+        text = ("🔁 Lezárt tippek (utolsó 7 nap) – válaszd ki a helyes eredményt:" if closed
+                else "📝 Nyitott tippek – válaszd ki az eredményt:")
+        if len(rows) > MAX_TIPS_IN_LIST:
+            text += f"\n(Az első {MAX_TIPS_IN_LIST} látszik a {len(rows)}-ből.)"
+        keyboard = []
+        for kind, slip in rows[:MAX_TIPS_IN_LIST]:
+            keyboard.append([InlineKeyboardButton(_slip_label(slip, kind), callback_data=f"noop_{slip['id']}")])
+            keyboard += _result_buttons(kind, slip["id"])
+        keyboard += nav
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+        await message.edit_text(f"Hiba: {e}")
 
-        await message.edit_text(response_text, reply_markup=InlineKeyboardMarkup(keyboard))
-    except Exception as e: await message.edit_text(f"Hiba: {e}")
+@admin_only
+async def admin_manage_manual_slips(update: telegram.Update, context: CallbackContext):
+    await _show_slip_list(update, closed=False)
+
+@admin_only
+async def admin_manage_closed_slips(update: telegram.Update, context: CallbackContext):
+    await _show_slip_list(update, closed=True)
 
 @admin_only
 async def handle_manual_slip_action(update: telegram.Update, context: CallbackContext):
-    query = update.callback_query; _, _, tip_type, slip_id_str, result = query.data.split("_"); slip_id = int(slip_id_str)
-    await query.answer(f"Státusz frissítése: {result}")
+    query = update.callback_query
+    _, _, tip_type, slip_id_str, code = query.data.split("_")
+    slip_id = int(slip_id_str)
+    result = RESULT_CODES.get(code, code)   # régi gombok még a teljes szót küldhetik
+    if result not in CLOSED_STATUSES:
+        await query.answer("Ismeretlen eredmény", show_alert=True)
+        return
+    await query.answer(f"Státusz: {result}")
     table_name = "manual_slips" if tip_type == "vip" else "free_slips"
     try:
         def sync_update_manual():
             if not SUPABASE_SERVICE_KEY: raise Exception("Service key not configured")
             supabase_admin = get_admin_db_client()
-            from datetime import datetime, date
-            import pytz
-            today = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
-            # Ellenőrizzük van-e már target_date
-            existing = supabase_admin.table(table_name).select("target_date").eq("id", slip_id).execute()
-            update_data = {"status": result}
-            if existing.data and not existing.data[0].get("target_date"):
-                update_data["target_date"] = today
+            existing = supabase_admin.table(table_name).select("tipp_neve, target_date, status").eq("id", slip_id).execute()
+            row = existing.data[0] if existing.data else {}
+            # result_status is kell, különben az automatikus kiértékelő újra elővehetné a tippet
+            update_data = {"status": result, "result_status": result}
+            if existing.data and not row.get("target_date"):
+                update_data["target_date"] = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d")
             supabase_admin.table(table_name).update(update_data).eq("id", slip_id).execute()
-        await asyncio.to_thread(sync_update_manual)
-        await query.message.edit_text(f"A(z) {table_name} szelvény (ID: {slip_id}) állapota sikeresen '{result}'-ra módosítva.")
-    except Exception as e: await query.message.edit_text(f"Hiba: {e}")
+            return row
+        row = await asyncio.to_thread(sync_update_manual)
+        name = (row.get("tipp_neve") or f"ID {slip_id}").replace("[AI FREE] ", "").replace("[AI] ", "")
+        old = row.get("status") or "?"
+        back = "admin_manage_closed" if old in CLOSED_STATUSES else "admin_manage_manual"
+        await query.message.edit_text(
+            f"{RESULT_ICONS.get(result, '')} {name}\n{old} → {result}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Vissza a listához", callback_data=back)]]))
+    except Exception as e:
+        await query.message.edit_text(f"Hiba: {e}")
+
 # --- ADMIN BROADCAST FUNKCIÓK ---
 @admin_only
 async def admin_broadcast_start(update: telegram.Update, context: CallbackContext):
@@ -727,6 +781,7 @@ async def button_handler(update: telegram.Update, context: CallbackContext):
     elif command == "admin_vip_broadcast_start": 
         await query.answer()
     elif command == "admin_manage_manual": await admin_manage_manual_slips(update, context)
+    elif command == "admin_manage_closed": await admin_manage_closed_slips(update, context)
     elif command.startswith("manual_result_"): await handle_manual_slip_action(update, context)
     elif command.startswith("confirm_send:"): await confirm_and_send_notification(update, context)
     elif command.startswith("noop_"): await query.answer()

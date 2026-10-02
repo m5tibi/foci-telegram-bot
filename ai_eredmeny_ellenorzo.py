@@ -369,6 +369,15 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
     if "fogadáskészítő" in market_str or "fogadaskeszito" in market_str or "bet builder" in market_str:
         return "Ismeretlen"
 
+    # Döntetlen esetén visszajár (Draw No Bet) = 0-s ázsiai hendikep a megnevezett csapatra
+    _dnb_re = r"döntetlen esetén visszajár|döntetlen eseten visszajar|draw no bet|\bdnb\b|tét visszajár"
+    if _re2.search(_dnb_re, market_str + " " + pick_l):
+        team = _re2.sub(_dnb_re, " ", pick_l)
+        team = _re2.sub(r"[():]", " ", team).strip()
+        r = _eval_handicap(f"{team} 0", "hendikep", h, a, home_team, away_team)
+        if r:
+            return r
+
     # 1X2 + Over/Under kombinált piac – ELŐBB ellenőrizzük mint az alap Over/Under!
     # (pl. "PSV Eindhoven + Over 1.5" tartalmaz "over"-t, de nem sima Over tipp)
     _combined_match = _re2.search(r'\+\s*(over|under)\s+(\d+\.?\d*)', pick_l)
@@ -657,7 +666,7 @@ def main():
                 "select": "*",
                 "ai_generated": "eq.true",
                 "or": "(result_status.eq.Folyamatban,result_status.is.null)",
-                "status": "not.in.(Nyert,Veszített,Visszajár)"
+                "status": "not.in.(Nyert,Veszített,Visszajár,Fél-nyert,Fél-veszített)"
             },
             timeout=15
         )
