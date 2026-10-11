@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A Value Bet Titka: Többet Ésszel, Mint Szerencsével - Mondom a Tutit!</title>
-    <meta name="description" content="Mi az a value bet, azaz az értékalapú fogadás? Ismerd meg a stratégiát, amivel a profik nyernek, és amit a mi algoritmusunk is használ.">
-    <link rel="icon" type="image/png" href="../images/favicon.png">
+    <meta name="description" content="Mi az a value bet, azaz az értékalapú fogadás? Beárazott esély, várható érték, iroda-margó és szórás – érthetően, számpéldákkal.">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <style>
         :root { --primary-color: #38A169; --text-color: #333; --bg-color: #f4f7f6; --white: #ffffff; --bg-card: #2D3748; --text-light: #E2E8F0; --border-color: #4A5568;}
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0 0 120px 0; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
@@ -19,6 +19,20 @@
         .cta-box { text-align: center; margin-top: 40px; padding: 20px; background-color: #f0f2f5; border-radius: 8px;}
         .cta-button { display: inline-block; background-color: var(--primary-color); color: var(--white); padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.3s ease; }
         footer { text-align: center; margin-top: 40px; }
+        .lead { font-size: 1.15rem; }
+        .formula { background: #f0f7f3; border: 1px solid #c6e6d3; border-radius: 8px; padding: 12px 16px; margin: 12px 0; text-align: center; font-weight: 700; font-size: 1.1rem; color: #22543d; }
+        .example { background: #f7f7f7; border-left: 4px solid var(--primary-color); border-radius: 6px; padding: 12px 16px; margin: 14px 0; font-size: 1.02rem; line-height: 1.7; }
+        .table-wrap { overflow-x: auto; margin: 12px 0; }
+        .article-content table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+        .article-content th, .article-content td { padding: 8px 10px; border-bottom: 1px solid #e5e5e5; text-align: left; }
+        .article-content th { background: #f4f7f6; font-size: .9rem; color: #555; }
+        .pos { color: #2f855a; font-weight: 700; }
+        .neg { color: #c53030; font-weight: 700; }
+        .summary { background: #2c3e50; color: #fff; border-radius: 8px; padding: 18px 22px; margin-top: 30px; }
+        .summary h3 { margin-top: 0; }
+        .summary li { font-size: 1.05rem; }
+        .responsible { font-size: .95rem !important; color: #666; margin-top: 24px; }
+        @media (max-width: 600px) { .article-header h1 { font-size: 1.8rem; } .article-content { padding: 20px; } }
 
         #cookie-banner {
             position: fixed;
@@ -80,38 +94,112 @@
 </head>
 <body>
     <div class="article-header">
-        <p>2025. szeptember 15.</p>
+        <p>2025. szeptember 15. · Frissítve: 2026. október 11.</p>
         <h1>A Value Bet Titka: Többet Ésszel, Mint Szerencsével</h1>
     </div>
     <div class="container">
         <div class="article-content">
-            <p>Minden sportfogadó ismeri az érzést: kiválasztasz egy meccset, ami "tuti befutónak" tűnik, mégis elbukod. A profi sportfogadás és a szerencsejáték közötti határvonal pontosan itt húzódik. A profik nem a győztest keresik, hanem az **értéket**. Ez a "Mondom a Tutit!" filozófiájának magja is.</p>
-            
-            <h2>Mi az a "Value Bet"?</h2>
-            <p>A value bet (magyarul értékfogadás vagy értékarányos fogadás) egy olyan fogadási lehetőség, ahol a bukméker által kínált odds magasabb, mint az esemény bekövetkezésének valós valószínűsége.</p>
-            <p>Egyszerűbben: <strong>Akkor találtál egy value bet-et, ha a fogadóiroda alulbecsüli egy kimenetel esélyét, és ezért túl magas szorzót kínál rá.</strong></p>
-            <p>Képzelj el egy érmefeldobást. 50% esélye van a fejnek, 50% az írásnak. A "fair" odds mindkettőre 2.00. Ha egy fogadóiroda valamiért 2.10-es oddsot kínál a fejre, akkor az egy value bet. Lehet, hogy az első dobás írás lesz és veszítesz, de ha 100-szor vagy 1000-szer fogadsz így, a matematikai előny miatt hosszú távon nyerni fogsz.</p>
+            <p class="lead">Minden sportfogadó ismeri az érzést: kiválasztasz egy meccset, ami „tuti befutónak” tűnik, mégis elbukod. Vagy fordítva: egy ritkán nyerő, de jól megválasztott tippsor hosszú távon többet hoz, mint a „biztos” favoritok. A különbség egyetlen fogalomban rejlik: az <strong>értékben</strong>. Ebben a cikkben lépésről lépésre, számpéldákkal mutatjuk meg, mi az a value bet, hogyan ismerhető fel, és mire érdemes figyelni, ha így fogadsz.</p>
 
-            <h2>Miért Ezt Alkalmazzuk?</h2>
-            <p>Mert ez az egyetlen stratégia, ami hosszú távon profitábilis lehet. A sportfogadásban nem az a cél, hogy minden meccset eltalálj, hanem az, hogy a befektetett tőkéd gyarapodjon.</p>
+            <h2>Mi az a value bet?</h2>
+            <p>A value bet (magyarul értékfogadás) olyan fogadás, ahol <strong>az iroda által kínált odds alapján számolt esély kisebb, mint az esemény valós esélye</strong>. Másképp: a fogadóiroda alulbecsüli egy kimenetel esélyét, ezért a valósnál magasabb szorzót ad rá.</p>
+            <p>A lényeg tehát nem az, hogy egy csapat <em>nyer-e</em>, hanem hogy <em>megéri-e</em> az adott oddson rá fogadni. Egy favorit győzelme lehet nagyon valószínű, mégis rossz fogadás, ha az odds túl alacsony – és egy esélytelenebb kimenetel is lehet jó fogadás, ha az odds bőven többet fizet, mint amennyi a kockázata.</p>
+
+            <h2>1. lépés: mit árul el az odds?</h2>
+            <p>Minden odds mögött egy <strong>beárazott esély</strong> rejlik. Ezt nagyon egyszerű kiszámolni:</p>
+            <div class="formula">beárazott esély = 1 ÷ odds</div>
+            <div class="table-wrap"><table>
+                <tr><th>Odds</th><th>Beárazott esély</th></tr>
+                <tr><td>1.30</td><td>76,9%</td></tr>
+                <tr><td>1.50</td><td>66,7%</td></tr>
+                <tr><td>2.00</td><td>50,0%</td></tr>
+                <tr><td>2.50</td><td>40,0%</td></tr>
+                <tr><td>3.00</td><td>33,3%</td></tr>
+                <tr><td>5.00</td><td>20,0%</td></tr>
+            </table></div>
+            <p>Ha egy tippre 2.00-s oddsot kapsz, az iroda nagyjából 50%-os esélyt ad neki. Ha te úgy látod – alapos elemzés után –, hogy a valós esély inkább 55%, akkor az odds „túl jól fizet”: ez a value.</p>
+
+            <h2>2. lépés: a value bet szabálya</h2>
+            <p>Egy tipp akkor értékes, ha a valós esély nagyobb, mint a beárazott esély. Ugyanezt egyetlen szorzással is meg lehet nézni:</p>
+            <div class="formula">odds × valós esély &gt; 1 &nbsp;→&nbsp; value bet</div>
+            <p>Hogy egy tipp mennyire értékes, azt a <strong>várható érték</strong> mutatja meg: átlagosan mennyit hoz (vagy visz) egy egységnyi tét, ha sokszor megismételnéd ugyanezt a fogadást.</p>
+            <div class="formula">várható érték = valós esély × (odds − 1) − (1 − valós esély)</div>
+
+            <div class="example">
+                <strong>Az érmefeldobás.</strong> Fej vagy írás: mindkettő esélye 50%, a „méltányos” odds 2.00. Ha valaki 2.10-et ad a fejre, akkor:<br>
+                várható érték = 0,5 × 1,10 − 0,5 = <strong>+0,05</strong>, vagyis átlagosan <strong>+5%</strong> tétenként.<br>
+                Egy-egy dobást így is elveszíthetsz, de 1000 dobás alatt, dobásonként 1 egység téttel a várható nyereség +50 egység.
+            </div>
+
+            <h2>Három példa a fociból</h2>
+            <p>Nézzük meg, hogyan dönt a szabály valós helyzetekben. (A „valós esély” itt az elemzés alapján becsült érték.)</p>
+            <div class="table-wrap"><table>
+                <tr><th>Tipp</th><th>Odds</th><th>Beárazott esély</th><th>Becsült valós esély</th><th>odds × esély</th><th>Várható érték</th></tr>
+                <tr><td>Kiegyenlített meccs, hazai győzelem</td><td>2.20</td><td>45,5%</td><td>50%</td><td>1,10</td><td class="pos">+10%</td></tr>
+                <tr><td>Nagy favorit győzelme</td><td>1.30</td><td>76,9%</td><td>70%</td><td>0,91</td><td class="neg">−9%</td></tr>
+                <tr><td>Nagy esélytelen győzelme</td><td>5.00</td><td>20,0%</td><td>15%</td><td>0,75</td><td class="neg">−25%</td></tr>
+            </table></div>
+            <p>A tanulság: a favorit <strong>valószínűleg nyer</strong> (10-ből 7-szer), mégis rossz fogadás, mert az 1.30-as odds nem fizet eleget a kockázatért. Az 5.00-s odds pedig hiába „nagy”, ha a valós esély még a beárazottnál is kisebb. A háromból csak az első tipp értékes: nem az nyer a leggyakrabban (hanem a favorit), hosszú távon mégis egyedül az hoz nyereséget.</p>
+
+            <h2>Miért ritka a value? – az iroda margója</h2>
+            <p>A fogadóirodák a „méltányos” oddsnál mindig kicsit kevesebbet kínálnak, ebből élnek. Ezt úgy láthatod, ha egy meccs összes kimenetelének beárazott esélyét összeadod: 100% helyett mindig többet kapsz.</p>
+            <div class="example">
+                Egy meccs oddsai: hazai 2.10, döntetlen 3.40, vendég 3.60.<br>
+                1 ÷ 2,10 + 1 ÷ 3,40 + 1 ÷ 3,60 = 47,6% + 29,4% + 27,8% = <strong>104,8%</strong><br>
+                A plusz 4,8% az iroda margója. Ennyivel „rosszabb” átlagosan minden odds a méltányosnál.
+            </div>
+            <p>Emiatt a véletlenszerűen kiválasztott fogadások hosszú távon veszteségesek. Value csak ott van, ahol az iroda – vagy a piac – egy adott meccsen tévedett, és ezt alapos elemzéssel lehet észrevenni. Ezért nem minden nap van sok jó tipp, és ezért nem adunk tippet csak azért, hogy legyen.</p>
+
+            <h2>A türelem része a stratégiának – a szórás</h2>
+            <p>A value bet <strong>nem jelent biztos nyerést</strong>. Egy értékes tipp is elbukhat, és rövid távon a szerencse sokkal nagyobb szerepet játszik, mint az előny. Egy példa: tegyük fel, hogy minden tippünk 2.00-s oddsú, és valójában 55% eséllyel jön be (ez +10% várható érték, ami nagyon jónak számít).</p>
             <ul>
-                <li><strong>Kizárja az érzelmeket:</strong> Nem szimpátia alapján döntünk, hanem a tiszta matematika és statisztika alapján.</li>
-                <li><strong>Hosszú távú gondolkodás:</strong> Egy-egy value bet elbukhat, de a stratégia lényege, hogy a nyerő tippek által hozott profit ellensúlyozza a veszteségeket, és föléjük kerekedjen.</li>
-                <li><strong>A profik is ezt használják:</strong> A sikeres sportfogadók nem a szerencsére, hanem a valószínűségszámításra és az érték keresésére építenek.</li>
+                <li><strong>10 tippből</strong> kb. 26% az esélye, hogy legalább 6 elbukik – vagyis egy rossz hét teljesen normális.</li>
+                <li><strong>100 tipp alatt</strong> kb. 65% az esélye, hogy lesz legalább 5 vesztes tipp egymás után.</li>
+                <li><strong>100 tipp után</strong> még mindig kb. 13% az esélye, hogy az egyenleg mínuszban van – <strong>1000 tipp után</strong> viszont ez már 0,1% alá esik.</li>
+            </ul>
+            <p>Ezért az eredményt nem egy-egy napon vagy héten, hanem több száz tippen érdemes megítélni – és ezért fontos, hogy a kereted kibírja a rosszabb időszakokat.</p>
+
+            <h2>Hogyan fogadj value alapon? – gyakorlati tanácsok</h2>
+            <ul>
+                <li><strong>Fix egység:</strong> minden tippre ugyanakkora tétet tegyél, a fogadásra szánt keret kis részét (jellemzően 1–3%-át). Lásd: <a href="/tipp-szotar.html#egyseg">egység a Tipp-szótárban</a>.</li>
+                <li><strong>Ne üldözd a veszteséget:</strong> egy vesztes sorozat után ne emeld a tétet, hogy „visszanyerd”. A szórás miatt a sorozatok természetesek.</li>
+                <li><strong>Figyeld az oddsot:</strong> ha egy tipp oddsa a megadottnál jóval alacsonyabb, mire megteszed, az érték el is tűnhet. Ilyenkor inkább hagyd ki.</li>
+                <li><strong>A ROI-t nézd, ne a találati arányt:</strong> egy 40%-os találati arány is lehet nyereséges magasabb oddsokon, és egy 80%-os is veszteséges túl alacsony oddsokon. Lásd: <a href="/tipp-szotar.html#roi">ROI</a>.</li>
+                <li><strong>Kombi óvatosan:</strong> kötésnél a lábak oddsa és kockázata is összeszorzódik, és ha egy láb nem értékes, az az egész szelvény értékét rontja. Lásd: <a href="/tipp-szotar.html#kombi">kombi</a>.</li>
             </ul>
 
-            <h2>Hogyan Működik Ez a Gyakorlatban a Botunknál?</h2>
-            <p>Az algoritmusunk pontosan ezt a folyamatot automatizálja. A `tipp_generator.py` szkript minden nap több száz meccs adatait elemzi (forma, H2H, tabella, gólátlagok stb.), hogy kiszámítsa a saját, belső valószínűségét minden kimenetelre.</p>
-            <p>Ezután összehasonlítja ezt a "saját valószínűséget" a fogadóirodák által kínált oddsokkal. Ha a bot úgy találja, hogy egy tippnél <code>(Odds * Saját valószínűség) > 1.25</code>, akkor azonosít egy value bet-et, és felveszi a potenciális tippek listájára. Az "A Nap Value Tippje" szelvényünk pontosan az ilyen, legértékesebbnek ítélt fogadásokból születik.</p>
-            
+            <h2>Gyakori tévhitek</h2>
+            <ul>
+                <li><strong>„A nagy odds = value.”</strong> Nem. A value a <em>valós esély és az odds viszonyán</em> múlik, nem az odds nagyságán (lásd az 5.00-s példát).</li>
+                <li><strong>„Ha egy tipp elbukott, rossz volt.”</strong> Nem feltétlenül. Egy jó döntés is hozhat rossz eredményt – a minőséget sok tippen lehet megítélni.</li>
+                <li><strong>„A value bet biztos nyerést jelent.”</strong> Nem. Hosszú távú matematikai előnyt ad, de garanciát semmilyen fogadási stratégia nem ad.</li>
+            </ul>
+
+            <h2>Hogyan keressük mi a value-t?</h2>
+            <p>Elemzéseinkben minden meccsnél megbecsüljük az egyes kimenetelek valós esélyét – többek között a csapatok formája, az egymás elleni eredmények, a tabella, a gólátlagok és a hiányzók alapján –, majd összevetjük az iroda által kínált oddsszal. Csak akkor javasolunk egy tippet, ha szerintünk az odds többet ér, mint amennyi a kockázata, és minden tipp emberi jóváhagyás után kerül ki.</p>
+            <p>A tippek eredményét lezárásuk után rögzítjük, így a teljesítményünk (találati arány, profit, ROI) visszamenőleg is követhető.</p>
+
+            <div class="summary">
+                <h3>Összefoglalva</h3>
+                <ul>
+                    <li>Beárazott esély = 1 ÷ odds.</li>
+                    <li>Value bet: a valós esély nagyobb a beárazottnál, vagyis odds × valós esély &gt; 1.</li>
+                    <li>A favorit nem automatikusan jó tipp, a nagy odds sem.</li>
+                    <li>Rövid távon a szórás dönt, hosszú távon az érték.</li>
+                    <li>Fix egység, türelem, és a ROI figyelése.</li>
+                </ul>
+            </div>
+
+            <p class="responsible"><strong>Felelősségteljes szerencsejáték:</strong> a sportfogadás kockázattal jár. Csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippek nem garantálnak nyereséget. Csak 18 éven felülieknek.</p>
+
             <div class="cta-box">
-                <h3>Nem kell matematikusnak lenned, hogy profitálj!</h3>
-                <p>A value bet keresése rengeteg időt és elemzést igényel. A jó hír, hogy a mi algoritmusunk elvégzi helyetted a munka nehezét. Csatlakozz a VIP zónához, és férj hozzá a naponta frissülő, adat-alapú tippjeinkhez!</p>
-                <a href="/index.html#login-register" class="cta-button">Irány a VIP Zóna!</a>
+                <h3>Ellenőrzött, elemzett tippek minden nap</h3>
+                <p>A value keresése rengeteg időt és elemzést igényel. A VIP Zónában naponta megkapod a jóváhagyott, adatokon alapuló tippjeinket.</p>
+                <a href="/#login-register" class="cta-button">Irány a VIP Zóna!</a>
             </div>
             
             <footer>
-                <p><a href="/blog.html">← Vissza a Blogra</a></p>
+                <p><a href="/blog.html">← Vissza a Blogra</a> · <a href="/tipp-szotar.html">📖 Tipp-szótár</a></p>
             </footer>
         </div>
     </div>
