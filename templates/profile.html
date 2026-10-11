@@ -112,6 +112,19 @@
                 <span style="color: #F44336; font-weight: bold;">Inaktív ❌</span>
             {% endif %}
         </p>
+        {% if is_subscribed and user.subscription_expires_at %}
+        {% set exp = user.subscription_expires_at[:10].replace('-', '. ') ~ '.' %}
+        <p><strong>Hozzáférés eddig:</strong> {{ exp }}</p>
+        <p><strong>Megújulás:</strong>
+            {% if user.subscription_expires_at[:4] >= '2049' %}
+                <span style="color: #4CAF50;">Örökös tagság – nincs teendő 🔥</span>
+            {% elif user.stripe_customer_id and not user.subscription_cancelled %}
+                <span style="color: #4CAF50;">Automatikusan megújul havonta 🔄</span>
+            {% else %}
+                <span style="color: #F6AD55;">Nem újul meg automatikusan – {{ exp }} után újra elő kell fizetned.</span>
+            {% endif %}
+        </p>
+        {% endif %}
         <p><strong>Email értesítők:</strong>
             {% if user.get('email_unsubscribed') %}
                 <span style="color: #F44336; font-weight: bold;">Kikapcsolva ❌</span>
