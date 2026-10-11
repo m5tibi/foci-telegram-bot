@@ -1,22 +1,27 @@
+# A fő csomagok az éles (Render) verzióra rögzítve, a log „[VERSIONS]” sora alapján (2026-10-11).
+# A Render minden deploynál telepít; rögzítés nélkül egy új verzió váratlanul eltörhet valamit.
+# Frissítés: verzió átírása → helyi teszt → deploy.
+
 # Web és Keretrendszer
-fastapi
-uvicorn[standard]
+fastapi==0.143.0
+starlette==1.7.0
+uvicorn[standard]==0.54.0
 python-dotenv
-jinja2
+jinja2==3.1.6
 python-multipart
 passlib
 bcrypt==3.2.0
 itsdangerous
 
 # Adatbázis és API
-supabase
-requests
+supabase==2.32.0
+requests==2.34.2
 python-dateutil
 pytz
 
 # Adatkezelés és Logisztika
 openpyxl
-python-telegram-bot
+python-telegram-bot==22.8
 # Rögzítve: a Render minden deploynál friss csomagot telepít, egy új Stripe
 # verzió már eltörte a fizetést (2026-10). Frissítés előtt tesztelni kell!
 stripe==16.0.0
