@@ -18,6 +18,9 @@ STRIPE_TEST_WEBHOOK_SECRET = os.environ.get("STRIPE_TEST_WEBHOOK_SECRET")
 RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 
+# A Render minden deploynál friss csomagokat telepít; a logból látszik, melyik Stripe verzió fut
+print(f"[STRIPE] SDK {getattr(stripe, 'VERSION', '?')}, API verzió {getattr(stripe, 'api_version', '?')}")
+
 processed_invoice_ids = set()
 processed_checkout_ids = set()
 
@@ -77,7 +80,6 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
 
     is_technical_test = user['email'] == "m5tibi77@gmail.com"
     active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
-    stripe.api_key = active_key
     
     price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
 
@@ -85,8 +87,9 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         # Kizárólag a havi csomagnál 'subscription', az összes többinél 'payment' (egyszeri) mód fut le!
         checkout_mode = 'subscription' if plan == 'monthly' else 'payment'
 
+        # A fizetési módokat (kártya, Apple/Google Pay stb.) a Stripe Dashboard adja;
+        # a payment_method_types paramétert az új Stripe API már nem fogadja el.
         session_params = {
-            "payment_method_types": ['card'],
             "line_items": [{'price': price_id, 'quantity': 1}],
             "mode": checkout_mode,
             "allow_promotion_codes": True,
@@ -106,11 +109,16 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         else:
             session_params["customer_email"] = user['email']
 
-        checkout_session = stripe.checkout.Session.create(**session_params)
+        # api_key kérésenként (a globális stripe.api_key átállítása párhuzamos kéréseknél összekeveredhet)
+        checkout_session = stripe.checkout.Session.create(api_key=active_key, **session_params)
         return RedirectResponse(url=checkout_session.url, status_code=303)
     except Exception as e:
         print(f"Checkout hiba: {str(e)}")
-        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
+        # Az admin azonnal tudjon róla – egy hibás pénztár minden vásárlást megakaszt
+        await send_admin_alert(
+            f"⚠️ *PÉNZTÁR HIBA*\n👤 {user.get('email')}\n📦 Csomag: {plan}\n💬 {str(e)[:300]}"
+        )
+        return RedirectResponse(url="/profile?error=checkout", status_code=303)
 
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
@@ -313,7 +321,7 @@ async def create_portal_session(request: Request):
     from app.auth import get_current_user
     user = get_current_user(request)
     if not user or not user.get("stripe_customer_id"):
-        return RedirectResponse(url="/profile?error=Nincs aktiv elofizetesed", status_code=303)
+        return RedirectResponse(url="/profile?error=no_subscription", status_code=303)
 
     c_id = user["stripe_customer_id"]
     is_technical_test = user['email'] == "m5tibi77@gmail.com"
@@ -322,4 +330,6 @@ async def create_portal_session(request: Request):
         session = stripe.billing_portal.Session.create(api_key=active_key, customer=c_id, return_url=f"{RENDER_APP_URL}/profile")
         return RedirectResponse(url=session.url, status_code=303)
     except Exception as e:
-        return RedirectResponse(url=f"/profile?error={str(e)}", status_code=303)
+        print(f"Portál hiba: {str(e)}")
+        await send_admin_alert(f"⚠️ *ÜGYFÉLPORTÁL HIBA*\n👤 {user.get('email')}\n💬 {str(e)[:300]}")
+        return RedirectResponse(url="/profile?error=portal", status_code=303)

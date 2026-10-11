@@ -51,9 +51,9 @@ async def profile_page(request: Request):
         try:
             # CSAK az m5tibi77@gmail.com használja a technikai Teszt kulcsot, mindenki más az éleset[cite: 6]
             is_technical_test = user['email'] == "m5tibi77@gmail.com"
-            stripe.api_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_technical_test else os.environ.get("STRIPE_SECRET_KEY")
-            
-            subs = stripe.Subscription.list(customer=cust_id, limit=1)
+            api_key = os.environ.get("STRIPE_TEST_SECRET_KEY") if is_technical_test else os.environ.get("STRIPE_SECRET_KEY")
+            # api_key kérésenként, nem a globális stripe.api_key átállításával
+            subs = stripe.Subscription.list(customer=cust_id, limit=1, api_key=api_key)
             if subs.data:
                 sub = subs.data[0]
                 is_cancelled = sub.cancel_at_period_end
