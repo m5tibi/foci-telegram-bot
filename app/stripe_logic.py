@@ -1,10 +1,11 @@
 # app/stripe_logic.py
 import os
+import asyncio
 import stripe
 import pytz
 import telegram
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, RedirectResponse
 from app.database import get_db, get_admin_db
 
@@ -23,6 +24,8 @@ ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "1326707238"))
 print(f"[STRIPE] SDK {getattr(stripe, 'VERSION', '?')}, API verzió {getattr(stripe, 'api_version', '?')}")
 
 processed_invoice_ids = set()
+# Számlák, amelyeknél a bank megerősítést (3D Secure) kért – ezeknél a „sikertelen” értesítés félrevezető
+action_required_invoices = set()
 processed_checkout_ids = set()
 
 # ── SEGÉDFÜGGVÉNYEK ───────────────────────────────────────────────────────────
@@ -50,6 +53,44 @@ def _still_paid(row: dict) -> bool:
     """Van-e még kifizetett, le nem járt időszaka (ilyenkor lemondás után sem vesszük el a hozzáférést)."""
     until = _paid_until(row)
     return bool(until and until > datetime.now(pytz.utc))
+
+def _invoice_subscription_id(inv):
+    """A számlához tartozó előfizetés ID-ja (új API: parent.subscription_details, régi: subscription)."""
+    def g(o, k):
+        if o is None: return None
+        try: return o.get(k)
+        except Exception: return getattr(o, k, None)
+    sub = g(g(g(inv, "parent"), "subscription_details"), "subscription") or g(inv, "subscription")
+    return sub if isinstance(sub, str) else g(sub, "id")
+
+def _stripe_subscription_status(sub_id, livemode):
+    """Az előfizetés aktuális státusza a Stripe-ban ('active', 'canceled', …), vagy None ha nem lekérdezhető."""
+    if not sub_id:
+        return None
+    key = STRIPE_SECRET_KEY if livemode else STRIPE_TEST_SECRET_KEY
+    if not key:
+        return None
+    try:
+        return stripe.Subscription.retrieve(sub_id, api_key=key).status
+    except Exception as e:
+        print(f"[WEBHOOK] Előfizetés lekérdezési hiba ({sub_id}): {e}")
+        return None
+
+def _ts_dt(timestamp):
+    try:
+        return datetime.fromtimestamp(int(timestamp), tz=pytz.utc) if timestamp else None
+    except (TypeError, ValueError):
+        return None
+
+async def _delayed_payment_failed_alert(inv_id, email, amount, next_attempt):
+    """A „sikertelen fizetés” és a „megerősítés szükséges” esemény egyszerre érkezik; kicsit várunk,
+    és ha megerősítésről van szó, a félrevezető „sikertelen” értesítést nem küldjük el."""
+    await asyncio.sleep(15)
+    if inv_id in action_required_invoices:
+        return
+    retry = (f"🔁 A Stripe újrapróbálja: {_hu_dt(_ts_dt(next_attempt))}" if next_attempt
+             else "⛔ Nem lesz újrapróbálkozás")
+    await send_admin_alert(f"💳 *SIKERTELEN FIZETÉS*\n👤 {email}\n💰 Összeg: {amount // 100} Ft\n{retry}")
 
 def _hu_dt(dt) -> str:
     return dt.astimezone(pytz.timezone("Europe/Budapest")).strftime('%Y. %m. %d. %H:%M') if dt else "?"
@@ -140,7 +181,7 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
         return RedirectResponse(url="/profile?error=checkout", status_code=303)
 
 @router.post("/stripe-webhook")
-async def stripe_webhook(request: Request):
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     client = get_admin_db()
@@ -219,6 +260,8 @@ async def stripe_webhook(request: Request):
                 cust_id = getattr(obj, 'customer', None)
                 if cust_id:
                     updates["stripe_customer_id"] = cust_id
+                if get_val(obj, 'mode') == 'subscription':
+                    updates["subscription_cancelled"] = False   # új, élő havi előfizetés
                 client.table("felhasznalok").update(updates).eq("id", u_id).execute()
             
                 cust_details = getattr(obj, 'customer_details', {})
@@ -246,13 +289,32 @@ async def stripe_webhook(request: Request):
                             if old_exp > start_dt: start_dt = old_exp
                         except: pass
                 
-                    new_exp = (start_dt + timedelta(days=dur)).isoformat()
-                    client.table("felhasznalok").update({
-                        "subscription_expires_at": new_exp,
-                        "subscription_status": "active",
-                        "subscription_cancelled": False,
-                    }).eq("id", res.data['id']).execute()
-                    await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {res.data.get('email')}\n📅 +{dur} nap")
+                    new_exp_dt = start_dt + timedelta(days=dur)
+                    updates = {"subscription_expires_at": new_exp_dt.isoformat(), "subscription_status": "active"}
+
+                    # Utólag kifizetett (pl. behajthatatlannak jelölt) régi számla? Ilyenkor az
+                    # előfizetés a Stripe-ban már megszűnhetett, és nem fog magától megújulni.
+                    st = getattr(obj, 'status_transitions', None)
+                    uncollectible_at = get_val(st, 'marked_uncollectible_at')
+                    paid_at = get_val(st, 'paid_at') or int(datetime.now(pytz.utc).timestamp())
+                    created = getattr(obj, 'created', None)
+                    late = bool(uncollectible_at) or bool(created and paid_at - int(created) > 3 * 86400)
+                    sub_status = _stripe_subscription_status(_invoice_subscription_id(obj), getattr(event, 'livemode', True))
+                    sub_ended = sub_status in ('canceled', 'incomplete_expired') or (sub_status is None and bool(uncollectible_at))
+                    if sub_ended:
+                        updates["subscription_cancelled"] = True
+
+                    client.table("felhasznalok").update(updates).eq("id", res.data['id']).execute()
+                    email = res.data.get('email')
+                    if late:
+                        msg = (f"💰 *UTÓLAG KIFIZETETT SZÁMLA*\n👤 {email}\n"
+                               f"🧾 Számla kelte: {_hu_dt(_ts_dt(created))}, kifizetve: {_hu_dt(_ts_dt(paid_at))}\n"
+                               f"📅 +{dur} nap → hozzáférés: {_hu_dt(new_exp_dt)}")
+                        if sub_ended:
+                            msg += "\n⚠️ A Stripe-előfizetés már megszűnt – NEM újul meg automatikusan."
+                        await send_admin_alert(msg)
+                    else:
+                        await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {email}\n📅 +{dur} nap → hozzáférés: {_hu_dt(new_exp_dt)}")
                 elif get_val(obj, 'billing_reason') != 'subscription_create' and not (res and getattr(res, 'data', None)):
                     # Kifizetett megújulás, de nincs hozzá felhasználónk → a hosszabbítás elmaradna; jelezzük
                     processed_invoice_ids.add(inv_id)
@@ -334,17 +396,33 @@ async def stripe_webhook(request: Request):
                     )
 
         elif event.type == 'invoice.payment_failed':
-            # Sikertelen megújuló fizetés – admin értesítés
+            # Sikertelen fizetés – de ha valójában banki megerősítés (3D Secure) kell, arról
+            # külön esemény jön; a késleltetett értesítés ilyenkor nem megy ki
             c_id = getattr(obj, 'customer', None)
             if c_id:
                 res = client.table("felhasznalok").select("email") \
                     .eq("stripe_customer_id", c_id).maybe_single().execute()
-                if res and res.data:
-                    amount = getattr(obj, 'amount_due', 0)
-                    await send_admin_alert(
-                        f"💳 *SIKERTELEN FIZETÉS*\n👤 {res.data.get('email')}\n"
-                        f"💰 Összeg: {amount // 100} Ft"
-                    )
+                email = res.data.get('email') if res and res.data else get_val(obj, 'customer_email', '?')
+                background_tasks.add_task(
+                    _delayed_payment_failed_alert, getattr(obj, 'id', None), email,
+                    getattr(obj, 'amount_due', 0) or 0, getattr(obj, 'next_payment_attempt', None))
+
+        elif event.type == 'invoice.payment_action_required':
+            # A bank megerősítést kér (3D Secure): nem valódi hiba, az ügyfélnek jóvá kell hagynia
+            inv_id = getattr(obj, 'id', None)
+            if inv_id in action_required_invoices:
+                pass
+            else:
+                action_required_invoices.add(inv_id)
+                c_id = getattr(obj, 'customer', None)
+                res = client.table("felhasznalok").select("email") \
+                    .eq("stripe_customer_id", c_id).maybe_single().execute() if c_id else None
+                email = res.data.get('email') if res and res.data else get_val(obj, 'customer_email', '?')
+                amount = getattr(obj, 'amount_due', 0) or 0
+                await send_admin_alert(
+                    f"⏳ *MEGERŐSÍTÉSRE VÁR (3D Secure)*\n👤 {email}\n💰 Összeg: {amount // 100} Ft\n"
+                    f"A bank jóváhagyást kért – az ügyfél a Stripe e-mailből vagy az ügyfélportálon hagyhatja jóvá."
+                )
 
 
     except Exception as e:
