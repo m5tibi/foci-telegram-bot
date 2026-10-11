@@ -71,9 +71,8 @@ def send_reset_email(to_email: str, token: str):
     SMTP_PORT = 465
     SENDER_EMAIL = "info@mondomatutit.hu"
     SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-    RENDER_APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://mondomatutit.hu")
-    
-    reset_link = f"{RENDER_APP_URL}/new-password?token={token}"
+    from .site import SITE_URL
+    reset_link = f"{SITE_URL}/new-password?token={token}"
     subject = "🔑 Jelszó visszaállítás - Mondom a Tutit!"
     body = f"""Szia!
     

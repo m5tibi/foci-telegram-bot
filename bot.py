@@ -257,7 +257,8 @@ async def confirm_and_send_notification(update: telegram.Update, context: Callba
         vip_ids = [u['chat_id'] for u in res.data if u.get('chat_id')]
         
         message_text = "Szia! 👋 Friss tippek érkeztek a VIP Zónába!"
-        vip_url = "https://foci-telegram-bot.onrender.com/vip"
+        from app.site import SITE_URL
+        vip_url = f"{SITE_URL}/vip"
         keyboard = [[InlineKeyboardButton("🔥 Tippek Megtekintése", url=vip_url)]]
         
         await send_smart_broadcast(context, vip_ids, message_text, f"🤖 Generált Tippek ({date_str})", reply_markup=InlineKeyboardMarkup(keyboard))

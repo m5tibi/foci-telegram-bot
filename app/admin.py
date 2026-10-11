@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request, Form, File, UploadFile, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse
 from .database import get_db, get_admin_db, s_get
 from .auth import get_current_user, is_admin_user
+from .site import SITE_URL
 
 # Telegram értesítő funkció beemelése a bot.py-ból
 try:
@@ -168,7 +169,7 @@ async def handle_manual_upload(
 
             if target_ids:
                 emoji = "🔥 *VIP*" if tip_type == "vip" else "✅ *INGYENES*"
-                full_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                full_url = SITE_URL + "/vip"
                 notif_msg = (
                     f"{emoji} *ÚJ SZELVÉNY FELTÖLTVE!*\n\n"
                     f"📝 Név: *{tipp_neve}*\n"
@@ -188,7 +189,7 @@ async def handle_manual_upload(
                 .execute()
             to_emails = _active_emails(email_res.data)
             if to_emails:
-                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                vip_url = SITE_URL + "/vip"
                 background_tasks.add_task(
                     notify_upload, to_emails, "VIP szelvény", tipp_neve, vip_url
                 )
@@ -260,7 +261,7 @@ async def handle_upload_analysis(
                 safe_desc = description.replace('_', '-').replace('*', '') if description else ""
                 desc_line = f"📝 {safe_desc}\n" if safe_desc else ""
                 header = "👑 *Új VIP feltöltés!*" if category == 'vip' else "📂 *Új ingyenes feltöltés!*"
-                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                vip_url = SITE_URL + "/vip"
                 notif_msg = (
                     f"{header}\n\n"
                     f"{desc_line}"
@@ -279,7 +280,7 @@ async def handle_upload_analysis(
                 .execute()
             to_emails = _active_emails(email_res.data)
             if to_emails:
-                vip_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com") + "/vip"
+                vip_url = SITE_URL + "/vip"
                 email_label = description if description else ("📊 VIP elemzés (Excel)" if file_type == "xlsx" else "📄 VIP elemzés (PDF)")
                 background_tasks.add_task(
                     notify_upload, to_emails, email_label, file.filename, vip_url
