@@ -17,6 +17,8 @@ pytz
 # Adatkezelés és Logisztika
 openpyxl
 python-telegram-bot
-stripe
+# Rögzítve: a Render minden deploynál friss csomagot telepít, egy új Stripe
+# verzió már eltörte a fizetést (2026-10). Frissítés előtt tesztelni kell!
+stripe==16.0.0
 
 # Build frissítés kényszerítése: 2026.04.28
