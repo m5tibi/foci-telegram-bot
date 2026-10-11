@@ -151,6 +151,15 @@ async def adatvedelem_page():
                 return HTMLResponse(_f.read())
     return HTMLResponse("Not found", status_code=404)
 
+@router.get("/tipp-szotar.html", response_class=HTMLResponse)
+async def tipp_szotar_page():
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", "tipp-szotar.html")
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return HTMLResponse(_f.read())
+    return HTMLResponse("Not found", status_code=404)
+
 @router.get("/aszf.html", response_class=HTMLResponse)
 async def aszf_page():
     for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
