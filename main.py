@@ -89,3 +89,10 @@ async def process_telegram_update(request: Request):
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
     return {"status": "ok"}
+
+# --- 6. Statikus oldalak (docs/) tartalékként ---
+# Minden fenti útvonal elsőbbséget élvez; ami nem talált, azt a docs/ mappából
+# szolgáljuk ki (blog, blogcikkek, köszönő oldal, képek, style.css, sitemap.xml).
+# A StaticFiles védi a mappán kívüli útvonalakat (../).
+if _os.path.exists(_docs_path):
+    api.mount("/", StaticFiles(directory=_docs_path, html=True), name="docs-root")
