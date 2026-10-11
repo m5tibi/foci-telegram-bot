@@ -64,6 +64,15 @@ api.include_router(profile_router)
 api.include_router(pages_router)
 api.include_router(ai_tips_router)
 
+# Telepített csomagverziók a logban (ezek alapján rögzíthetők a requirements.txt-ben)
+try:
+    from importlib.metadata import version as _pkg_version
+    print("[VERSIONS] " + ", ".join(
+        f"{_p}=={_pkg_version(_p)}" for _p in
+        ("fastapi", "starlette", "uvicorn", "supabase", "python-telegram-bot", "stripe", "jinja2", "requests")))
+except Exception as _e:
+    print(f"[VERSIONS] nem olvasható: {_e}")
+
 # --- 5. Startup és Webhook ---
 application = None
 
