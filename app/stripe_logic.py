@@ -36,6 +36,24 @@ def _ts(timestamp) -> str:
     except Exception:
         return "?"
 
+def _paid_until(row: dict):
+    """A felhasználó kifizetett hozzáférésének vége (datetime, UTC), vagy None."""
+    exp = (row or {}).get("subscription_expires_at")
+    if not exp:
+        return None
+    try:
+        return datetime.fromisoformat(str(exp).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+def _still_paid(row: dict) -> bool:
+    """Van-e még kifizetett, le nem járt időszaka (ilyenkor lemondás után sem vesszük el a hozzáférést)."""
+    until = _paid_until(row)
+    return bool(until and until > datetime.now(pytz.utc))
+
+def _hu_dt(dt) -> str:
+    return dt.astimezone(pytz.timezone("Europe/Budapest")).strftime('%Y. %m. %d. %H:%M') if dt else "?"
+
 FEEDBACK_HU = {
     "unused":           "Nem használta eleget",
     "too_expensive":    "Túl drága",
@@ -235,6 +253,15 @@ async def stripe_webhook(request: Request):
                         "subscription_cancelled": False,
                     }).eq("id", res.data['id']).execute()
                     await send_admin_alert(f"🔄 *SIKERES MEGÚJULÁS!*\n👤 {res.data.get('email')}\n📅 +{dur} nap")
+                elif get_val(obj, 'billing_reason') != 'subscription_create' and not (res and getattr(res, 'data', None)):
+                    # Kifizetett megújulás, de nincs hozzá felhasználónk → a hosszabbítás elmaradna; jelezzük
+                    processed_invoice_ids.add(inv_id)
+                    email = get_val(obj, 'customer_email', '?')
+                    print(f"[WEBHOOK] Megújulás: nincs felhasználó a Stripe ügyfélhez ({c_id}, {email}, {inv_id})")
+                    await send_admin_alert(
+                        f"⚠️ *MEGÚJULÁS – NINCS FELHASZNÁLÓ*\n👤 {email}\n🆔 Stripe ügyfél: {c_id}\n"
+                        f"🧾 Számla: {inv_id}\nA hosszabbítás NEM íródott jóvá – kézi ellenőrzés kell!"
+                    )
 
         elif event.type == 'customer.subscription.updated':
             # Lemondás jelölés vagy státuszváltozás (pl. past_due)
@@ -252,7 +279,10 @@ async def stripe_webhook(request: Request):
 
                     status = getattr(obj, 'status', None)
                     if status in ('canceled', 'unpaid', 'past_due', 'incomplete_expired'):
-                        updates['subscription_status'] = 'inactive'
+                        # A már kifizetett időszakot nem vesszük el: a lejáratig marad a hozzáférés,
+                        # utána a VIP oldal / profil magától inaktívnak veszi
+                        if not _still_paid(res.data):
+                            updates['subscription_status'] = 'inactive'
                     elif status == 'active':
                         updates['subscription_status'] = 'active'
 
@@ -284,18 +314,22 @@ async def stripe_webhook(request: Request):
                 res = client.table("felhasznalok").select("*") \
                     .eq("stripe_customer_id", c_id).maybe_single().execute()
                 if res and res.data:
-                    client.table("felhasznalok").update({
-                        "subscription_status": "inactive",
-                        "subscription_cancelled": True,
-                    }).eq("id", res.data['id']).execute()
+                    # A Stripe előfizetés megszűnt (akár azonnali lemondással is), de a már
+                    # kifizetett időszak végéig a hozzáférés megmarad
+                    still_paid = _still_paid(res.data)
+                    updates = {"subscription_cancelled": True}
+                    if not still_paid:
+                        updates["subscription_status"] = "inactive"
+                    client.table("felhasznalok").update(updates).eq("id", res.data['id']).execute()
 
                     canceled_at = getattr(obj, 'canceled_at', None)
-                    ended_at    = getattr(obj, 'ended_at', None)
+                    access = (f"📅 Hozzáférés a kifizetett időszak végéig: {_hu_dt(_paid_until(res.data))}"
+                              if still_paid else "📅 Hozzáférés: megszűnt (nincs kifizetett időszak)")
                     await send_admin_alert(
                         f"❌ *ELŐFIZETÉS MEGSZŰNT*\n"
                         f"👤 {res.data.get('email')}\n"
                         f"🗓 Lemondás időpontja: {_ts(canceled_at)}\n"
-                        f"📅 Hozzáférés vége: {_ts(ended_at)}\n"
+                        f"{access}\n"
                         f"💬 Ok: {_feedback(obj)}"
                     )
 
@@ -315,6 +349,7 @@ async def stripe_webhook(request: Request):
 
     except Exception as e:
         print(f"[WEBHOOK] Feldolgozási hiba ({event.type}): {e}")
+        await send_admin_alert(f"⚠️ *STRIPE WEBHOOK HIBA*\n📨 {event.type}\n💬 {str(e)[:300]}")
     return JSONResponse({"status": "success"})
 
 @router.get("/create-portal-session")
