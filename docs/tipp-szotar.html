@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tipp-szótár – Mondom a Tutit!</title>
+    <meta name="description" content="Fogadási fogalmak érthetően: odds, kombi, 1X2, kétesély, BTTS, Over/Under, ázsiai hendikep, döntetlen esetén visszajár, fél-nyert, ROI és a többi.">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
+    <style>
+        :root {
+            --gold: #D4AF37; --gold-dim: rgba(212,175,55,.12); --gold-border: rgba(212,175,55,.30);
+            --green: #68D391; --red: #FC8181; --blue: #90CDF4;
+            --bg: #09090F; --bg-card: #111118; --bg-card2: #18181F;
+            --border: rgba(255,255,255,.08); --text: #E4E4EE; --muted: #8A8AA0;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0 0 120px 0; background: var(--bg); color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.65;
+        }
+        a { color: var(--gold); }
+        .container { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+
+        header { text-align: center; padding: 48px 16px 28px; border-bottom: 1px solid var(--border); }
+        .brand { color: var(--gold); font-weight: 900; font-size: 1.1rem; text-decoration: none; }
+        header h1 { font-size: 2.3rem; margin: 14px 0 8px; }
+        header p { color: var(--muted); margin: 0 auto; max-width: 620px; }
+
+        .search-wrap { position: sticky; top: 0; z-index: 10; background: var(--bg); padding: 16px 0 12px; }
+        #search {
+            width: 100%; padding: 12px 16px; font-size: 1rem; color: var(--text);
+            background: var(--bg-card2); border: 1px solid var(--gold-border); border-radius: 10px; outline: none;
+        }
+        #search:focus { border-color: var(--gold); }
+        #no-result { display: none; color: var(--muted); text-align: center; padding: 20px; }
+
+        nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 24px; }
+        nav.toc a {
+            font-size: .85rem; text-decoration: none; color: var(--text);
+            background: var(--bg-card2); border: 1px solid var(--border); border-radius: 50px; padding: 5px 12px;
+        }
+        nav.toc a:hover { border-color: var(--gold-border); color: var(--gold); }
+
+        h2.section { color: var(--gold); font-size: 1.25rem; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--gold-border); }
+
+        .term {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+            padding: 18px 20px; margin-bottom: 14px; scroll-margin-top: 80px;
+        }
+        .term:target { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-dim); }
+        .term h3 { margin: 0 0 6px; font-size: 1.1rem; }
+        .term h3 a.anchor { color: var(--muted); text-decoration: none; font-weight: 400; margin-left: 6px; font-size: .9rem; opacity: 0; }
+        .term:hover h3 a.anchor { opacity: 1; }
+        .aka { color: var(--muted); font-size: .85rem; margin-bottom: 8px; }
+        .term p { margin: 6px 0; }
+        .example { background: var(--bg-card2); border-left: 3px solid var(--gold); border-radius: 6px; padding: 10px 14px; margin-top: 10px; font-size: .95rem; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .92rem; }
+        th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+        th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .3px; }
+        .table-wrap { overflow-x: auto; }
+        .scroll-hint { display: none; color: var(--muted); font-size: .8rem; margin: 8px 0 0; }
+        .w { color: var(--green); font-weight: 700; }
+        .l { color: var(--red); font-weight: 700; }
+        .p { color: var(--blue); font-weight: 700; }
+
+        .cta { text-align: center; margin: 44px 0 10px; padding: 26px 18px; background: var(--gold-dim); border: 1px solid var(--gold-border); border-radius: 14px; }
+        .cta a.btn { display: inline-block; margin-top: 10px; background: var(--gold); color: #08080E; font-weight: 800; padding: 12px 28px; border-radius: 50px; text-decoration: none; }
+        .disclaimer { color: var(--muted); font-size: .85rem; margin-top: 30px; }
+
+        footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size: .88rem; border-top: 1px solid var(--border); margin-top: 40px; }
+        footer a { color: var(--muted); margin: 0 8px; }
+
+        @media (max-width: 600px) {
+            header h1 { font-size: 1.8rem; }
+            .term { padding: 16px; }
+            th, td { padding: 7px 6px; }
+            .scroll-hint { display: block; }
+        }
+
+        #cookie-banner {
+            position: fixed; bottom: 0; left: 0; width: 100%; background-color: #2D3748;
+            color: #E2E8F0; padding: 20px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            z-index: 1000; display: none; align-items: center; justify-content: center;
+            gap: 20px; box-sizing: border-box;
+        }
+        #cookie-banner p { margin: 0; flex-grow: 1; max-width: 800px; font-size: 0.9rem; }
+        #cookie-banner p a { color: #38A169; text-decoration: underline; }
+        .cookie-buttons { display: flex; gap: 10px; flex-shrink: 0; }
+        .cookie-btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        #cookie-accept-btn { background-color: #38A169; color: white; }
+        #cookie-decline-btn { background-color: #4A5568; color: #E2E8F0; }
+        @media (max-width: 768px) {
+            #cookie-banner { flex-direction: column; text-align: center; }
+            body { margin-bottom: 180px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <a class="brand" href="/">⚽ Mondom a Tutit!</a>
+    <h1>📖 Tipp-szótár</h1>
+    <p>A tippjeinkben használt fogadási fogalmak röviden és érthetően, példákkal.
+       Ha egy kifejezés nem világos, itt megtalálod.</p>
+</header>
+
+<div class="container">
+
+    <div class="search-wrap">
+        <input id="search" type="search" placeholder="Keresés: pl. BTTS, hendikep, over…" autocomplete="off" aria-label="Keresés a szótárban">
+    </div>
+
+    <nav class="toc" aria-label="Tartalom">
+        <a href="#odds">Odds</a>
+        <a href="#kombi">Kombi</a>
+        <a href="#1x2">1X2</a>
+        <a href="#ketesely">Kétesély</a>
+        <a href="#dnb">Döntetlen esetén visszajár</a>
+        <a href="#btts">BTTS</a>
+        <a href="#over-under">Over / Under</a>
+        <a href="#azsiai-golszam">Ázsiai gólszám</a>
+        <a href="#azsiai-hendikep">Ázsiai hendikep</a>
+        <a href="#europai-hendikep">Európai hendikep</a>
+        <a href="#kombinalt-piac">Győzelem + gólszám</a>
+        <a href="#fogadaskeszito">Fogadáskészítő</a>
+        <a href="#eredmenyek">Nyert / Visszajár / Fél-nyert</a>
+        <a href="#roi">ROI</a>
+        <a href="#value-bet">Value bet</a>
+    </nav>
+
+    <p id="no-result">Nincs találat. Próbálj egy rövidebb kifejezést!</p>
+
+    <!-- ═══════════════ ALAPFOGALMAK ═══════════════ -->
+    <h2 class="section">Alapfogalmak</h2>
+
+    <div class="term" id="odds" data-keywords="szorzó odds decimális kifizetés">
+        <h3>Odds (szorzó)<a class="anchor" href="#odds">#</a></h3>
+        <p>Megmutatja, hogy nyerés esetén a tét hányszorosát kapod vissza. Mi mindig <strong>decimális oddsot</strong> használunk, ebben a tét is benne van.</p>
+        <p>Minél kisebb az odds, annál valószínűbb az esemény (az iroda szerint).</p>
+        <div class="example">1000 Ft tét <strong>1.85</strong>-ös oddson → nyerés esetén <strong>1850 Ft</strong> jár vissza, ebből 850 Ft a tiszta nyereség.</div>
+    </div>
+
+    <div class="term" id="egyseg" data-keywords="egység unit tét bankroll stake">
+        <h3>Egység (unit), tét<a class="anchor" href="#egyseg">#</a></h3>
+        <p>A statisztikáinkban a profitot <strong>egységben</strong> számoljuk: minden tippre 1 egység tétet veszünk. Így a forintösszegtől függetlenül összehasonlítható az eredmény.</p>
+        <p>Javasolt, hogy egy egység a fogadásra szánt teljes kereted (bankroll) kis része, jellemzően 1-3%-a legyen.</p>
+        <div class="example">„Profit: +4.20 egység” → ha minden tippre 1000 Ft-ot tettél, az időszakban 4200 Ft-ot nyertél.</div>
+    </div>
+
+    <div class="term" id="single" data-keywords="single szóló egyes tipp">
+        <h3>Single (szóló tipp)<a class="anchor" href="#single">#</a></h3>
+        <p>Egyetlen meccsre, egyetlen kimenetelre szóló fogadás. Az odds a tipp saját oddsa.</p>
+    </div>
+
+    <div class="term" id="kombi" data-keywords="kombi kötés ako parlay accumulator eredő odds lábak láb">
+        <h3>Kombi (kötés, AKO)<a class="anchor" href="#kombi">#</a></h3>
+        <div class="aka">Más néven: kötés, AKO, accumulator, parlay</div>
+        <p>Több tipp (<strong>láb</strong>) egy szelvényen. Az <strong>eredő odds</strong> a lábak oddsainak szorzata, ezért nagyobb a lehetséges nyeremény – de <strong>minden lábnak be kell jönnie</strong>, egyetlen vesztes láb az egész kombit elviszi.</p>
+        <p>Ha egy láb <a href="#visszajar">visszajár</a>, az a láb 1.00-s oddsszal számít, a kombi a többi lábbal megy tovább.</p>
+        <div class="example">3 láb: 1.50 × 1.60 × 1.40 = <strong>3.36</strong>-os eredő odds. 1000 Ft tétre 3360 Ft jár, ha mindhárom bejön.</div>
+    </div>
+
+    <div class="term" id="lejarat" data-keywords="lejárat dátum kezdés">
+        <h3>Lejárat<a class="anchor" href="#lejarat">#</a></h3>
+        <p>A tipp érvényességének napja a kártyán. A meccs pontos kezdési ideje a tipp mellett, a 🕐 jel után szerepel (magyar idő szerint).</p>
+    </div>
+
+    <!-- ═══════════════ PIACOK ═══════════════ -->
+    <h2 class="section">Fogadási piacok</h2>
+
+    <div class="term" id="1x2" data-keywords="1x2 1 x 2 hazai vendég döntetlen győzelem végeredmény">
+        <h3>1X2 (végeredmény)<a class="anchor" href="#1x2">#</a></h3>
+        <p>A rendes játékidő (90 perc és a ráadás, hosszabbítás és tizenegyesek nélkül) végeredményére szóló fogadás.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Jelölés</th><th>Jelentés</th></tr>
+            <tr><td><strong>1</strong></td><td>Hazai csapat győz</td></tr>
+            <tr><td><strong>X</strong></td><td>Döntetlen</td></tr>
+            <tr><td><strong>2</strong></td><td>Vendég csapat győz</td></tr>
+        </table></div>
+        <div class="example">„Spanyolország győz” vagy egyszerűen „Spanyolország” → Spanyolországnak meg kell nyernie a meccset.</div>
+    </div>
+
+    <div class="term" id="ketesely" data-keywords="kétesély dupla esély double chance 1x x2 12">
+        <h3>Kétesély (Double Chance)<a class="anchor" href="#ketesely">#</a></h3>
+        <p>Három kimenetelből kettőre fogadsz egyszerre, ezért biztonságosabb, de kisebb az odds.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Jelölés</th><th>Nyer, ha…</th></tr>
+            <tr><td><strong>1X</strong></td><td>a hazai csapat nyer <em>vagy</em> döntetlen</td></tr>
+            <tr><td><strong>X2</strong></td><td>a vendég csapat nyer <em>vagy</em> döntetlen</td></tr>
+            <tr><td><strong>12</strong></td><td>bármelyik csapat nyer (nem döntetlen)</td></tr>
+        </table></div>
+    </div>
+
+    <div class="term" id="dnb" data-keywords="döntetlen esetén visszajár dnb draw no bet tét visszajár">
+        <h3>Döntetlen esetén visszajár (DNB)<a class="anchor" href="#dnb">#</a></h3>
+        <div class="aka">Más néven: Draw No Bet, DNB, „0-s hendikep”</div>
+        <p>A megnevezett csapat győzelmére szól, de <strong>döntetlennél visszakapod a tétet</strong>. Ugyanaz, mint a <a href="#azsiai-hendikep">0-s ázsiai hendikep</a>.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Tipp: Hollandia (DNB)</th><th>Eredmény</th></tr>
+            <tr><td>Hollandia nyer</td><td class="w">Nyert</td></tr>
+            <tr><td>Döntetlen</td><td class="p">Visszajár</td></tr>
+            <tr><td>Hollandia kikap</td><td class="l">Veszített</td></tr>
+        </table></div>
+    </div>
+
+    <div class="term" id="btts" data-keywords="btts mindkét csapat szerez gólt gg ng gól-gól both teams to score igen nem">
+        <h3>BTTS – Mindkét csapat szerez gólt<a class="anchor" href="#btts">#</a></h3>
+        <div class="aka">Más néven: Both Teams To Score, GG / NG, gól-gól</div>
+        <p><strong>BTTS: Igen (GG)</strong> – akkor nyer, ha <strong>mindkét csapat legalább egy gólt</strong> szerez. A végeredmény mindegy.</p>
+        <p><strong>BTTS: Nem (NG)</strong> – akkor nyer, ha legalább az egyik csapat gól nélkül marad.</p>
+        <div class="example">2-1, 1-1, 3-2 → <span class="w">BTTS Igen nyert</span> &nbsp;·&nbsp; 2-0, 0-0, 0-1 → <span class="w">BTTS Nem nyert</span></div>
+    </div>
+
+    <div class="term" id="over-under" data-keywords="over under több mint kevesebb mint gólszám gólok felett alatt total">
+        <h3>Over / Under (gólszám)<a class="anchor" href="#over-under">#</a></h3>
+        <div class="aka">Magyarul: több mint / kevesebb mint X gól, X gól felett / alatt</div>
+        <p>A meccsen esett <strong>összes gól</strong> számára szól (a két csapat góljai összeadva), függetlenül attól, ki nyer.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Tipp</th><th>Nyer, ha a gólok száma…</th></tr>
+            <tr><td><strong>Over 1.5</strong> (több mint 1,5)</td><td>2 vagy több</td></tr>
+            <tr><td><strong>Over 2.5</strong> (több mint 2,5)</td><td>3 vagy több</td></tr>
+            <tr><td><strong>Under 2.5</strong> (kevesebb mint 2,5)</td><td>0, 1 vagy 2</td></tr>
+            <tr><td><strong>Under 3.5</strong> (kevesebb mint 3,5)</td><td>3 vagy kevesebb</td></tr>
+        </table></div>
+        <p>A <strong>.5</strong>-ös vonalon nincs döntetlen eset: vagy nyer, vagy veszít. Egész vonalon (pl. Over 2) pontos egyezésnél <a href="#visszajar">visszajár</a> a tét. A .25 és .75 vonalakat lásd: <a href="#azsiai-golszam">ázsiai gólszám</a>.</p>
+    </div>
+
+    <div class="term" id="azsiai-golszam" data-keywords="ázsiai gólszám negyed vonal 2.25 2.75 asian total over under negyedvonal">
+        <h3>Ázsiai gólszám (negyedvonalak: .25, .75)<a class="anchor" href="#azsiai-golszam">#</a></h3>
+        <p>A negyedvonalas Over/Under tippnél a tét <strong>fele-fele arányban</strong> két szomszédos vonalra megy. Ezért fordulhat elő <a href="#fel-nyert">fél-nyert</a> vagy <a href="#fel-veszitett">fél-veszített</a> eredmény.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Tipp</th><th>Így oszlik</th><th>Gólok</th><th>Eredmény</th></tr>
+            <tr><td rowspan="3"><strong>Over 2.25</strong></td><td rowspan="3">½ Over 2 + ½ Over 2.5</td><td>3+</td><td class="w">Nyert</td></tr>
+            <tr><td>2</td><td class="l">Fél-veszített</td></tr>
+            <tr><td>0–1</td><td class="l">Veszített</td></tr>
+            <tr><td rowspan="3"><strong>Over 2.75</strong></td><td rowspan="3">½ Over 2.5 + ½ Over 3</td><td>4+</td><td class="w">Nyert</td></tr>
+            <tr><td>3</td><td class="w">Fél-nyert</td></tr>
+            <tr><td>0–2</td><td class="l">Veszített</td></tr>
+            <tr><td rowspan="3"><strong>Under 2.25</strong></td><td rowspan="3">½ Under 2 + ½ Under 2.5</td><td>0–1</td><td class="w">Nyert</td></tr>
+            <tr><td>2</td><td class="w">Fél-nyert</td></tr>
+            <tr><td>3+</td><td class="l">Veszített</td></tr>
+        </table></div>
+    </div>
+
+    <div class="term" id="azsiai-hendikep" data-keywords="ázsiai hendikep handicap ah asian -0.25 -0.5 -0.75 -1 -1.25 -1.5 +0.25 +0.5 előny hátrány 0">
+        <h3>Ázsiai hendikep (AH)<a class="anchor" href="#azsiai-hendikep">#</a></h3>
+        <div class="aka">Más néven: Asian Handicap, AH, hendikep</div>
+        <p>A kiválasztott csapat gólkülönbségéhez <strong>hozzáadjuk a hendikepet</strong>, és így nézzük, ki nyert. A <strong>mínusz</strong> hendikep hátrány (a favoritnak többel kell nyernie), a <strong>plusz</strong> előny (az esélytelenebb csapat ki is kaphat kis különbséggel). Ázsiai hendikepben nincs külön döntetlen kimenetel: ha a hendikeppel számolva döntetlen jön ki, a tét visszajár.</p>
+        <p>A <strong>.25</strong> és <strong>.75</strong> vonalaknál a tét fele-fele két szomszédos vonalra megy (pl. −0.75 = ½ −0.5 + ½ −1), ebből jön a fél-nyert / fél-veszített.</p>
+        <p class="scroll-hint">← A táblázat oldalra görgethető →</p>
+        <div class="table-wrap"><table>
+            <tr><th>Tipp a csapatra</th><th>Győz. 2+ góllal</th><th>Győz. 1 góllal</th><th>Döntetlen</th><th>Vereség 1 góllal</th><th>Vereség 2+ góllal</th></tr>
+            <tr><td><strong>+0.5</strong></td><td class="w">Nyert</td><td class="w">Nyert</td><td class="w">Nyert</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>+0.25</strong></td><td class="w">Nyert</td><td class="w">Nyert</td><td class="w">Fél-nyert</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>0</strong> (DNB)</td><td class="w">Nyert</td><td class="w">Nyert</td><td class="p">Visszajár</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−0.25</strong></td><td class="w">Nyert</td><td class="w">Nyert</td><td class="l">Fél-veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−0.5</strong></td><td class="w">Nyert</td><td class="w">Nyert</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−0.75</strong></td><td class="w">Nyert</td><td class="w">Fél-nyert</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−1</strong></td><td class="w">Nyert</td><td class="p">Visszajár</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−1.25</strong></td><td class="w">Nyert</td><td class="l">Fél-veszített</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+            <tr><td><strong>−1.5</strong></td><td class="w">Nyert</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td><td class="l">Veszített</td></tr>
+        </table></div>
+        <p style="color:var(--muted);font-size:.88rem">A további plusz vonalak a mínuszok tükörképei: pl. +0.75-nél győzelem vagy döntetlen = nyert, 1 gólos vereség = fél-veszített, 2+ gólos vereség = veszített; +1-nél 1 gólos vereség = visszajár.</p>
+        <div class="example">„Németország −1.25” és 2-0-s német győzelem → <span class="w">Nyert</span>. 1-0-nál → <span class="l">Fél-veszített</span> (a tét fele visszajár).</div>
+    </div>
+
+    <div class="term" id="europai-hendikep" data-keywords="európai hendikep 3-way handicap egész gól">
+        <h3>Európai hendikep<a class="anchor" href="#europai-hendikep">#</a></h3>
+        <p>Egész gólos előny vagy hátrány, de az ázsiaival ellentétben <strong>van döntetlen kimenetele</strong> is, így itt nincs visszajáró tét. Pl. „Hazai (−1)” akkor nyer, ha a hazai csapat legalább 2 góllal győz; 1 gólos hazai győzelemnél a „Döntetlen (−1)” tipp nyer.</p>
+    </div>
+
+    <div class="term" id="kombinalt-piac" data-keywords="győz + gólszám győzelem és over kombinált piac result total">
+        <h3>Győzelem + gólszám (kombinált piac)<a class="anchor" href="#kombinalt-piac">#</a></h3>
+        <p>Egy tippen belül két feltétel, <strong>mindkettőnek teljesülnie kell</strong>.</p>
+        <div class="example">„Spanyolország győz + több mint 2,5 gól”: 4-1 → <span class="w">Nyert</span>; 2-0 → <span class="l">Veszített</span> (csak 2 gól); 1-2 → <span class="l">Veszített</span> (nem nyert Spanyolország).</div>
+    </div>
+
+    <div class="term" id="fogadaskeszito" data-keywords="fogadáskészítő bet builder same game parlay egy meccsen több feltétel">
+        <h3>Fogadáskészítő (Bet Builder)<a class="anchor" href="#fogadaskeszito">#</a></h3>
+        <p>Egyetlen meccsen belül több feltétel egy szelvényen (pl. győztes + gólszám + szögletek vagy lapok). Ugyanúgy működik, mint egy <a href="#kombi">kombi</a>: minden feltételnek teljesülnie kell. Ezeket a tippeket kézzel értékeljük ki, mert olyan statisztikákat is tartalmazhatnak, amelyek a végeredményből nem derülnek ki.</p>
+    </div>
+
+    <!-- ═══════════════ KIMENETELEK ═══════════════ -->
+    <h2 class="section" id="eredmenyek">Eredmények (kiértékelés)</h2>
+
+    <div class="term" id="nyert" data-keywords="nyert nyertes won">
+        <h3><span class="w">✅ Nyert</span><a class="anchor" href="#nyert">#</a></h3>
+        <p>A tipp bejött: tét × odds jár vissza. Profit: <strong>odds − 1</strong> egység.</p>
+    </div>
+
+    <div class="term" id="veszitett" data-keywords="veszített vesztes lost">
+        <h3><span class="l">❌ Veszített</span><a class="anchor" href="#veszitett">#</a></h3>
+        <p>A tipp nem jött be, a tét elveszett. Profit: <strong>−1</strong> egység.</p>
+    </div>
+
+    <div class="term" id="visszajar" data-keywords="visszajár push void tét vissza">
+        <h3><span class="p">↩️ Visszajár</span><a class="anchor" href="#visszajar">#</a></h3>
+        <div class="aka">Más néven: push, void</div>
+        <p>Se nem nyert, se nem veszített: a teljes tét visszajár (pl. <a href="#dnb">DNB</a> döntetlennél, vagy −1-es hendikep 1 gólos győzelemnél). Profit: <strong>0</strong>. Kombiban az adott láb 1.00-s oddsszal számít.</p>
+    </div>
+
+    <div class="term" id="fel-nyert" data-keywords="fél-nyert félig nyert half won">
+        <h3><span class="w">½✅ Fél-nyert</span><a class="anchor" href="#fel-nyert">#</a></h3>
+        <p>A tét fele nyert, a másik fele visszajár (negyedvonalas tippeknél). Profit: <strong>(odds − 1) / 2</strong> egység.</p>
+        <div class="example">1000 Ft 1.90-es oddson: 500 Ft × 1.90 = 950 Ft + 500 Ft vissza = <strong>1450 Ft</strong> (+450 Ft).</div>
+    </div>
+
+    <div class="term" id="fel-veszitett" data-keywords="fél-veszített félig vesztett half lost">
+        <h3><span class="l">½❌ Fél-veszített</span><a class="anchor" href="#fel-veszitett">#</a></h3>
+        <p>A tét fele elveszett, a másik fele visszajár. Profit: <strong>−0.5</strong> egység.</p>
+        <div class="example">1000 Ft tétből <strong>500 Ft</strong> jár vissza.</div>
+    </div>
+
+    <!-- ═══════════════ STATISZTIKA ═══════════════ -->
+    <h2 class="section">Statisztika</h2>
+
+    <div class="term" id="talalati-arany" data-keywords="találati arány hit rate win rate százalék">
+        <h3>Találati arány<a class="anchor" href="#talalati-arany">#</a></h3>
+        <p>A nyertes tippek aránya a kiértékelt tippek között. Önmagában nem elég: egy alacsony oddsú, magas találati arányú stratégia is lehet veszteséges – ezért nézzük a ROI-t is.</p>
+    </div>
+
+    <div class="term" id="roi" data-keywords="roi megtérülés return on investment yield profit">
+        <h3>ROI (megtérülés)<a class="anchor" href="#roi">#</a></h3>
+        <p>A profit és az összes feltett tét aránya százalékban: <strong>ROI = profit ÷ összes tét × 100</strong>. Ez mutatja meg, hogy hosszú távon mennyit hoz a befektetett pénz.</p>
+        <div class="example">50 tipp, mindegyik 1 egység (összesen 50 egység tét), +6 egység profit → ROI = 6 ÷ 50 × 100 = <strong>+12%</strong>.</div>
+    </div>
+
+    <div class="term" id="value-bet" data-keywords="value bet érték értékalapú fogadás valószínűség">
+        <h3>Value bet (értékalapú fogadás)<a class="anchor" href="#value-bet">#</a></h3>
+        <p>Olyan tipp, ahol az iroda oddsa <strong>magasabb</strong>, mint amit az esemény valós valószínűsége indokolna. Hosszú távon ez a nyereséges fogadás alapja. Bővebben: <a href="/blog/mi-az-a-value-bet.html">A Value Bet titka</a>.</p>
+        <div class="example">Ha szerintünk egy kimenetel 50% eséllyel jön be (ennek „méltányos” oddsa 2.00), és az iroda 2.20-at ad rá, az value bet.</div>
+    </div>
+
+    <div class="cta">
+        <strong>Minden nap ellenőrzött, elemzett tippek a VIP Zónában.</strong><br>
+        <a class="btn" href="https://mondomatutit.hu/#login-register">Irány a VIP Zóna!</a>
+    </div>
+
+    <p class="disclaimer"><strong>Felelősségteljes szerencsejáték:</strong> a sportfogadás kockázattal jár, csak akkora összeggel játssz, amekkora elvesztését megengedheted magadnak. A tippek nem garantálnak nyereséget. Csak 18 éven felülieknek.</p>
+</div>
+
+<footer>
+    <a href="/">Főoldal</a> · <a href="/free_tips.html">Ingyenes tippek</a> · <a href="/blog.html">Blog</a> · <a href="/aszf.html">ÁSZF</a> · <a href="/adatvedelem.html">Adatvédelem</a>
+    <p>© 2026 Mondom a Tutit!</p>
+</footer>
+
+<div id="cookie-banner">
+    <p>Weboldalunk sütiket (cookie) használ a felhasználói élmény javítása, valamint analitikai és marketing célokból. Az "Elfogadom" gombra kattintva hozzájárulsz ezek használatához. További információt az <a href="/adatvedelem.html" target="_blank">Adatvédelmi Nyilatkozatban</a> találsz.</p>
+    <div class="cookie-buttons">
+        <button id="cookie-decline-btn" class="cookie-btn">Elutasítom</button>
+        <button id="cookie-accept-btn" class="cookie-btn">Elfogadom</button>
+    </div>
+</div>
+
+<script>
+    // Keresés: a fogalom címében, szövegében és kulcsszavaiban (ékezet- és kisbetű-függetlenül)
+    (function () {
+        const norm = s => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+        const input = document.getElementById("search");
+        const terms = [...document.querySelectorAll(".term")];
+        const sections = [...document.querySelectorAll("h2.section")];
+        const noResult = document.getElementById("no-result");
+        const index = terms.map(t => norm(t.textContent + " " + (t.dataset.keywords || "")));
+        input.addEventListener("input", () => {
+            const q = norm(input.value.trim());
+            let shown = 0;
+            terms.forEach((t, i) => {
+                const hit = !q || index[i].includes(q);
+                t.style.display = hit ? "" : "none";
+                if (hit) shown++;
+            });
+            // Szakaszcím csak akkor látszik, ha alatta van látható fogalom
+            sections.forEach(h => {
+                let el = h.nextElementSibling, any = false;
+                while (el && !el.matches("h2.section")) {
+                    if (el.classList.contains("term") && el.style.display !== "none") { any = true; break; }
+                    el = el.nextElementSibling;
+                }
+                h.style.display = any ? "" : "none";
+            });
+            noResult.style.display = shown ? "none" : "block";
+        });
+    })();
+
+    function loadFacebookPixel() {
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', '1858049415130011');
+        fbq('track', 'PageView');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const banner = document.getElementById('cookie-banner');
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+        const consent = getCookie('user_cookie_consent');
+        if (!consent) {
+            banner.style.display = 'flex';
+        } else if (consent === 'accepted') {
+            loadFacebookPixel();
+        }
+        document.getElementById('cookie-accept-btn').addEventListener('click', function() {
+            document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
+            banner.style.display = 'none';
+            loadFacebookPixel();
+        });
+        document.getElementById('cookie-decline-btn').addEventListener('click', function() {
+            document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000';
+            banner.style.display = 'none';
+        });
+    });
+</script>
+
+</body>
+</html>

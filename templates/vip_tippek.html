@@ -289,6 +289,7 @@
         {% if active_manual_slips %}
             <div class="manual-slips-section">
                 <h3>Napi Tippek</h3>
+                <p style="margin:-4px 0 10px;font-size:13px"><a href="/tipp-szotar.html" style="color:#D4AF37">📖 Nem érted a jelöléseket (BTTS, hendikep, Over/Under)? Nézd meg a Tipp-szótárt!</a></p>
                 {% set ns = namespace(last_date='') %}
                 {% for slip in active_manual_slips %}
                 {% set tip_date = slip._sort_date or slip.target_date or slip.created_at[:10] %}
