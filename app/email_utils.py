@@ -23,7 +23,7 @@ SMTP_PORT  = int(os.environ.get("SMTP_PORT", "465"))
 SMTP_USER  = os.environ.get("SMTP_USER",  "info@mondomatutit.hu")
 SMTP_PASS  = os.environ.get("SMTP_PASS",  "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL",  SMTP_USER)
-SITE_URL   = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+from .site import SITE_URL
 SECRET_KEY = os.environ.get("SESSION_SECRET_KEY")
 
 

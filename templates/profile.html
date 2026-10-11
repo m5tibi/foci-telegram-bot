@@ -238,6 +238,7 @@
 
     <hr style="border-color: #4A5568; margin-top: 30px;">
 
+    {% if user.stripe_customer_id %}
     <h2>Előfizetés Kezelése (havi előfizetéshez)</h2>
     <p>Itt tudod kezelni a bankkártyaadataidat vagy lemondani a megújuló (havi) előfizetésedet a Stripe biztonságos felületén.</p>
     <div style="margin-top: 20px;">
@@ -245,6 +246,7 @@
         Ugrás az ügyfélportálra
     </a>
     </div>
+    {% endif %}
 
     <hr style="border-color: #4A5568;">
 

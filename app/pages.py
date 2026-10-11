@@ -14,7 +14,7 @@ from bot import get_tip_details
 router = APIRouter()
 from .templating import templates
 _BASE_DIR = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+from .site import SITE_URL
 
 def calculate_roi(records):
     """Kiszámítja a befektetésarányos megtérülést a lezárt szelvények alapján."""

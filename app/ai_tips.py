@@ -305,7 +305,7 @@ async def admin_ai_send_approved(request: Request, background_tasks: BackgroundT
     import pytz
     from datetime import datetime
     now_iso  = datetime.now(pytz.utc).isoformat()
-    site_url = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
+    from .site import SITE_URL as site_url
     today    = datetime.now(pytz.timezone("Europe/Budapest")).strftime("%Y-%m-%d")
 
     vip_tips, free_tips_list = [], []
