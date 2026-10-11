@@ -84,6 +84,25 @@
 </style>
 
     <h1>Profilom</h1>
+    {% set err = request.query_params.get('error') %}
+    {% set pay = request.query_params.get('payment') %}
+    {% if err %}
+    <div style="background:#742a2a;border:1px solid #fc8181;color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:20px;">
+        {% if err == 'checkout' %}
+            ❌ <strong>A fizetés indítása most nem sikerült.</strong> Semmilyen összeget nem vontunk le. Kérjük, próbáld újra néhány perc múlva – a hibáról értesítést kaptunk, és már dolgozunk rajta.
+        {% elif err == 'portal' %}
+            ❌ <strong>Az ügyfélportál most nem érhető el.</strong> Kérjük, próbáld újra később.
+        {% elif err == 'no_subscription' %}
+            ℹ️ Nincs kezelhető havi előfizetésed. Az egyszeri bérleteket nem kell lemondani, azok a lejáratkor maguktól megszűnnek.
+        {% else %}
+            ❌ Hiba történt. Kérjük, próbáld újra később.
+        {% endif %}
+    </div>
+    {% elif pay == 'cancel' %}
+    <div style="background:#2d3748;border:1px solid #4a5568;color:#e2e8f0;padding:14px 18px;border-radius:10px;margin-bottom:20px;">
+        ℹ️ A fizetést megszakítottad, nem történt terhelés. Bármikor újrakezdheted lent.
+    </div>
+    {% endif %}
     <div style="background: #2D3748; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
         <p><strong>E-mail címed:</strong> {{ user.email }}</p>
         <p><strong>Előfizetés állapota:</strong> 
