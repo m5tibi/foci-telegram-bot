@@ -2,10 +2,10 @@
 """Szerencsekerék: regisztrált, nem előfizető felhasználók hetente egyszer pörgethetnek.
 
 A nyereményt a szerver sorsolja (a böngésző csak animálja az eredményt). Nyeremények:
-- d10 / d20 / d50: százalékos kedvezmény a havi tagság első hónapjára, 72 óráig váltható be
-  (a pénztárban automatikusan levonódik, lásd stripe_logic.create_checkout_web);
-- v3 / v7: ingyenes VIP napok, azonnal jóváírva;
-- tip / none: nincs kedvezmény (ingyenes tipp link / "majd legközelebb").
+- d10 / d20 / d30 / d50: százalékos kedvezmény a havi előfizetés első hónapjára, 72 óráig
+  váltható be (a pénztárban automatikusan levonódik, lásd stripe_logic.create_checkout_web);
+- v1 / v3: ingyenes VIP napok, azonnal jóváírva;
+- none: nincs nyeremény ("majd legközelebb").
 """
 import secrets
 from datetime import datetime, timedelta
@@ -25,16 +25,17 @@ DISCOUNT_VALID_HOURS = 72
 
 # Nyeremények: címke a keréken, leírás az eredménynél, esély (súly – összesen 100)
 PRIZES = {
-    "d10":  {"label": "−10%",          "weight": 28, "discount": 10},
-    "d20":  {"label": "−20%",          "weight": 14, "discount": 20},
-    "d50":  {"label": "−50%",          "weight": 3,  "discount": 50},
-    "v3":   {"label": "3 nap VIP",     "weight": 8,  "vip_days": 3},
-    "v7":   {"label": "7 nap VIP",     "weight": 2,  "vip_days": 7},
-    "tip":  {"label": "Ingyen tipp",   "weight": 25},
-    "none": {"label": "Majd legközelebb", "weight": 20},
+    "d10":  {"label": "−10%",          "weight": 30, "discount": 10},
+    "d20":  {"label": "−20%",          "weight": 15, "discount": 20},
+    "d30":  {"label": "−30%",          "weight": 6,  "discount": 30},
+    "d50":  {"label": "−50%",          "weight": 2,  "discount": 50},
+    "v1":   {"label": "1 nap VIP",     "weight": 12, "vip_days": 1},
+    "v3":   {"label": "3 nap VIP",     "weight": 5,  "vip_days": 3},
+    "none": {"label": "Most nem",      "weight": 30},
 }
+DISCOUNT_PRIZES = [k for k, p in PRIZES.items() if "discount" in p]
 # A kerék cikkelyei (sorrend az óramutató járása szerint, felülről indulva)
-SEGMENTS = ["d10", "tip", "d20", "none", "v3", "d10", "tip", "d50", "none", "v7"]
+SEGMENTS = ["d10", "none", "d20", "v1", "d30", "none", "d10", "d50", "v3", "none"]
 
 
 def _spin_week(now=None) -> str:
@@ -70,7 +71,7 @@ def get_active_discount(user_id):
     """A felhasználó még be nem váltott, le nem járt kedvezménye: (sor, százalék) vagy None."""
     try:
         res = get_admin_db().table("szerencsekerek").select("*") \
-            .eq("user_id", str(user_id)).in_("prize", ["d10", "d20", "d50"]) \
+            .eq("user_id", str(user_id)).in_("prize", DISCOUNT_PRIZES) \
             .is_("used_at", "null").gt("expires_at", datetime.now(pytz.utc).isoformat()) \
             .order("created_at", desc=True).limit(1).execute()
     except Exception as e:
@@ -110,17 +111,13 @@ def _result(prize: str, row: dict) -> dict:
     if "discount" in p:
         exp = _parse(row.get("expires_at"))
         return {"title": f"🎉 Nyertél: {p['discount']}% kedvezmény!",
-                "text": f"A havi VIP tagság első hónapjából {p['discount']}% kedvezményt kapsz. "
+                "text": f"A havi VIP előfizetés első hónapjából {p['discount']}% kedvezményt kapsz. "
                         f"A pénztárban automatikusan levonjuk – {_hu(exp) if exp else ''}-ig váltható be.",
                 "cta": "Beváltom", "cta_url": "/vip#elofizetes"}
     if "vip_days" in p:
         return {"title": f"🎉 Nyertél: {p['vip_days']} nap ingyenes VIP!",
                 "text": "A VIP zóna már nyitva is áll előtted – nézd meg a mai tippeket!",
                 "cta": "Irány a VIP zóna", "cta_url": "/vip"}
-    if prize == "tip":
-        return {"title": "🎁 Ingyenes tipp a jutalmad!",
-                "text": "Most nem kedvezmény jött ki, de az ingyenes tippjeinket bármikor megnézheted.",
-                "cta": "Ingyenes tippek", "cta_url": "/free_tips.html"}
     return {"title": "😅 Most nem jött be…",
             "text": "Jövő héten újra pörgethetsz – addig is nézd meg az ingyenes tippeket!",
             "cta": "Ingyenes tippek", "cta_url": "/free_tips.html"}
@@ -146,7 +143,7 @@ async def wheel_page(request: Request):
         "user": user,
         "segments": [PRIZES[k]["label"] for k in SEGMENTS],
         "is_member": is_active_member(user),
-        "spun": _result(spin["prize"], spin) if spin else None,
+        "spun": _result(spin["prize"] if spin["prize"] in PRIZES else "none", spin) if spin else None,
         "next_spin": _hu(_next_monday()),
         "discount": get_active_discount(user["id"]),
     })
@@ -188,7 +185,7 @@ async def spin(request: Request):
         except Exception as e:
             print(f"[szerencsekerek] VIP napok jóváírási hiba ({user.get('email')}): {e}")
 
-    if prize not in ("tip", "none"):
+    if prize != "none":
         from .stripe_logic import send_admin_alert
         await send_admin_alert(f"🎡 *SZERENCSEKERÉK*\n👤 {user.get('email')}\n🎁 {PRIZES[prize]['label']}")
 
