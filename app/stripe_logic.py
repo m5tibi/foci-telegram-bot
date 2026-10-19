@@ -132,6 +132,26 @@ async def send_admin_alert(message: str):
     except Exception as e:
         print(f"Admin értesítési hiba: {e}")
 
+def _wheel_coupon(percent: int, api_key: str):
+    """A szerencsekerék kedvezményének Stripe kuponja (egyszeri, az első fizetésre);
+    ha még nincs ilyen a fiókban (élő/teszt), létrehozza. Hiba esetén None."""
+    coupon_id = f"SZERENCSEKEREK{percent}"
+    try:
+        stripe.Coupon.retrieve(coupon_id, api_key=api_key)
+        return coupon_id
+    except stripe.InvalidRequestError:
+        pass
+    except Exception as e:
+        print(f"[STRIPE] Kupon lekérési hiba ({coupon_id}): {e}")
+        return None
+    try:
+        stripe.Coupon.create(id=coupon_id, percent_off=percent, duration="once",
+                             name=f"Szerencsekerék –{percent}%", api_key=api_key)
+        return coupon_id
+    except Exception as e:
+        print(f"[STRIPE] Kupon létrehozási hiba ({coupon_id}): {e}")
+        return None
+
 @router.post("/create-checkout-session-web")
 async def create_checkout_web(request: Request, plan: str = Form(...)):
     from app.auth import get_current_user
@@ -159,6 +179,17 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
             "billing_address_collection": "required",
         }
         
+        # Szerencsekeréken nyert kedvezmény: a havi tagság első hónapjára automatikusan
+        # levonjuk (a Stripe nem enged egyszerre kézi kuponkódot és előre megadott kedvezményt)
+        if plan == 'monthly':
+            from app.wheel import get_active_discount
+            won = get_active_discount(user['id'])
+            coupon = _wheel_coupon(won[1], active_key) if won else None
+            if coupon:
+                session_params.pop("allow_promotion_codes", None)
+                session_params["discounts"] = [{"coupon": coupon}]
+                session_params["metadata"]["wheel_spin_id"] = str(won[0]["id"])
+
         if checkout_mode == 'subscription':
             session_params["tax_id_collection"] = {"enabled": True}
             if user.get("stripe_customer_id"):
@@ -266,7 +297,13 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             
                 cust_details = getattr(obj, 'customer_details', {})
                 email = get_val(cust_details, 'email', 'Ismeretlen')
-                await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}")
+                wheel_line = ""
+                spin_id = get_val(metadata, "wheel_spin_id")
+                if spin_id:
+                    from app.wheel import mark_discount_used
+                    mark_discount_used(spin_id)
+                    wheel_line = "\n🎡 *Szerencsekerék-kedvezménnyel*"
+                await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}{wheel_line}")
 
         elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
             inv_id = getattr(obj, 'id', None)

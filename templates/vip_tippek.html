@@ -400,9 +400,20 @@
     {% else %}
         {# --- ELŐFIZETÉS NÉLKÜLI NÉZET (ÁTDOLGOZVA AZ ÚJ 6 VIP CSOMAGRA) --- #}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
+        {% if wheel and wheel.discount %}
+        <div style="background:#2A433A;border:1px solid #38A169;border-radius:12px;padding:14px 16px;margin:14px 0;text-align:center">
+            🎟️ <strong>Szerencsekerék-nyereményed: {{ wheel.discount }}% kedvezmény</strong> a havi tagság első hónapjára –
+            a „Havi VIP Tagság” gombbal a pénztárban automatikusan levonjuk.
+        </div>
+        {% elif wheel and wheel.can_spin %}
+        <a href="/szerencsekerek" style="display:block;text-decoration:none;background:linear-gradient(135deg,#3b2f0b,#2D3748);border:1px solid #D4AF37;border-radius:12px;padding:14px 16px;margin:14px 0;text-align:center;color:#F2D060">
+            🎡 <strong>Pörgesd meg a heti szerencsekereket!</strong>
+            <span style="display:block;color:#E2E8F0;font-size:.9em;margin-top:4px">Nyerj akár 50% kedvezményt vagy ingyenes VIP napokat – hetente egyszer ingyen.</span>
+        </a>
+        {% endif %}
         <p style="text-align: center; font-size: 1.1em;">Válassz a megújult csomagok közül a zárt VIP tartalmak azonnali eléréséhez!</p>
         
-        <div class="pricing-grid">
+        <div class="pricing-grid" id="elofizetes">
             <div class="pricing-card">
                 <h3>🎫 Napi VIP Jegy</h3>
                 <p class="price">2.490 Ft <span>/ egyszeri</span></p>
@@ -435,6 +446,7 @@
                 <div class="badge">Legnépszerűbb</div>
                 <h3>📅 Havi VIP Tagság</h3>
                 <p class="price">9.999 Ft <span>/ hó</span></p>
+                {% if wheel and wheel.discount %}<p style="color:#9AE6B4;font-weight:700;margin-top:-6px">🎡 −{{ wheel.discount }}% az első hónapra</p>{% endif %}
                 <ul class="features">
                     <li>30 napos folyamatos VIP tagság</li>
                     <li>Automatikus havi megújulás</li>

@@ -21,6 +21,7 @@ from app.admin import router as admin_router
 from app.profile import router as profile_router
 from app.pages import router as pages_router
 from app.ai_tips import router as ai_tips_router, _auto_check_loop
+from app.wheel import router as wheel_router
 from bot import add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
@@ -63,6 +64,7 @@ api.include_router(profile_router)
 # --- 4. Útvonalak modulokból ---
 api.include_router(pages_router)
 api.include_router(ai_tips_router)
+api.include_router(wheel_router)
 
 # Telepített csomagverziók a logban (ezek alapján rögzíthetők a requirements.txt-ben)
 try:
