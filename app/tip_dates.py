@@ -69,6 +69,62 @@ def _legs(tip):
         return []
 
 
+_LEAGUE_KEYS = ("sportLabel", "league", "liga", "bajnoksag", "competition")
+_MARKET_KEYS = ("market", "piac")
+_LEAGUE_RE = re.compile(r"^(.*?)\s*\[([^\]]+)\]$")
+
+
+def _first(leg: dict, keys) -> str:
+    for k in keys:
+        v = str(leg.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def format_leg(leg: dict, clock: bool = True) -> str:
+    """Egy kombi láb egy sorban: "Meccs [Bajnokság]: Piac: Tipp @ odds 🕐 kezdés".
+    A piac kimarad, ha üres vagy ugyanaz, mint a tipp."""
+    match = str(leg.get("match") or "")
+    league = _first(leg, _LEAGUE_KEYS)
+    market = _first(leg, _MARKET_KEYS)
+    pick = str(leg.get("pick") or "")
+    line = match + (f" [{league}]" if league else "") + ": "
+    if market and market.lower() != pick.lower():
+        line += f"{market}: "
+    line += f"{pick} @ {leg.get('odds', '')}"
+    if leg.get("commence"):
+        line += (" 🕐 " if clock else " ") + str(leg["commence"])
+    return line
+
+
+def parse_leg_line(line: str):
+    """A format_leg sora (vagy a régi "Meccs: tipp @ odds kezdés") → láb dict, vagy None."""
+    line = line.strip().lstrip("*•").strip()
+    if ": " not in line or " @ " not in line:
+        return None
+    match, rest = line.split(": ", 1)
+    pick, odds_part = rest.rsplit(" @ ", 1)
+    league = ""
+    m = _LEAGUE_RE.match(match.strip())
+    if m:
+        match, league = m.group(1), m.group(2)
+    market = ""
+    if ": " in pick:
+        market, pick = pick.split(": ", 1)
+    parts = odds_part.split()
+    try:
+        odds = float(parts[0].replace(",", "."))
+    except (ValueError, IndexError):
+        odds = 1.0
+    commence = " ".join(p for p in parts[1:] if p != "🕐").strip()
+    leg = {"match": match.strip(), "pick": pick.strip(), "odds": odds,
+           "market": market.strip(), "commence": commence}
+    if league:
+        leg["sportLabel"] = league.strip()
+    return leg
+
+
 def tip_commence(tip: dict):
     """A tipp (kombinál a legkorábbi láb) kezdési ideje datetime-ként, vagy None."""
     # Kombi: a lábak kezdési ideje (ai_legs, vagy free kombinál az ai_note "Lábak:" sorai)
@@ -89,10 +145,7 @@ def tip_legs(tip: dict) -> list:
     (free_slips), az ai_note "Lábak:" részéből."""
     lines = []
     for l in _legs(tip):
-        line = f"{l.get('match', '')}: {l.get('pick', '')} @ {l.get('odds', '')}"
-        if l.get("commence"):
-            line += f" 🕐 {l['commence']}"
-        lines.append(line)
+        lines.append(format_leg(l))
     if not lines and "\nLábak:\n" in (tip.get("ai_note") or ""):
         for raw in tip["ai_note"].split("\nLábak:\n", 1)[1].split("\n"):
             raw = raw.strip().lstrip("*•").strip()

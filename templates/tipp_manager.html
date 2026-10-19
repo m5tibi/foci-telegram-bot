@@ -293,7 +293,7 @@ async function publish() {
                         : "mondo";
     await sendTip(comboPlatform, {
       type: "combo",
-      legs: comboLegs.map(t => ({ match: t.match, pick: t.pick, market: t.market,
+      legs: comboLegs.map(t => ({ match: t.match, pick: t.pick, market: t.market, sportLabel: t.sportLabel,
                                    odds: t.odds, commence: t.commence })),
       odds: parseFloat(comboOdds),
       note: comboNote
