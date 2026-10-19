@@ -164,11 +164,19 @@ async def spin(request: Request):
                                 status_code=429)
         prize = _draw()
         now = datetime.now(pytz.utc)
-        row = {"user_id": str(user["id"]), "spin_week": _spin_week(), "prize": prize}
+        row = {"user_id": str(user["id"]), "email": user.get("email"), "spin_week": _spin_week(), "prize": prize}
         if "discount" in PRIZES[prize]:
             row["expires_at"] = (now + timedelta(hours=DISCOUNT_VALID_HOURS)).isoformat()
         # Az egyedi (user_id, spin_week) index dupla kattintásnál a második beszúrást elutasítja
-        row = (db.table("szerencsekerek").insert(row).execute().data or [row])[0]
+        try:
+            res = db.table("szerencsekerek").insert(row).execute()
+        except Exception as e:
+            # Ha az email oszlop még nincs létrehozva (supabase/szerencsekerek.sql), nélküle mentjük
+            if "email" not in str(e):
+                raise
+            row.pop("email")
+            res = db.table("szerencsekerek").insert(row).execute()
+        row = (res.data or [row])[0]
     except Exception as e:
         print(f"[szerencsekerek] Pörgetési hiba ({user.get('email')}): {e}")
         if "duplicate" in str(e).lower() or "23505" in str(e):
