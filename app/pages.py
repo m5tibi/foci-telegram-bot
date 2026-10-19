@@ -285,8 +285,18 @@ async def vip_area(request: Request):
     except Exception as e:
         print(f"[vip] Aláírt link hiba: {e}")
 
+    # Szerencsekerék a nem előfizetőknek: pörgethet-e ezen a héten, és van-e beváltható kedvezménye
+    wheel = None
+    if not is_active_member:
+        try:
+            from app.wheel import get_active_discount, _this_week_spin
+            won = get_active_discount(user["id"])
+            wheel = {"can_spin": not _this_week_spin(user["id"]), "discount": won[1] if won else None}
+        except Exception as e:
+            print(f"[vip] Szerencsekerék lekérési hiba: {e}")
+
     return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
-        "request": request, "user": user, "is_subscribed": access_granted,
+        "request": request, "user": user, "is_subscribed": access_granted, "wheel": wheel,
         "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
         "active_manual_slips": active_manual, "active_free_slips": active_free,
         "analysis_files": analysis_files, "free_analysis_files": free_analysis_files,
