@@ -543,7 +543,7 @@ def evaluate_pick(pick: str, market: str, h: int, a: int, home_team: str = "", a
 
 def _legs_from_note(note: str) -> list:
     """Kombi lábai az ai_note "Lábak:" részéből (free_slips-ben nincs ai_legs oszlop).
-    Sorformátum: "  * Meccs: pick @ odds [kezdés]"."""
+    Sorformátum: "  * Meccs [Bajnokság]: Piac: pick @ odds [kezdés]" (a bajnokság és a piac elhagyható)."""
     if "\nLábak:\n" not in (note or ""):
         return []
     legs = []
@@ -553,11 +553,15 @@ def _legs_from_note(note: str) -> list:
             continue
         match, rest = line.split(": ", 1)
         pick, odds_part = rest.rsplit(" @ ", 1)
+        match = _re.sub(r"\s*\[[^\]]+\]$", "", match.strip())
+        market = ""
+        if ": " in pick:
+            market, pick = pick.split(": ", 1)
         try:
             odds = float(odds_part.split()[0].replace(",", "."))
         except (ValueError, IndexError):
             odds = 1.0
-        legs.append({"match": match.strip(), "pick": pick.strip(), "odds": odds, "market": ""})
+        legs.append({"match": match.strip(), "pick": pick.strip(), "odds": odds, "market": market.strip()})
     return legs
 
 

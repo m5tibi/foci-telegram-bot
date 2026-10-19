@@ -30,11 +30,8 @@ def _parse_legs(raw):
 
 def _legs_note_lines(legs):
     """Lábak szöveges formája az ai_note-ban (free_slips-ben nincs ai_legs oszlop)."""
-    return "\n".join(
-        "  * " + str(l.get("match", "")) + ": " + str(l.get("pick", "")) + " @ " + str(l.get("odds", ""))
-        + (" " + str(l.get("commence", "")) if l.get("commence") else "")
-        for l in legs
-    )
+    from .tip_dates import format_leg
+    return "\n".join("  * " + format_leg(l, clock=False) for l in legs)
 
 def _tip_table(request: Request):
     """A kliens által megadott tábla (manual_slips / free_slips), ha érvényes."""
@@ -146,6 +143,7 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
 
     # Display mezők előfeldolgozása a templatehez
     from datetime import datetime as _dt, timezone as _tz
+    from .tip_dates import tip_legs
     def _enrich(item):
         # Tisztított tipp név ([AI FREE] / [AI] prefix nélkül)
         raw = item.get("tipp_neve", "")
@@ -158,6 +156,7 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
             item["_display_date"] = dt.strftime("%Y.%m.%d %H:%M")
         except Exception:
             item["_display_date"] = str(ca)[:16] if ca else "–"
+        item["_legs"] = tip_legs(item)
         return item
     pending  = [_enrich(r) for r in pending]
     approved = [_enrich(r) for r in approved]
@@ -751,15 +750,11 @@ async def get_ai_tip_data(tip_id: str, request: Request):
             tip = r.data[0]
             legs = _parse_legs(tip.get("ai_legs"))
             if not legs and "\nL\u00e1bak:\n" in (tip.get("ai_note") or ""):
+                from .tip_dates import parse_leg_line
                 for line in tip["ai_note"].split("\nL\u00e1bak:\n")[1].split("\n"):
-                    line = line.strip().lstrip("*").lstrip("\u2022").strip()
-                    if line and ": " in line and " @ " in line:
-                        m_p, rest = line.split(": ", 1)
-                        p_o = rest.split(" @ ")
-                        try: odds_f = float(p_o[1].split(" ")[0]) if len(p_o)>1 else 1.0
-                        except: odds_f = 1.0
-                        commence = " ".join(p_o[1].split(" ")[1:]).strip() if len(p_o)>1 else ""
-                        legs.append({"match": m_p.strip(), "pick": p_o[0].strip(), "odds": odds_f, "commence": commence})
+                    leg = parse_leg_line(line)
+                    if leg:
+                        legs.append(leg)
             if not legs and tip.get("tip_type") == "kombi":
                 legs = [{"match": "?", "pick": "?", "odds": 1.0, "commence": ""}]
             pick = tip.get("ai_pick") or ""
@@ -889,9 +884,13 @@ async def receive_tip_from_perc90(request: Request):
         "target_date":   tip.get("target_date"),
         "result_status": "Folyamatban"
     }
-    # ai_legs csak manual_slips-ben létezik, free_slips-ben nincs ilyen oszlop
+    # ai_legs csak manual_slips-ben létezik, free_slips-ben nincs ilyen oszlop –
+    # ott a lábak (piaccal, bajnoksággal) az ai_note "Lábak:" részébe kerülnek
     if tip_type != "free" and tip.get("ai_legs"):
         row["ai_legs"] = tip.get("ai_legs")
+    legs = _parse_legs(tip.get("ai_legs"))
+    if tip_type == "free" and legs and "\nLábak:\n" not in row["ai_note"]:
+        row["ai_note"] = row["ai_note"] + "\n\nLábak:\n" + _legs_note_lines(legs)
     # None értékek eltávolítása (Supabase nem fogad el None-t egyes mezőknél)
     row = {k: v for k, v in row.items() if v is not None}
 
