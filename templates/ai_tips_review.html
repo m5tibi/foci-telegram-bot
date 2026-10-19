@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}AI Tippek Jóváhagyása{% endblock %}
 {% block content %}
+{% from "_legs.html" import legs_box, kombi_badge %}
 <div class="container" style="max-width:860px;margin:20px auto;color:white">
 
   <h1 style="text-align:center;margin-bottom:6px">🤖 AI Generált Tippek</h1>
@@ -59,6 +60,9 @@
       <div>
         {% if tip.tip_type == 'free' %}
           <span style="background:#00c853;color:#000;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">🆓 FREE</span>
+          {% if tip._leg_items %}<span style="margin-left:6px">{{ kombi_badge(tip._leg_items, tip.eredo_odds) }}</span>{% endif %}
+        {% elif tip._leg_items %}
+          {{ kombi_badge(tip._leg_items, tip.eredo_odds) }}
         {% elif tip.tip_type == 'kombi' %}
           <span style="background:#D4AF37;color:#000;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">🎰 KOMBI</span>
         {% else %}
@@ -71,28 +75,25 @@
       <span style="color:#718096;font-size:12px">{{ tip.created_at[:16] if tip.created_at else '' }}</span>
     </div>
 
-    <!-- Tipp neve -->
-    <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px">
-      {{ tip.tipp_neve }}
-    </div>
+    {% if tip._leg_items %}
+      <!-- Kombi lábai: bajnokság, meccs, kezdés, piac + tipp, odds -->
+      {{ legs_box(tip._leg_items) }}
+    {% else %}
+      <!-- Tipp neve -->
+      <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px">
+        {{ tip.tipp_neve }}
+      </div>
 
-    <!-- Odds -->
-    <div style="color:#D4AF37;font-size:15px;margin-bottom:10px">
-      Odds: <strong>{{ tip.eredo_odds }}</strong>
-    </div>
+      <!-- Odds -->
+      <div style="color:#D4AF37;font-size:15px;margin-bottom:10px">
+        Odds: <strong>{{ tip.eredo_odds }}</strong>
+      </div>
+    {% endif %}
 
     <!-- AI indoklás -->
-    {% if tip.ai_note %}
-      {% set parts = tip.ai_note.split('\nLábak:\n') %}
-      <div style="background:#0d1b2a;border-radius:8px;padding:12px;color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:10px">{{ parts[0] }}</div>
-    {% endif %}
-    {% if tip._legs %}
-      <div style="background:#0a1520;border:1px solid #2a4a6a;border-radius:8px;padding:12px;margin-bottom:14px">
-        <div style="color:#90caf9;font-size:11px;font-weight:700;margin-bottom:8px">📋 LÁBAK</div>
-        {% for leg in tip._legs %}
-          <div style="color:#e2e8f0;font-size:13px;padding:4px 0;border-bottom:1px solid #1a3a5a">{{ leg }}</div>
-        {% endfor %}
-      </div>
+    {% set note = (tip.ai_note or '').split('\nLábak:')[0].strip() %}
+    {% if note %}
+      <div style="background:#0d1b2a;border-radius:8px;padding:12px;color:#a0aec0;font-size:13px;line-height:1.6;margin-bottom:10px">💡 {{ note }}</div>
     {% endif %}
 
     <!-- Gombok -->

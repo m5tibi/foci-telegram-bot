@@ -77,22 +77,33 @@ _LEAGUE_RE = re.compile(r"^(.*?)\s*\[([^\]]+)\]$")
 def _first(leg: dict, keys) -> str:
     for k in keys:
         v = str(leg.get(k) or "").strip()
-        if v:
+        if v and v != "⚽":  # a 90perc üres helykitöltője ("⚽") nem bajnokság
             return v
     return ""
+
+
+def leg_item(leg: dict) -> dict:
+    """Egy láb megjelenítéshez: bajnokság, meccs, kezdés, piac (ha nem azonos a tippel), tipp, odds."""
+    pick = str(leg.get("pick") or "")
+    market = _first(leg, _MARKET_KEYS)
+    return {
+        "league": _first(leg, _LEAGUE_KEYS),
+        "match": str(leg.get("match") or ""),
+        "commence": str(leg.get("commence") or ""),
+        "market": market if market.lower() != pick.lower() else "",
+        "pick": pick,
+        "odds": leg.get("odds", ""),
+    }
 
 
 def format_leg(leg: dict, clock: bool = True) -> str:
     """Egy kombi láb egy sorban: "Meccs [Bajnokság]: Piac: Tipp @ odds 🕐 kezdés".
     A piac kimarad, ha üres vagy ugyanaz, mint a tipp."""
-    match = str(leg.get("match") or "")
-    league = _first(leg, _LEAGUE_KEYS)
-    market = _first(leg, _MARKET_KEYS)
-    pick = str(leg.get("pick") or "")
-    line = match + (f" [{league}]" if league else "") + ": "
-    if market and market.lower() != pick.lower():
-        line += f"{market}: "
-    line += f"{pick} @ {leg.get('odds', '')}"
+    it = leg_item(leg)
+    line = it["match"] + (f" [{it['league']}]" if it["league"] else "") + ": "
+    if it["market"]:
+        line += f"{it['market']}: "
+    line += f"{it['pick']} @ {it['odds']}"
     if leg.get("commence"):
         line += (" 🕐 " if clock else " ") + str(leg["commence"])
     return line
@@ -154,6 +165,18 @@ def tip_legs(tip: dict) -> list:
     return lines
 
 
+def tip_leg_items(tip: dict) -> list:
+    """Kombi lábai megjelenítéshez (leg_item dict-ek): az ai_legs mezőből,
+    vagy ha nincs (free_slips), az ai_note "Lábak:" részéből."""
+    items = [leg_item(l) for l in _legs(tip) if isinstance(l, dict)]
+    if not items and "\nLábak:\n" in (tip.get("ai_note") or ""):
+        for raw in tip["ai_note"].split("\nLábak:\n", 1)[1].split("\n"):
+            leg = parse_leg_line(raw)
+            if leg:
+                items.append(leg_item(leg))
+    return items
+
+
 def tip_day(tip: dict) -> str:
     """A tipp napja (YYYY-MM-DD): a kezdés napja, ha ismert, különben a target_date."""
     dt = tip_commence(tip)
@@ -167,6 +190,7 @@ def enrich_tips(tips: list) -> list:
     napon belül előbb a singlek, aztán a kombik, mindkettő időrendben."""
     for t in tips:
         t["_legs"] = tip_legs(t)
+        t["_leg_items"] = tip_leg_items(t)
         dt = tip_commence(t)
         t["_commence_dt"] = dt
         t["_sort_date"] = dt.strftime("%Y-%m-%d") if dt else (
