@@ -1,0 +1,24 @@
+{# Kombi lábai kártyán belül (a 90perc.hu megjelenítéséhez igazítva):
+   bajnokság, meccs, kezdés, piac + tipp, jobbra az odds. #}
+{% macro legs_box(items) %}
+<div style="margin:6px 0 10px">
+  {% for l in items %}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a3a5a">
+    <div style="min-width:0">
+      {% if l.league %}<div style="font-size:11px;color:#b39ddb;margin-bottom:2px">{{ l.league }}</div>{% endif %}
+      <div style="font-size:13px;color:#e2e8f0;font-weight:600">{{ l.match }}</div>
+      {% if l.commence %}<div style="color:#78909c;font-size:11px;margin-top:1px">🕐 {{ l.commence }}</div>{% endif %}
+      <div style="margin-top:4px">
+        {% if l.market %}<span style="display:inline-block;background:#1a3a5a;color:#90caf9;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;margin-right:6px">{{ l.market }}</span>{% endif %}<span style="color:#e2e8f0;font-size:13px;font-weight:700">{{ l.pick }}</span>
+      </div>
+    </div>
+    <span style="color:#f59e0b;font-weight:700;font-size:14px;white-space:nowrap">{{ l.odds }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro kombi_badge(items, odds) %}
+<span style="background:#4e342e;color:#ffcc80;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px">🎰 {{ items|length }} LÁBAS KOMBI</span>
+<span style="background:#3e2723;color:#ffcc80;font-size:11px;font-weight:800;padding:3px 10px;border-radius:5px;margin-left:6px">Össz odds: {{ odds }}</span>
+{% endmacro %}

@@ -143,7 +143,7 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
 
     # Display mezők előfeldolgozása a templatehez
     from datetime import datetime as _dt, timezone as _tz
-    from .tip_dates import tip_legs
+    from .tip_dates import tip_leg_items
     def _enrich(item):
         # Tisztított tipp név ([AI FREE] / [AI] prefix nélkül)
         raw = item.get("tipp_neve", "")
@@ -156,7 +156,7 @@ async def admin_ai_tips(request: Request, message: str = None, error: str = None
             item["_display_date"] = dt.strftime("%Y.%m.%d %H:%M")
         except Exception:
             item["_display_date"] = str(ca)[:16] if ca else "–"
-        item["_legs"] = tip_legs(item)
+        item["_leg_items"] = tip_leg_items(item)
         return item
     pending  = [_enrich(r) for r in pending]
     approved = [_enrich(r) for r in approved]
