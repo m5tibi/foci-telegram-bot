@@ -187,10 +187,24 @@ _COUNTRY_ALIASES = {
     "delafrika": "southafrica", "delafrikaikoztarsasag": "southafrica",
 }
 
+# Klubnév-rövidítések ("Paris SG", "Atl. Madrid") → a normalizált teljes név
+_CLUB_ALIASES = {
+    "parissg": "parissaintgermain", "psg": "parissaintgermain", "parisstgermain": "parissaintgermain",
+    "atlmadrid": "atleticomadrid", "atleticodemadrid": "atleticomadrid", "atlbilbao": "bilbao",
+    "manutd": "manchester", "manunited": "manchester", "manchesterutd": "manchester", "mancity": "manchester",
+    "intermilan": "inter", "internazionale": "inter", "nottmforest": "nottinghamforest",
+    "wolves": "wolverhampton", "spurs": "tottenham", "gladbach": "borussiamonchengladbach",
+    "mgladbach": "borussiamonchengladbach",
+}
+# Ékezetként nem bontható betűk (Tromsø, Łódź, Kasımpaşa) – az ascii-ra alakítás különben eldobná őket
+_SPECIAL_LETTERS = str.maketrans({"ø": "o", "Ø": "o", "æ": "ae", "Æ": "ae", "ß": "ss", "ł": "l", "Ł": "l",
+                                  "đ": "d", "Đ": "d", "ı": "i"})
+
 def _norm_team(s: str) -> str:
-    s = _ud.normalize("NFD", s or "").encode("ascii", "ignore").decode().lower()
-    # Válogatott név (magyar vagy angol változat) → egységes angol név
-    alias = _COUNTRY_ALIASES.get(_re.sub(r"[^a-z0-9]", "", s))
+    s = _ud.normalize("NFD", (s or "").translate(_SPECIAL_LETTERS)).encode("ascii", "ignore").decode().lower()
+    # Válogatott név (magyar vagy angol változat) → egységes angol név; klubrövidítés → teljes név
+    key = _re.sub(r"[^a-z0-9]", "", s)
+    alias = _COUNTRY_ALIASES.get(key) or _CLUB_ALIASES.get(key)
     if alias:
         return alias
     # Általános toldalékok, városnevekkel kombinált csapatnevekben (FC Barcelona → barcelona)
@@ -214,8 +228,12 @@ def _lev(a, b):
 
 def _nsim(a, b):
     if not a or not b: return False
-    if a == b or a in b or b in a: return True
-    return _lev(a, b) <= max(2, int(min(len(a), len(b)) * 0.25))
+    if a == b: return True
+    short = min(len(a), len(b))
+    if short >= 3 and (a in b or b in a): return True
+    # Rövid neveknél a betűhiba-tűrés téves párosítást okoz ("roma" ↔ "como"), ezért ott nincs
+    if short < 5: return False
+    return _lev(a, b) <= max(1, int(short * 0.25))
 
 def _find_match(name: str, completed: dict, silent: bool = False):
     """Háromszintű keresés: pontos → normalizált → fordított.
