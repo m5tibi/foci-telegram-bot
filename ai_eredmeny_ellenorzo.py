@@ -39,6 +39,16 @@ SPORT_KEYS = [
     "soccer_england_efl_cup",
     "soccer_korea_kleague1", "soccer_saudi_arabia_pro_league",
     "soccer_chile_campeonato",
+    # A 90perc.hu ligái (a tippek onnan jönnek) – ami itt nincs, annak az eredménye sem jön le.
+    # Skócia: mindkét kulcsváltozat; a nem létező csak egy "API hiba" sort ír a logba.
+    "soccer_africa_cup_of_nations", "soccer_brazil_serie_b", "soccer_china_superleague",
+    "soccer_conmebol_copa_america", "soccer_fa_cup", "soccer_fifa_world_cup_qualifiers_europe",
+    "soccer_fifa_world_cup_qualifiers_south_america", "soccer_finland_veikkausliiga", "soccer_france_coupe_de_france",
+    "soccer_germany_dfb_pokal", "soccer_germany_liga3", "soccer_international_friendlies",
+    "soccer_italy_coppa_italia", "soccer_league_of_ireland", "soccer_romania_liga1",
+    "soccer_scotland_premiership", "soccer_spain_copa_del_rey", "soccer_sweden_superettan",
+    "soccer_uefa_champs_league_women", "soccer_uefa_euro_qualification", "soccer_uefa_european_championship",
+    "soccer_spl",
 ]
 
 
