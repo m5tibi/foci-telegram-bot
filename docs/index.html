@@ -442,7 +442,7 @@
         }
         @media (max-width: 620px) { .final-grid { grid-template-columns: 1fr; } }
 
-        /* Előfizetés szünetel (a szerver a <body>-ra "subs-paused" osztályt tesz, lásd app/pages.py) */
+        /* Előfizetés szünetel (a szerver a body elemre "subs-paused" osztályt tesz, lásd app/pages.py) */
         .paused-only { display: none; }
         body.subs-paused .subs-only { display: none !important; }
         body.subs-paused .paused-only { display: inline; }

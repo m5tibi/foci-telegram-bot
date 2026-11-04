@@ -2,6 +2,7 @@
 """Nyilvános oldalak: leiratkozás, statikus jogi oldalak, VIP zóna."""
 import os
 import os as _os
+import re as _re
 import pytz
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Request
@@ -136,7 +137,9 @@ async def read_root(request: Request):
                 html = _f.read()
             from app.site import SUBSCRIPTIONS_OPEN
             if not SUBSCRIPTIONS_OPEN:   # előfizetés szünetel: a CSS elrejti a vásárlásra hívó részeket
-                html = html.replace("<body>", '<body class="subs-paused">', 1)
+                # A </head> utáni valódi <body> címke (a <head>-ben szövegként is előfordulhat)
+                head_end = html.find("</head>")
+                html = html[:head_end] + _re.sub(r"<body(\s[^>]*)?>", '<body class="subs-paused">', html[head_end:], count=1)
             return HTMLResponse(html)
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
