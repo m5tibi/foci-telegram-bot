@@ -122,6 +122,9 @@ async def resubscribe(token: str = None):
 
 
 @router.get("/", response_class=HTMLResponse)
+# A blog és az ingyenes tippek oldala a "/index.html" címre linkel – ezt is itt szolgáljuk ki
+# (különben a statikus fájlkiszolgáló adná, a szüneteltetés jelölése nélkül)
+@router.get("/index.html", response_class=HTMLResponse)
 async def read_root(request: Request):
     user = get_current_user(request)
     if user:
