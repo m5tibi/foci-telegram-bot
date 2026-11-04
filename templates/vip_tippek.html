@@ -400,6 +400,7 @@
     {% else %}
         {# --- ELŐFIZETÉS NÉLKÜLI NÉZET (ÁTDOLGOZVA AZ ÚJ 6 VIP CSOMAGRA) --- #}
         <div class="alert alert-danger"><strong>Sajnos nincs aktív előfizetésed.</strong></div>
+        {% if subscriptions_open %}
         {% if wheel and wheel.discount %}
         <div style="background:#2A433A;border:1px solid #38A169;border-radius:12px;padding:14px 16px;margin:14px 0;text-align:center">
             🎟️ <strong>Szerencsekerék-nyereményed: {{ wheel.discount }}% kedvezmény</strong> a havi előfizetés első hónapjára –
@@ -507,6 +508,12 @@
                 </form>
             </div>
         </div>
+        {% else %}
+        <div style="background:#2D3748;border:1px solid #D4AF37;border-radius:12px;padding:18px 16px;margin:16px 0;text-align:center">
+            <strong style="color:#F2D060">🛠️ Az előfizetés átalakítás miatt átmenetileg szünetel.</strong>
+            <span style="display:block;color:#E2E8F0;margin-top:6px">Hamarosan megújult csomagokkal jelentkezünk! Addig is kövesd az ingyenes tippeket és a <a href="https://t.me/MondomATutit" target="_blank" style="color:#90caf9">Telegram csatornánkat</a>.</span>
+        </div>
+        {% endif %}
     {% endif %}
 
     <hr style="margin: 40px 0; border: 0; border-top: 1px dashed #4A5568;">

@@ -442,6 +442,12 @@
         }
         @media (max-width: 620px) { .final-grid { grid-template-columns: 1fr; } }
 
+        /* Előfizetés szünetel (a szerver a <body>-ra "subs-paused" osztályt tesz, lásd app/pages.py) */
+        .paused-only { display: none; }
+        body.subs-paused .subs-only { display: none !important; }
+        body.subs-paused .paused-only { display: inline; }
+        body.subs-paused p.paused-only, body.subs-paused div.paused-only { display: block; }
+
         /* Szerencsekerék kedvcsináló */
         .wheel-teaser { padding: 56px 0 8px; }
         .wheel-card {
@@ -596,7 +602,7 @@
         <div class="hero-ctas">
             <a href="#login-register" class="btn btn-gold">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21H19.44a2 2 0 0 0 1.94-1.515L22 17"/></svg>
-                VIP Előfizetés
+                <span class="subs-only">VIP Előfizetés</span><span class="paused-only">VIP Zóna belépés</span>
             </a>
             <a href="https://t.me/MondomATutit" target="_blank" class="btn btn-tg">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
@@ -621,7 +627,7 @@
 </div>
 
 <!-- ③/b SZERENCSEKERÉK -->
-<section class="wheel-teaser">
+<section class="wheel-teaser subs-only">
     <div class="container">
         <div class="wheel-card">
             <svg class="wheel-mini" viewBox="0 0 200 200" aria-hidden="true"><path d="M100,100 L100.0,4.0 A96,96 0 0,1 156.4,22.3 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(18 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−10%</text><path d="M100,100 L156.4,22.3 A96,96 0 0,1 191.3,70.3 Z" fill="#18181F"/><path d="M100,100 L191.3,70.3 A96,96 0 0,1 191.3,129.7 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(90 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−20%</text><path d="M100,100 L191.3,129.7 A96,96 0 0,1 156.4,177.7 Z" fill="#18181F"/><text x="100" y="22" transform="rotate(126 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#F2D060">1 nap</text><path d="M100,100 L156.4,177.7 A96,96 0 0,1 100.0,196.0 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(162 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−30%</text><path d="M100,100 L100.0,196.0 A96,96 0 0,1 43.6,177.7 Z" fill="#18181F"/><path d="M100,100 L43.6,177.7 A96,96 0 0,1 8.7,129.7 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(234 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−10%</text><path d="M100,100 L8.7,129.7 A96,96 0 0,1 8.7,70.3 Z" fill="#18181F"/><text x="100" y="22" transform="rotate(270 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#F2D060">−50%</text><path d="M100,100 L8.7,70.3 A96,96 0 0,1 43.6,22.3 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(306 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">3 nap</text><path d="M100,100 L43.6,22.3 A96,96 0 0,1 100.0,4.0 Z" fill="#18181F"/><circle cx="100" cy="100" r="96" fill="none" stroke="#F2D060" stroke-width="3"/><circle cx="100" cy="100" r="16" fill="#09090F" stroke="#D4AF37" stroke-width="3"/></svg>
@@ -800,7 +806,8 @@
                 <div class="final-card-ico">👑</div>
                 <h3>VIP Előfizetés</h3>
                 <p>Teljes hozzáférés a szerkesztői szelvényekhez, Excel és PDF elemzésekhez, valamint ingyenes tippekhez.</p>
-                <a href="#login-register" class="btn btn-gold">Regisztráció & Előfizetés</a>
+                <p class="paused-only" style="color:var(--gold-lt);font-weight:600">🛠️ Az előfizetés átalakítás miatt átmenetileg szünetel – hamarosan megújult csomagokkal jelentkezünk!</p>
+                <a href="#login-register" class="btn btn-gold"><span class="subs-only">Regisztráció & Előfizetés</span><span class="paused-only">Belépés meglévő tagoknak</span></a>
             </div>
             <div class="final-card tg">
                 <div class="final-card-ico">📣</div>

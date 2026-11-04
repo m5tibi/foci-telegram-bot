@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from .auth import get_current_user
 from .database import get_admin_db
 from .templating import templates
+from .site import SUBSCRIPTIONS_OPEN
 
 router = APIRouter()
 
@@ -134,6 +135,8 @@ async def wheel_page(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="/#login-register", status_code=303)
+    if not SUBSCRIPTIONS_OPEN:   # a kedvezmények az előfizetésre szólnak – amíg az szünetel, a kerék is
+        return RedirectResponse(url="/vip", status_code=303)
     spin = None
     try:
         spin = _this_week_spin(user["id"])
@@ -154,6 +157,8 @@ async def spin(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "Pörgetéshez jelentkezz be!"}, status_code=401)
+    if not SUBSCRIPTIONS_OPEN:
+        return JSONResponse({"error": "A szerencsekerék az előfizetés átalakítása miatt átmenetileg szünetel."}, status_code=403)
     if is_active_member(user):
         return JSONResponse({"error": "Aktív VIP tagként már minden tartalmat elérsz."}, status_code=400)
 

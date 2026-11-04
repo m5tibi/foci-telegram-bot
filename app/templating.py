@@ -4,3 +4,6 @@
 from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
+
+from .site import SUBSCRIPTIONS_OPEN
+templates.env.globals["subscriptions_open"] = SUBSCRIPTIONS_OPEN
