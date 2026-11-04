@@ -130,7 +130,11 @@ async def read_root(request: Request):
         p = _os.path.join(base, "docs", "index.html")
         if _os.path.exists(p):
             with open(p, encoding="utf-8") as _f:
-                return HTMLResponse(_f.read())
+                html = _f.read()
+            from app.site import SUBSCRIPTIONS_OPEN
+            if not SUBSCRIPTIONS_OPEN:   # előfizetés szünetel: a CSS elrejti a vásárlásra hívó részeket
+                html = html.replace("<body>", '<body class="subs-paused">', 1)
+            return HTMLResponse(html)
     return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
 
 @router.get("/free_tips.html", response_class=HTMLResponse)
@@ -287,7 +291,8 @@ async def vip_area(request: Request):
 
     # Szerencsekerék a nem előfizetőknek: pörgethet-e ezen a héten, és van-e beváltható kedvezménye
     wheel = None
-    if not is_active_member:
+    from app.site import SUBSCRIPTIONS_OPEN
+    if not is_active_member and SUBSCRIPTIONS_OPEN:
         try:
             from app.wheel import get_active_discount, _this_week_spin
             won = get_active_discount(user["id"])

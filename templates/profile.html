@@ -150,7 +150,7 @@
         </form>
     </div>
 
-    {% if not is_subscribed %}
+    {% if not is_subscribed and subscriptions_open %}
     <hr style="border-color: #4A5568;">
     <h2 style="text-align: center; margin-top: 20px;">Nincs aktív előfizetésed. Válassz a megújult csomagok közül!</h2>
     
@@ -246,6 +246,12 @@
                 <button type="submit" class="button" style="background: #D69E2E;">Örökös tag leszek</button>
             </form>
         </div>
+    </div>
+    {% elif not is_subscribed %}
+    <hr style="border-color: #4A5568;">
+    <div style="background:#2D3748;border:1px solid #D4AF37;border-radius:12px;padding:18px 16px;margin:16px 0;text-align:center">
+        <strong style="color:#F2D060">🛠️ Az előfizetés átalakítás miatt átmenetileg szünetel.</strong>
+        <span style="display:block;color:#E2E8F0;margin-top:6px">Hamarosan megújult csomagokkal jelentkezünk! Addig is kövesd az ingyenes tippeket és a <a href="https://t.me/MondomATutit" target="_blank" style="color:#90caf9">Telegram csatornánkat</a>.</span>
     </div>
     {% endif %}
 

@@ -159,6 +159,10 @@ async def create_checkout_web(request: Request, plan: str = Form(...)):
     if not user: return RedirectResponse(url="/", status_code=303)
 
     is_technical_test = user['email'] == "m5tibi77@gmail.com"
+    # Átalakítás alatt nincs új vásárlás (a teszt fiók a Stripe teszt módban továbbra is kipróbálhatja)
+    from app.site import SUBSCRIPTIONS_OPEN
+    if not SUBSCRIPTIONS_OPEN and not is_technical_test:
+        return RedirectResponse(url="/vip", status_code=303)
     active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
     
     price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
