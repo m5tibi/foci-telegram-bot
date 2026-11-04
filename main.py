@@ -27,6 +27,12 @@ from bot import add_handlers
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
+# A főoldalt mindig az app/pages.py read_root adja (pl. előfizetés-szünetelés jelölése),
+# a statikus másolata se legyen elérhető
+@api.get("/docs-static/index.html", include_in_schema=False)
+async def _docs_index_redirect():
+    return RedirectResponse(url="/", status_code=301)
+
 if _os.path.exists(_docs_path):
     api.mount("/docs-static", StaticFiles(directory=_docs_path), name="docs-static")
 SITE_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://foci-telegram-bot.onrender.com")
