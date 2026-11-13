@@ -29,7 +29,55 @@
                 padding:14px 18px;margin-bottom:22px;color:#FEB2B2;">❌ {{ error }}</div>
     {% endif %}
 
-    <form action="/admin/marketing-email" method="post" id="emailForm">
+    {% if queue_error %}
+    <div style="background:#4A3A22;border:1px solid #C59A30;border-radius:8px;
+                padding:14px 18px;margin-bottom:22px;color:#FBD38D;font-size:0.9em;">
+        ⚠️ Az ütemezett küldéshez egyszer le kell futtatni a <code>supabase/marketing_kampany.sql</code>
+        fájlt a Supabase SQL Editorban. ({{ queue_error[:160] }})
+    </div>
+    {% endif %}
+
+    {% if campaign %}
+    {% set p = campaign_progress %}
+    <div style="background:#2d3748;padding:20px 25px;border-radius:12px;margin-bottom:20px;
+                border-left:5px solid {{ '#38A169' if campaign.status == 'active' else ('#D69E2E' if campaign.status == 'paused' else '#718096') }};">
+        <h2 style="margin:0 0 6px;color:#9AE6B4;font-size:1.15em;">
+            ⏱️ Ütemezett kampány #{{ campaign.id }} –
+            {{ {'active':'fut','paused':'szünetel','done':'kész','cancelled':'leállítva'}[campaign.status] }}
+        </h2>
+        <div style="color:#e2e8f0;margin-bottom:8px;">„{{ campaign.subject }}”</div>
+        {% set pct = ((p.sent + p.errors) * 100 // (campaign.total or 1)) %}
+        <div style="background:#1a202c;border-radius:6px;height:12px;overflow:hidden;margin-bottom:8px;">
+            <div style="background:#38A169;height:100%;width:{{ pct }}%;"></div>
+        </div>
+        <div style="color:#a0aec0;font-size:0.88em;line-height:1.7;">
+            Elküldve: <b style="color:#9AE6B4">{{ p.sent }}</b> / {{ campaign.total }}
+            · ma: {{ p.today }} / {{ campaign.daily_limit }}
+            · hátravan: {{ p.pending }}{% if p.pending %} (kb. {{ p.days_left }} nap){% endif %}
+            {% if p.errors %} · kihagyva/hiba: {{ p.errors }}{% endif %}
+            <br>Küldési sáv: {{ send_hours }} (budapesti idő), a napi keret egyenletesen elosztva.
+        </div>
+        {% if campaign.status in ['active', 'paused'] %}
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            {% if campaign.status == 'active' %}
+            <form method="post" action="/admin/marketing-email/campaign/{{ campaign.id }}/pause" style="margin:0">
+                <button style="padding:8px 14px;background:#D69E2E;color:#1a202c;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">⏸ Szüneteltetés</button>
+            </form>
+            {% else %}
+            <form method="post" action="/admin/marketing-email/campaign/{{ campaign.id }}/resume" style="margin:0">
+                <button style="padding:8px 14px;background:#38A169;color:white;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">▶ Folytatás</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/admin/marketing-email/campaign/{{ campaign.id }}/cancel" style="margin:0"
+                  onsubmit="return confirm('Biztosan leállítod a kampányt? A még ki nem ment levelek nem mennek ki.')">
+                <button style="padding:8px 14px;background:#4A2222;color:#FEB2B2;border:1px solid #C53030;border-radius:6px;font-weight:bold;cursor:pointer;">⏹ Leállítás</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <form action="/admin/marketing-email" method="post" id="emailForm" onsubmit="return confirmSend()">
 
         <!-- Email adatok -->
         <div style="background:#2d3748;padding:25px;border-radius:12px;margin-bottom:20px;
@@ -95,6 +143,13 @@
                     <input type="radio" name="target" value="vip" onchange="showTarget(this)"
                            style="accent-color:#d4af37;width:16px;height:16px;">
                     <span>Csak VIP <span style="color:#718096;font-size:0.85em;">({{ users|selectattr('status','eq','VIP')|list|length }} fő)</span></span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+                               background:#1a202c;padding:10px 16px;border-radius:8px;
+                               border:2px solid #4a5568;" id="lbl-free">
+                    <input type="radio" name="target" value="free" onchange="showTarget(this)"
+                           style="accent-color:#a0aec0;width:16px;height:16px;">
+                    <span>Csak ingyenes <span style="color:#718096;font-size:0.85em;">({{ users|selectattr('status','eq','Ingyenes')|list|length }} fő)</span></span>
                 </label>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                                background:#1a202c;padding:10px 16px;border-radius:8px;
@@ -176,6 +231,29 @@
             </div>
         </div>
 
+        <!-- Küldés módja -->
+        <div style="background:#2d3748;padding:25px;border-radius:12px;margin-bottom:20px;
+                    border-left:5px solid #38A169;box-shadow:0 4px 6px rgba(0,0,0,0.3);">
+            <h2 style="margin-top:0;color:#9AE6B4;">⏱️ Küldés módja</h2>
+            <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;cursor:pointer;">
+                <input type="radio" name="mode" value="scheduled" checked onchange="updateMode()" style="margin-top:4px;accent-color:#38A169;">
+                <span><b>Ütemezett, folyamatos küldés</b> <span style="color:#9AE6B4;font-size:0.85em;">(ajánlott sok címzettnél)</span><br>
+                <span style="color:#a0aec0;font-size:0.85em;">Naponta legfeljebb ennyi levél megy ki, {{ send_hours }} között egyenletesen elosztva – belefér a levelezőszerver korlátjába, és egy újraindítás sem szakítja meg.</span></span>
+            </label>
+            <div id="dailyWrap" style="margin:0 0 14px 26px;">
+                <label style="font-size:0.9em;color:#a0aec0;">Napi levélszám:
+                    <input type="number" name="daily_limit" id="dailyLimit" value="100" min="1" max="1000" oninput="updateMode()"
+                           style="width:90px;padding:6px 8px;background:#1a202c;color:white;border-radius:6px;border:1px solid #4a5568;margin-left:6px;">
+                </label>
+                <span id="etaText" style="color:#9AE6B4;font-size:0.85em;margin-left:8px;"></span>
+            </div>
+            <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
+                <input type="radio" name="mode" value="now" onchange="updateMode()" style="margin-top:4px;accent-color:#6b46c1;">
+                <span><b>Azonnal mindenkinek</b><br>
+                <span style="color:#a0aec0;font-size:0.85em;">Csak kevés címzettnél (pl. teszt magadnak) – sok levélnél a levelezőszerver letilthatja a küldést.</span></span>
+            </label>
+        </div>
+
         <button type="submit" id="submitBtn"
                 style="width:100%;padding:14px;background:#6b46c1;color:white;border:none;
                        border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;"
@@ -236,6 +314,35 @@ function toggleRow(row) {
 function updateCount() {
     var n = document.querySelectorAll('.row-check:checked').length;
     document.getElementById('selectedCount').textContent = n + ' kiválasztva';
+    updateMode();
 }
+
+// Kiválasztott célcsoport becsült létszáma (a leiratkozottakat a szerver még kiszűri)
+var COUNTS = { all: {{ users|length }}, vip: {{ users|selectattr('status','eq','VIP')|list|length }},
+               free: {{ users|selectattr('status','eq','Ingyenes')|list|length }} };
+function recipientCount() {
+    var t = (document.querySelector('input[name="target"]:checked') || {}).value;
+    if (t === 'custom') return document.querySelectorAll('.row-check:checked').length;
+    return COUNTS[t] || 0;
+}
+function updateMode() {
+    var sched = document.querySelector('input[name="mode"]:checked').value === 'scheduled';
+    document.getElementById('dailyWrap').style.display = sched ? '' : 'none';
+    var n = recipientCount(), d = Math.max(1, parseInt(document.getElementById('dailyLimit').value, 10) || 100);
+    document.getElementById('etaText').textContent = n ? ('≈ ' + n + ' címzett → kb. ' + Math.ceil(n / d) + ' nap') : '';
+    document.getElementById('submitBtn').textContent = sched ? '⏱️ Ütemezett kampány indítása' : '📧 Email küldése most';
+}
+function confirmSend() {
+    var sched = document.querySelector('input[name="mode"]:checked').value === 'scheduled';
+    var n = recipientCount();
+    if (sched) {
+        var d = parseInt(document.getElementById('dailyLimit').value, 10) || 100;
+        return confirm('Ütemezett kampány: kb. ' + n + ' címzett, napi ' + d + ' levél → kb. ' + Math.ceil(n / d) + ' nap.\n\nIndítod?');
+    }
+    if (n > 50) return confirm('Azonnali küldés ' + n + ' címzettnek – sok levélnél a levelezőszerver letilthatja a küldést. Biztosan?');
+    return true;
+}
+document.querySelectorAll('input[name="target"]').forEach(function(r){ r.addEventListener('change', updateMode); });
+updateMode();
 </script>
 {% endblock %}

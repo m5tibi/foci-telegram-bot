@@ -292,6 +292,21 @@ async def handle_upload_analysis(
 
 # --- 4. MARKETING EMAIL KÜLDŐ ---
 
+@router.post("/admin/marketing-email/campaign/{kampany_id}/{action}")
+async def marketing_campaign_action(kampany_id: int, action: str, request: Request):
+    """Ütemezett kampány szüneteltetése / folytatása / leállítása."""
+    if not is_admin(request):
+        return RedirectResponse(url="/", status_code=303)
+    status = {"pause": "paused", "resume": "active", "cancel": "cancelled"}.get(action)
+    if not status:
+        return RedirectResponse(url="/admin/marketing-email?error=Ismeretlen művelet", status_code=303)
+    from . import marketing_queue as mq
+    mq.set_status(kampany_id, status)
+    label = {"paused": "szüneteltetve", "active": "folytatva", "cancelled": "leállítva"}[status]
+    return RedirectResponse(url=f"/admin/marketing-email?message=Kampány {label}", status_code=303)
+
+
+
 @router.get("/admin/marketing-email", response_class=HTMLResponse)
 async def get_marketing_email(request: Request, message: str = None, error: str = None):
     if not is_admin(request):
@@ -314,6 +329,21 @@ async def get_marketing_email(request: Request, message: str = None, error: str 
             "status": "VIP" if is_vip else "Ingyenes",
             "joined": (u.get("created_at") or "")[:10],
         })
+    # Ütemezett kampány állapota (ha a tábla még nincs létrehozva, csak jelezzük)
+    campaign, campaign_progress, queue_error = None, None, None
+    try:
+        from . import marketing_queue as mq
+        campaign = mq.active_campaign(supabase)
+        if campaign:
+            campaign_progress = mq.progress(campaign, supabase)
+        else:
+            last = mq.recent_campaigns(supabase, 1)
+            if last:
+                campaign = last[0]
+                campaign_progress = mq.progress(campaign, supabase)
+    except Exception as e:
+        queue_error = str(e)
+    from .marketing_queue import _hours
     return templates.TemplateResponse(
         request=request,
         name="admin_email.html",
@@ -322,6 +352,10 @@ async def get_marketing_email(request: Request, message: str = None, error: str 
             "message": message,
             "error": error,
             "users": users,
+            "campaign": campaign,
+            "campaign_progress": campaign_progress,
+            "queue_error": queue_error,
+            "send_hours": "%d:00–%d:00" % _hours(),
         }
     )
 
@@ -335,6 +369,8 @@ async def post_marketing_email(
     body: str = Form(...),
     cta_text: str = Form(""),
     cta_url: str = Form(""),
+    mode: str = Form("now"),
+    daily_limit: int = Form(100),
 ):
     if not is_admin(request):
         return RedirectResponse(url="/", status_code=303)
@@ -359,6 +395,14 @@ async def post_marketing_email(
                 .gt("subscription_expires_at", now_iso) \
                 .execute()
             to_emails = _active_emails(res.data)
+        elif target == "free":
+            res = supabase.table("felhasznalok") \
+                .select("email, email_unsubscribed, subscription_status, subscription_expires_at") \
+                .execute()
+            to_emails = _active_emails([
+                u for u in (res.data or [])
+                if not (u.get("subscription_status") == "active" and (u.get("subscription_expires_at") or "") > now_iso)
+            ])
         else:
             res = supabase.table("felhasznalok") \
                 .select("email, email_unsubscribed") \
@@ -368,6 +412,19 @@ async def post_marketing_email(
         if not to_emails:
             return RedirectResponse(
                 url="/admin/marketing-email?error=Nem található / nincs kiválasztva email cím",
+                status_code=303
+            )
+
+        if mode == "scheduled":
+            from . import marketing_queue as mq
+            body_html = body.replace("\n", "<br>")
+            k, err = mq.create_campaign(to_emails, subject, body_html, cta_text, cta_url, daily_limit, supabase)
+            if err:
+                return RedirectResponse(url=f"/admin/marketing-email?error={err}", status_code=303)
+            days = -(-k["total"] // k["daily_limit"])
+            return RedirectResponse(
+                url=f"/admin/marketing-email?message=Ütemezett kampány elindítva – {k['total']} címzett, "
+                    f"napi {k['daily_limit']} levél, kb. {days} nap alatt megy ki",
                 status_code=303
             )
 

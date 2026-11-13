@@ -92,6 +92,12 @@ async def startup():
     t = threading.Thread(target=_auto_check_loop, daemon=True)
     t.start()
     print("[auto-eval] Automatikus eredmény ellenőrző elindítva (06:05 Budapest)")
+    # Ütemezett marketing kampány-küldő (napi kerettel, egyenletesen elosztva)
+    try:
+        from app.marketing_queue import start_worker
+        start_worker()
+    except Exception as e:
+        print(f"[marketing] Kampány-küldő nem indult: {e}")
     token = os.environ.get("TELEGRAM_TOKEN")
     if token:
         persistence = PicklePersistence(filepath="bot_data.pickle")
