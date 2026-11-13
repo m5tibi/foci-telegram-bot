@@ -223,6 +223,37 @@ def notify_upload(to_emails: list, content_label: str,
     )
 
 
+def send_marketing_one(email: str, subject: str, body_html: str,
+                       cta_text: str = None, cta_url: str = None):
+    """Egy marketing levél (ütemezett kampányhoz). Visszatér: (ok, hiba, kapcsolati_hiba).
+    A kapcsolati hiba (SMTP nem elérhető / bejelentkezés / korlát) átmeneti: később újrapróbáljuk;
+    a címzett-hiba (pl. nem létező cím) végleges."""
+    if not SMTP_PASS:
+        return False, "SMTP_PASS hiányzik", True
+    try:
+        unsub_url = f"{SITE_URL}/unsubscribe?token={make_unsub_token(email)}"
+        html = build_html(subject, body_html, cta_text, cta_url, unsub_url)
+        msg = MIMEMultipart('alternative')
+        msg['Subject']  = subject
+        msg['From']     = f"Mondom a Tutit! <{FROM_EMAIL}>"
+        msg['To']       = email
+        msg['Reply-To'] = FROM_EMAIL
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(FROM_EMAIL, [email], msg.as_string())
+        return True, None, False
+    except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused) as e:
+        # A 4xx (átmeneti, pl. óránkénti korlát) válasz is ide jöhet – azt később újrapróbáljuk
+        codes = [c for c, _ in getattr(e, "recipients", {}).values()] if hasattr(e, "recipients") else [getattr(e, "smtp_code", 0)]
+        temporary = any(400 <= int(c or 0) < 500 for c in codes)
+        return False, f"{e}", temporary
+    except smtplib.SMTPDataError as e:
+        return False, f"{e}", 400 <= int(e.smtp_code or 0) < 500
+    except Exception as e:
+        return False, f"{e}", True
+
+
 def notify_marketing(to_emails: list, subject: str, body_html: str,
                      cta_text: str = None, cta_url: str = None) -> dict:
     """Marketing / akciós email."""
