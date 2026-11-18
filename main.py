@@ -2,6 +2,7 @@
 # main.py (V23.04 - Elemzések és táblázatok integrálva - JAVÍTOTT KORLÁTLAN LISTÁZÁS)
 
 import os
+import asyncio
 import telegram
 import pytz
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from app.profile import router as profile_router
 from app.pages import router as pages_router
 from app.ai_tips import router as ai_tips_router, _auto_check_loop
 from app.wheel import router as wheel_router
+from app.value_sub import router as value_router, reconcile_loop as _value_reconcile, VALUE_CHANNEL_ID
 from bot import add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
@@ -71,6 +73,7 @@ api.include_router(profile_router)
 api.include_router(pages_router)
 api.include_router(ai_tips_router)
 api.include_router(wheel_router)
+api.include_router(value_router)
 
 # Telepített csomagverziók a logban (ezek alapján rögzíthetők a requirements.txt-ben)
 try:
@@ -104,6 +107,19 @@ async def startup():
         application = Application.builder().token(token).persistence(persistence).build()
         add_handlers(application)
         await application.initialize()
+        if VALUE_CHANNEL_ID:
+            # A fizetős csatorna csatlakozási kérelmeit a webhooknak is meg kell kapnia
+            try:
+                info = await application.bot.get_webhook_info()
+                allowed = list(info.allowed_updates or [])
+                if info.url and allowed and "chat_join_request" not in allowed:
+                    await application.bot.set_webhook(url=info.url, allowed_updates=allowed + ["chat_join_request"])
+                    print("[value] Webhook: chat_join_request engedélyezve")
+            except Exception as e:
+                print(f"[value] Webhook ellenőrzési hiba: {e}")
+    if VALUE_CHANNEL_ID:
+        asyncio.create_task(_value_reconcile())
+        print("[value] Előfizetés-egyeztetés elindítva (6 óránként)")
 
 @api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}")
 async def process_telegram_update(request: Request):

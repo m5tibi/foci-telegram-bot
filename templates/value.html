@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Mondom a Tutit! · Value{% endblock %}
+{% block content %}
+<style>
+  .v-wrap { max-width: 760px; margin: 0 auto; }
+  .v-hero { text-align: center; padding: 8px 0 4px; }
+  .v-hero h1 { margin: 0 0 6px; font-size: 1.8rem; }
+  .v-hero h1 span { color: #D4AF37; }
+  .v-hero p { color: var(--text-medium); margin: 0 auto; max-width: 600px; }
+  .v-points { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 22px 0; }
+  .v-point { background: #1A202C; border: 1px solid #4A5568; border-radius: 10px; padding: 14px; }
+  .v-point b { display: block; color: #F2D060; margin-bottom: 4px; }
+  .v-point span { color: var(--text-medium); font-size: .92rem; }
+  .v-box { background: #1A202C; border: 1px solid #D4AF37; border-radius: 14px; padding: 22px; text-align: center; margin: 18px 0; }
+  .v-price { font-size: 2rem; font-weight: 800; color: #F2D060; margin: 4px 0; }
+  .v-price small { font-size: 1rem; color: var(--text-medium); font-weight: 400; }
+  .v-btn { display: inline-block; border: 0; border-radius: 30px; padding: 13px 30px; font-size: 1.05rem; font-weight: 800;
+    cursor: pointer; text-decoration: none; background: linear-gradient(135deg, #D4AF37, #F2D060); color: #1A202C; }
+  .v-btn.tg { background: #0088cc; color: #fff; }
+  .v-btn.ghost { background: #2D3748; color: #E2E8F0; border: 1px solid #4A5568; font-weight: 600; font-size: .95rem; padding: 10px 22px; }
+  .v-steps { text-align: left; margin: 14px auto 0; max-width: 460px; color: var(--text-medium); }
+  .v-steps li { margin: 4px 0; }
+  .v-steps li.done { color: #9AE6B4; }
+  .v-note { color: var(--text-medium); font-size: .85rem; text-align: center; margin-top: 16px; }
+  .v-alert { border-radius: 10px; padding: 12px 14px; margin: 12px 0; text-align: center; }
+  .v-alert.ok { background: #2A433A; border: 1px solid #38A169; color: #9AE6B4; }
+  .v-alert.err { background: #4A2222; border: 1px solid #C53030; color: #FEB2B2; }
+</style>
+<div class="container v-wrap">
+  <div class="v-hero">
+    <h1>Mondom a Tutit! · <span>Value</span></h1>
+    <p>Pinnacle-alapú value-tippek egy privát Telegram-csatornában: csak akkor jelzünk, ha egy iroda oddsa
+       érdemben a piac valós ára felett van.</p>
+  </div>
+
+  {% if payment == 'success' %}<div class="v-alert ok">✅ Köszönjük! Az előfizetésed feldolgozás alatt – pár másodperc múlva frissítsd az oldalt.</div>{% endif %}
+  {% if payment == 'cancel' %}<div class="v-alert err">A fizetés megszakadt, nem történt terhelés.</div>{% endif %}
+  {% if payment == 'error' %}<div class="v-alert err">Hiba történt. Kérjük, próbáld újra később, vagy írj nekünk a Telegram-csatornán.</div>{% endif %}
+
+  <div class="v-points">
+    <div class="v-point"><b>📈 Value, nem megérzés</b><span>Az irodák oddsát a Pinnacle árrés nélküli (valós) árához mérjük; jelzés csak legalább 2% előnynél megy.</span></div>
+    <div class="v-point"><b>🎯 Mérhető minőség</b><span>A fő mutató a CLV: mennyivel jobb oddsot kaptál a záróárnál. A csatorna minden reggel közli a tegnapi tippek eredményét.</span></div>
+    <div class="v-point"><b>💰 Tétjavaslat</b><span>Minden tipphez egységben megadott tét (negyed Kelly) és minimum odds, amely alatt már ne fogadj.</span></div>
+  </div>
+
+  <div class="v-box">
+    {% if allowed %}
+      <h2 style="margin-top:0">✅ Az előfizetésed aktív</h2>
+      <p style="color:var(--text-medium);margin:0 0 6px">
+        {% if row.status == 'trialing' %}Próbaidő eddig: <b>{{ period_end }}</b>{% if not row.cancel_at_period_end %}, utána automatikusan indul a havi előfizetés{% endif %}.
+        {% elif row.cancel_at_period_end %}Lemondva – a csatorna eddig érhető el: <b>{{ period_end }}</b>.
+        {% elif row.status == 'past_due' %}⚠️ A legutóbbi fizetés sikertelen volt – kérjük, frissítsd a kártyádat, különben a hozzáférés megszűnik.
+        {% else %}Következő megújulás: <b>{{ period_end }}</b>.{% endif %}
+      </p>
+      <ol class="v-steps">
+        <li class="done">Előfizetés ✓</li>
+        <li class="{{ 'done' if user.chat_id else '' }}">Telegram összekötése{% if user.chat_id %} ✓{% endif %}</li>
+        <li class="{{ 'done' if row.member else '' }}">Csatlakozás a csatornához{% if row.member %} ✓{% endif %}</li>
+      </ol>
+      <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        {% if not user.chat_id %}
+          <a class="v-btn tg" href="/profile#telegram">🔗 Telegram összekötése</a>
+        {% elif not row.member %}
+          <form method="POST" action="/value/join" style="margin:0"><button class="v-btn tg" type="submit">📈 Csatlakozás a csatornához</button></form>
+        {% endif %}
+        <a class="v-btn ghost" href="/value/portal">Előfizetés kezelése</a>
+      </div>
+      {% if not user.chat_id %}<p class="v-note">Az összekötés után a bot Telegramon elküldi a csatlakozási linket.</p>{% endif %}
+
+    {% elif not can_buy %}
+      <h2 style="margin-top:0">🛠️ Hamarosan indulunk</h2>
+      <p style="color:var(--text-medium);margin:0">Az előfizetés még nem nyílt meg. Kövesd a <a href="https://t.me/MondomATutit" target="_blank" style="color:#90caf9">Telegram-csatornánkat</a>, ott jelezzük az indulást.</p>
+
+    {% else %}
+      {% if price %}<div class="v-price">{{ price.amount }} <small>/ {{ price.interval }}</small></div>{% endif %}
+      {% if trial_days %}<p style="color:#9AE6B4;font-weight:700;margin:4px 0 14px">🎁 Az első {{ trial_days }} nap ingyenes – addig nem terhelünk, és bármikor lemondhatod.</p>{% endif %}
+      {% if row and row.status in ['canceled', 'unpaid', 'incomplete_expired', 'past_due'] %}<p style="color:var(--text-medium)">Korábbi előfizetésed lejárt – itt újra előfizethetsz.</p>{% endif %}
+      {% if user %}
+        <form method="POST" action="/value/checkout" style="margin:0">
+          <button class="v-btn" type="submit">{{ 'Kipróbálom ingyen' if trial_days else 'Előfizetek' }}</button>
+        </form>
+        {% if test_mode %}<p class="v-note">🧪 Teszt fiók: a fizetés a Stripe teszt módjában történik.</p>{% endif %}
+      {% else %}
+        <a class="v-btn" href="/#login-register">Regisztrálok és előfizetek</a>
+        <p class="v-note">Az előfizetéshez ingyenes regisztráció kell – így tudjuk a Telegram-fiókodhoz kötni.</p>
+      {% endif %}
+      <ol class="v-steps">
+        <li>Előfizetés bankkártyával (Stripe – biztonságos fizetés)</li>
+        <li>A profilodban összekötöd a Telegramodat a fiókoddal</li>
+        <li>A bot küld egy csatlakozási linket – a kérelmedet automatikusan jóváhagyja</li>
+      </ol>
+    {% endif %}
+  </div>
+
+  <p class="v-note">Havi előfizetés, bármikor lemondható; lemondás után a kifizetett időszak végéig maradsz a csatornában.
+    Csak tippeket adunk, irodát nem ajánlunk – hogy hol fogadsz, a te döntésed.
+    <b>18+</b> · A sportfogadás kockázattal jár, csak annyit tegyél fel, amennyit megengedhetsz magadnak.</p>
+</div>
+{% endblock %}
