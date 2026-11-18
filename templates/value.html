@@ -22,6 +22,10 @@
   .v-steps li { margin: 4px 0; }
   .v-steps li.done { color: #9AE6B4; }
   .v-note { color: var(--text-medium); font-size: .85rem; text-align: center; margin-top: 16px; }
+  .v-terms { display: flex; gap: 10px; align-items: flex-start; text-align: left; max-width: 520px; margin: 0 auto 16px;
+    color: var(--text-medium); font-size: .86rem; line-height: 1.5; cursor: pointer; }
+  .v-terms input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: #D4AF37; }
+  .v-terms a { color: #F2D060; }
   .v-alert { border-radius: 10px; padding: 12px 14px; margin: 12px 0; text-align: center; }
   .v-alert.ok { background: #2A433A; border: 1px solid #38A169; color: #9AE6B4; }
   .v-alert.err { background: #4A2222; border: 1px solid #C53030; color: #FEB2B2; }
@@ -35,6 +39,7 @@
 
   {% if payment == 'success' %}<div class="v-alert ok">✅ Köszönjük! Az előfizetésed feldolgozás alatt – pár másodperc múlva frissítsd az oldalt.</div>{% endif %}
   {% if payment == 'cancel' %}<div class="v-alert err">A fizetés megszakadt, nem történt terhelés.</div>{% endif %}
+  {% if payment == 'terms' %}<div class="v-alert err">Az előfizetéshez fogadd el a feltételeket (jelöld be a négyzetet a gomb felett).</div>{% endif %}
   {% if payment == 'error' %}<div class="v-alert err">Hiba történt. Kérjük, próbáld újra később, vagy írj nekünk a Telegram-csatornán.</div>{% endif %}
 
   <div class="v-points">
@@ -80,6 +85,13 @@
       {% if row and row.status in ['canceled', 'unpaid', 'incomplete_expired', 'past_due'] %}<p style="color:var(--text-medium)">Korábbi előfizetésed lejárt – itt újra előfizethetsz.</p>{% endif %}
       {% if user %}
         <form method="POST" action="/value/checkout" style="margin:0">
+          <label class="v-terms">
+            <input type="checkbox" name="accept_terms" value="1" required>
+            <span>Elmúltam 18 éves, elfogadom az <a href="/aszf.html" target="_blank">ÁSZF</a>-et és tudomásul vettem az
+              <a href="/adatvedelem.html" target="_blank">Adatvédelmi Nyilatkozatot</a>. Kérem a szolgáltatás azonnali
+              megkezdését, és tudomásul veszem, hogy a 14 napos elállási határidőn belüli elálláskor az addig igénybe vett
+              időszak arányos díját meg kell fizetnem (a próbaidő alatt ez nulla).</span>
+          </label>
           <button class="v-btn" type="submit">{{ 'Kipróbálom ingyen' if trial_days else 'Előfizetek' }}</button>
         </form>
         {% if test_mode %}<p class="v-note">🧪 Teszt fiók: a fizetés a Stripe teszt módjában történik.</p>{% endif %}
