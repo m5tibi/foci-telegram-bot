@@ -23,20 +23,23 @@ async def profile_page(request: Request):
     now_utc = datetime.now(pytz.utc)
     expires_at_str = user.get("subscription_expires_at")
     expires_at = None
-    
+    bad_date = False
+
     if expires_at_str:
         try:
             # ISO formátum kezelése (Z vagy +00:00 végződés)
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
         except Exception as e:
-            print(f"Dátum formátum hiba: {e}")
+            print(f"Dátum formátum hiba ({user.get('email')}): {e}")
             expires_at = None
+            bad_date = True
 
     # Meghatározzuk, hogy ténylegesen aktív-e (státusz ÉS dátum alapján)[cite: 6]
     is_actually_active = (user.get("subscription_status") == "active") and (expires_at and expires_at > now_utc)
 
     # Ha az adatbázisban "active" van, de a dátum már elmúlt, frissítjük az adatbázist is (Öntisztítás)[cite: 6]
-    if user.get("subscription_status") == "active" and not is_actually_active:
+    # Olvashatatlan dátum miatt senkit nem kapcsolunk ki (pl. elírt évszám) – azt kézzel kell javítani
+    if user.get("subscription_status") == "active" and not is_actually_active and not bad_date:
         try:
             admin_client = get_admin_db()
             admin_client.table("felhasznalok").update({"subscription_status": "inactive"}).eq("id", user['id']).execute()
@@ -66,12 +69,21 @@ async def profile_page(request: Request):
         except Exception as e:
             print(f"Általános profil frissítési hiba: {e}")
 
+    # Value-csatorna előfizetés (app/value_sub.py) – a kezelése (lemondás) a saját portálján
+    value_row = None
+    try:
+        from .value_sub import get_row as _value_row
+        value_row = _value_row(user["id"])
+    except Exception as e:
+        print(f"Value előfizetés lekérési hiba: {e}")
+
     return templates.TemplateResponse(
         request=request, 
         name="profile.html", 
         context={
             "user": user,
-            "is_subscribed": is_actually_active 
+            "is_subscribed": is_actually_active,
+            "value_row": value_row,
         }
     )
 

@@ -125,6 +125,22 @@
             {% endif %}
         </p>
         {% endif %}
+        {% if value_row and value_row.subscription_id %}
+        <hr style="border-color:#4A5568;margin:14px 0">
+        <p><strong>📈 Value-csatorna előfizetés:</strong>
+            {% if value_row.status == 'trialing' %}<span style="color:#4CAF50;font-weight:bold">Próbaidő ✅</span>
+            {% elif value_row.status == 'active' %}<span style="color:#4CAF50;font-weight:bold">Aktív ✅</span>
+            {% elif value_row.status == 'past_due' %}<span style="color:#F6AD55;font-weight:bold">Fizetés sikertelen ⚠️</span>
+            {% else %}<span style="color:#F44336;font-weight:bold">Megszűnt ❌</span>{% endif %}
+            {% if value_row.cancel_at_period_end and value_row.status in ['trialing', 'active'] %}<span style="color:#F6AD55"> – lemondva, {{ value_row.current_period_end[:10].replace('-', '. ') }}. végéig érvényes</span>{% endif %}
+        </p>
+        <p style="display:flex;gap:10px;flex-wrap:wrap">
+            {% if value_row.status in ['trialing', 'active', 'past_due'] %}
+            <a href="/value/portal" class="button" style="background-color:#4A5568;">Value-előfizetés kezelése / lemondás</a>
+            {% endif %}
+            <a href="/value" class="button" style="background-color:#2D3748;border:1px solid #4A5568;">A Value oldal</a>
+        </p>
+        {% endif %}
         <p><strong>Email értesítők:</strong>
             {% if user.get('email_unsubscribed') %}
                 <span style="color: #F44336; font-weight: bold;">Kikapcsolva ❌</span>
