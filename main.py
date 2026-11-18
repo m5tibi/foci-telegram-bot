@@ -21,7 +21,7 @@ from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
 from app.profile import router as profile_router
 from app.pages import router as pages_router
-from app.value_sub import router as value_router, reconcile_loop as _value_reconcile, VALUE_CHANNEL_ID
+from app.value_sub import router as value_router, reconcile_loop as _value_reconcile, reminder_loop as _value_reminders, VALUE_CHANNEL_ID
 from bot import add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
@@ -110,7 +110,8 @@ async def startup():
                 print(f"[value] Webhook ellenőrzési hiba: {e}")
     if VALUE_CHANNEL_ID:
         asyncio.create_task(_value_reconcile())
-        print("[value] Előfizetés-egyeztetés elindítva (6 óránként)")
+        asyncio.create_task(_value_reminders())       # próbaidő vége előtti Telegram-emlékeztető
+        print("[value] Előfizetés-egyeztetés (6 óránként) és próbaidő-emlékeztető (30 percenként) elindítva")
 
 @api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}")
 async def process_telegram_update(request: Request):

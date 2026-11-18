@@ -19,6 +19,7 @@ create table if not exists public.value_subscribers (
     member               boolean not null default false,
     joined_at            timestamptz,
     invited_at           timestamptz,                -- mikor küldött a bot meghívót
+    trial_reminder_at    timestamptz,                -- mikor szólt a bot a próbaidő vége előtt
     removed_at           timestamptz,
     created_at           timestamptz not null default now(),
     updated_at           timestamptz not null default now()
@@ -33,3 +34,6 @@ alter table public.value_subscribers enable row level security;
 -- ── Frissítés (2026. 11.): meghívó küldésének ideje ────────────────────────────
 -- A régi éves / örökös VIP-tagok egyszer automatikusan kapnak meghívót; ez jelzi, hogy megkapták.
 alter table public.value_subscribers add column if not exists invited_at timestamptz;
+
+-- ── Frissítés (2026. 11.): próbaidő vége előtti emlékeztető ────────────────────
+alter table public.value_subscribers add column if not exists trial_reminder_at timestamptz;
