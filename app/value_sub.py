@@ -51,10 +51,13 @@ VALUE_GRACE_DAYS = int(os.environ.get("VALUE_GRACE_DAYS", "2") or 0)
 VALUE_LEGACY_INVITES = os.environ.get("VALUE_LEGACY_INVITES", "false").lower() == "true"
 TEST_EMAIL = "m5tibi77@gmail.com"   # a Stripe teszt módot használó technikai fiók (mint a régi pénztárban)
 RECONCILE_EVERY = 6 * 3600          # időszakos egyeztetés a Stripe-pal (mp)
+REMINDER_EVERY = 30 * 60            # ilyen gyakran nézzük, kinek jár le hamarosan a próbaideje (mp)
+TRIAL_REMINDER_HOURS = 24           # ennyivel a próbaidő vége előtt szólunk (egyszer)
 
 TABLE = "value_subscribers"
 BUDAPEST = pytz.timezone("Europe/Budapest")
 _processed_events = set()
+_reminded = set()                   # tartalék, ha a trial_reminder_at oszlop még nincs meg (ne küldjük ismét)
 _price_cache = {}
 
 
@@ -456,6 +459,50 @@ async def reconcile_loop():
         except Exception as e:
             print(f"[value] Egyeztetés hiba: {e}")
         await asyncio.sleep(RECONCILE_EVERY)
+
+
+# ── Emlékeztető a próbaidő vége előtt ────────────────────────────────────────
+
+async def send_trial_reminders(now=None):
+    """Akinek a következő TRIAL_REMINDER_HOURS órában lejár a próbaideje (és nem mondta le), annak a bot
+    egyszer szól Telegramon, mielőtt először levonnánk a díjat. Visszatér: hány emlékeztető ment ki."""
+    now = now or datetime.now(pytz.utc)
+    rows = get_admin_db().table(TABLE).select("*").eq("status", "trialing").execute().data or []
+    sent = 0
+    for row in rows:
+        end = _parse(row.get("current_period_end"))
+        key = row.get("subscription_id")
+        if (not end or row.get("cancel_at_period_end") or row.get("trial_reminder_at") or key in _reminded
+                or not (now < end <= now + timedelta(hours=TRIAL_REMINDER_HOURS))):
+            continue
+        user = _user_by_id(row["user_id"])
+        if not user or not user.get("chat_id"):
+            continue                       # Telegram nélkül nincs hová szólni (a Stripe e-mailje marad)
+        p = price_info(livemode=bool(row.get("livemode", True)))
+        fee = f"{p['amount']}/{p['interval']}" if p else "a havi díjat"
+        await _dm(user["chat_id"],
+                  f"⏰ Emlékeztető: a „Mondom a Tutit! · Value” próbaidőd {hu_dt(row['current_period_end'])}-kor lejár, "
+                  f"és utána {fee} díjat vonunk le a kártyádról.\n\n"
+                  "Ha maradnál, nincs teendőd. Ha nem szeretnéd folytatni, a próbaidő végéig díjmentesen lemondhatod:",
+                  url=f"{SITE_URL}/value", button="Előfizetés kezelése / lemondás")
+        _reminded.add(key)
+        try:
+            save_row(row["user_id"], {"trial_reminder_at": now.isoformat()})
+        except Exception as e:             # régi tábla az oszlop nélkül: a memóriabeli jelölés véd az ismétléstől
+            print(f"[value] trial_reminder_at mentési hiba: {e}")
+        print(f"[value] Próbaidő-emlékeztető elküldve: {row.get('email')}")
+        sent += 1
+    return sent
+
+
+async def reminder_loop():
+    await asyncio.sleep(90)
+    while True:
+        try:
+            await send_trial_reminders()
+        except Exception as e:
+            print(f"[value] Emlékeztető hiba: {e}")
+        await asyncio.sleep(REMINDER_EVERY)
 
 
 # ── Weboldal ─────────────────────────────────────────────────────────────────
