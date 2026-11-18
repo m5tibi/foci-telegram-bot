@@ -61,8 +61,10 @@
       <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         {% if not user.chat_id %}
           <a class="v-btn tg" href="/profile#telegram">🔗 Telegram összekötése</a>
-        {% elif not (row and row.member) %}
+        {% elif not (row and row.member) and can_join %}
           <form method="POST" action="/value/join" style="margin:0"><button class="v-btn tg" type="submit">📈 Csatlakozás a csatornához</button></form>
+        {% elif not (row and row.member) %}
+          <p style="color:#F2D060;margin:0">⏳ A csatorna-meghívót hamarosan elküldjük Telegramon – nincs teendőd.</p>
         {% endif %}
         {% if row and row.subscription_id %}<a class="v-btn ghost" href="/value/portal">Előfizetés kezelése / lemondás</a>{% endif %}
       </div>

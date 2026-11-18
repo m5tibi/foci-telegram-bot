@@ -42,6 +42,9 @@ VALUE_PRICE_ID = os.environ.get("VALUE_PRICE_ID", "").strip()
 VALUE_TEST_PRICE_ID = os.environ.get("VALUE_TEST_PRICE_ID", "").strip()
 VALUE_TRIAL_DAYS = int(os.environ.get("VALUE_TRIAL_DAYS", "3") or 0)
 VALUE_GRACE_DAYS = int(os.environ.get("VALUE_GRACE_DAYS", "2") or 0)
+# A régi éves / örökös VIP-tagok meghívása a csatornába (amíg false: nem kapnak meghívót, és a bot
+# sem engedi be őket; a /value oldal jelzi, hogy hamarosan megkapják). Bekapcsolás: VALUE_LEGACY_INVITES=true
+VALUE_LEGACY_INVITES = os.environ.get("VALUE_LEGACY_INVITES", "false").lower() == "true"
 TEST_EMAIL = "m5tibi77@gmail.com"   # a Stripe teszt módot használó technikai fiók (mint a régi pénztárban)
 RECONCILE_EVERY = 6 * 3600          # időszakos egyeztetés a Stripe-pal (mp)
 
@@ -129,8 +132,13 @@ def legacy_until(user, now=None):
 
 
 def has_access(user, row, now=None) -> bool:
-    """Bent lehet-e a csatornában: élő Value-előfizetés vagy még érvényes régi VIP-tagság."""
+    """Jár-e neki a csatorna: élő Value-előfizetés vagy még érvényes régi VIP-tagság."""
     return is_allowed(row, now) or bool(legacy_until(user, now))
+
+
+def can_join(user, row, now=None) -> bool:
+    """Beengedhető-e most: Value-előfizető, vagy régi tag, ha a régi tagok meghívása már be van kapcsolva."""
+    return is_allowed(row, now) or (VALUE_LEGACY_INVITES and bool(legacy_until(user, now)))
 
 
 # ── Adatbázis ────────────────────────────────────────────────────────────────
@@ -211,7 +219,7 @@ def _mark_invited(user_id):
 async def offer_join(user, row, force=True) -> bool:
     """Ha van hozzáférése és a Telegram össze van kötve, a bot elküldi a csatlakozási linket.
     force=False: csak akkor, ha még nem kapott meghívót (a régi tagok automatikus meghívásához)."""
-    if not user or not user.get("chat_id") or not has_access(user, row) or (row or {}).get("member"):
+    if not user or not user.get("chat_id") or not can_join(user, row) or (row or {}).get("member"):
         return False
     if not force and (row or {}).get("invited_at"):
         return False
@@ -258,7 +266,7 @@ async def handle_join_request(update, context=None):
     tg_id = req.from_user.id
     user = await asyncio.to_thread(_user_by_chat, tg_id)
     row = await asyncio.to_thread(get_row, user["id"]) if user else None
-    if user and has_access(user, row):
+    if user and can_join(user, row):
         await req.approve()
         await asyncio.to_thread(save_row, user["id"], {"member": True, "telegram_user_id": tg_id,
                                                        "joined_at": datetime.now(pytz.utc).isoformat()})
@@ -419,6 +427,8 @@ async def reconcile_once():
         except Exception as e:
             print(f"[value] Egyeztetési hiba ({row.get('email')}): {e}")
     # Régi éves / örökös VIP-tagok: automatikus meghívó (egyszer), ha a Telegram össze van kötve
+    if not VALUE_LEGACY_INVITES:
+        return
     by_user = {r["user_id"]: r for r in rows}
     legacy = get_admin_db().table("felhasznalok").select("*").eq("subscription_status", "active").execute().data or []
     for user in legacy:
@@ -474,7 +484,7 @@ async def value_page(request: Request, payment: str = None):
             print(f"[value] Lekérési hiba: {e}")
     test = _is_test_user(user)
     return templates.TemplateResponse(request=request, name="value.html", context={
-        "user": user, "row": row, "allowed": has_access(user, row),
+        "user": user, "row": row, "allowed": has_access(user, row), "can_join": can_join(user, row),
         "legacy_until": hu_dt(legacy_until(user).isoformat()) if legacy_until(user) and not is_allowed(row) else None,
         "can_buy": VALUE_OPEN or test, "test_mode": test,
         "price": price_info(livemode=not test),
@@ -546,7 +556,7 @@ async def value_join(request: Request):
     """A csatlakozási link (a weboldalról is elérhető, ha a Telegram-üzenet elveszett)."""
     user = get_current_user(request)
     row = get_row(user["id"]) if user else None
-    if not user or not has_access(user, row) or not user.get("chat_id"):
+    if not user or not can_join(user, row) or not user.get("chat_id"):
         return RedirectResponse(url="/value", status_code=303)
     try:
         row = row or save_row(user["id"], {"email": user.get("email")})
