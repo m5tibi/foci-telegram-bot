@@ -33,3 +33,8 @@ create index if not exists marketing_sor_sent_idx on public.marketing_sor (kampa
 -- Csak a szerver (service key) éri el
 alter table public.marketing_kampany enable row level security;
 alter table public.marketing_sor     enable row level security;
+
+-- ── Frissítés (2026. 11.): átmeneti hibák számlálója ─────────────────────────────
+-- Egy átmeneti hibát adó cím (pl. „451 Temporary local problem”) ne akassza meg a kampányt:
+-- a küldő hátrébb teszi, és MAX_TEMP_ATTEMPTS (5) próbálkozás után véglegesen kihagyja.
+alter table public.marketing_sor add column if not exists attempts int not null default 0;
