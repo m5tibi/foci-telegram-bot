@@ -156,6 +156,9 @@ async def start(update: telegram.Update, context: CallbackContext):
                 await context.bot.send_message(chat_id=chat_id, text=f"✅ Szia! Sikeresen összekötötted a Telegramodat a fiókoddal ({user_data['email']})!\nMostantól itt is megkapod az értesítéseket.")
                 # Admin értesítése
                 await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🔗 Új Telegram összekötés:\nEmail: {user_data['email']}\nChat ID: {chat_id}")
+                # Value-csatorna: ha már előfizetett, most kapja meg a csatlakozási linket
+                from app.value_sub import on_telegram_linked
+                await on_telegram_linked(user_data['id'], chat_id)
             else:
                 print(f"❌ Hibás Token Kísérlet. Token: {token} | ChatID: {chat_id}")
                 await context.bot.send_message(chat_id=chat_id, text="❌ Hiba: Ez a link érvénytelen vagy már felhasználták.\nKérlek, generálj újat a weboldalon!")
@@ -807,6 +810,10 @@ def add_handlers(application: Application):
     )
 
     application.add_handler(CommandHandler("start", start))
+    # Value fizetős csatorna: csak aktív előfizető csatlakozási kérelmét hagyjuk jóvá
+    from telegram.ext import ChatJoinRequestHandler
+    from app.value_sub import handle_join_request
+    application.add_handler(ChatJoinRequestHandler(handle_join_request))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("stat", stat_command))
     application.add_handler(broadcast_conv)

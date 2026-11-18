@@ -239,6 +239,19 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         except: return getattr(o, key, default)
 
     try:
+        # A value-csatorna előfizetése külön kezelt (app/value_sub.py): ami oda tartozik,
+        # azt a régi VIP-logika nem dolgozza fel (pl. ne hosszabbítsa a régi VIP-lejáratot)
+        from app.value_sub import handle_stripe_event as _value_event, forget_event as _value_forget
+        try:
+            if await _value_event(event):
+                return JSONResponse({"status": "success"})
+        except Exception as e:
+            # Hibakódot adunk vissza, hogy a Stripe később újraküldje (különben elveszne egy előfizetés)
+            _value_forget(event.id)
+            print(f"[WEBHOOK] Value feldolgozási hiba ({event.type}): {e}")
+            await send_admin_alert(f"⚠️ *VALUE WEBHOOK HIBA* (a Stripe újrapróbálja)\n📨 {event.type}\n💬 {str(e)[:300]}")
+            return JSONResponse({"error": "value processing failed"}, status_code=500)
+
         if event.type == 'checkout.session.completed':
             u_id = get_val(metadata, "user_id")
             p_name = get_val(metadata, "plan", "monthly")
