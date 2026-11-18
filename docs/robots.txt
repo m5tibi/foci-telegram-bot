@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /admin
+Disallow: /profile
+Disallow: /value/
+Disallow: /forgot-password
+Disallow: /new-password
+Disallow: /unsubscribe
+Disallow: /resubscribe
+
+Sitemap: https://mondomatutit.hu/sitemap.xml

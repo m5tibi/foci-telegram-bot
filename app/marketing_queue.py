@@ -24,6 +24,8 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Europe/Budapest")
 TICK_SECONDS = 30               # ennyi időnként néz rá a sorra (tickenként legfeljebb 1 levél)
 STALE_CLAIM_MINUTES = 30        # ennyi után a félbemaradt foglalás felszabadul
+DEFER_MINUTES = 60              # átmeneti hibánál a cím ennyi időre hátrébb kerül (a többiek addig mennek)
+MAX_TEMP_ATTEMPTS = 5           # ennyi átmeneti hiba után a címet végleg kihagyjuk
 MAX_PER_HOUR = int(os.environ.get("MARKETING_MAX_PER_HOUR", "40") or 40)
 
 
@@ -158,9 +160,14 @@ def tick(db=None, send=None, now=None):
     if hourly_allowance(k, sent_today, sent_hour, now) <= 0:
         return "wait"
 
-    nxt = db.table("marketing_sor").select("id, email").eq("kampany_id", kid) \
-        .is_("sent_at", "null").is_("error", "null").is_("claimed_at", "null") \
-        .order("id").limit(1).execute().data
+    def _next(cols):
+        return db.table("marketing_sor").select(cols).eq("kampany_id", kid) \
+            .is_("sent_at", "null").is_("error", "null").is_("claimed_at", "null") \
+            .order("id").limit(1).execute().data
+    try:
+        nxt = _next("id, email, attempts")
+    except Exception:                                    # régi tábla attempts oszlop nélkül
+        nxt = _next("id, email")
     if not nxt:
         if _count(db, kid, pending=True) == 0:
             set_status(kid, "done", db)
@@ -184,9 +191,20 @@ def tick(db=None, send=None, now=None):
         db.table("marketing_sor").update({"sent_at": _iso(datetime.now(timezone.utc))}).eq("id", row["id"]).execute()
         return "sent"
     if temporary:
-        # Átmeneti hiba (SMTP-korlát, kapcsolat): a sor visszakerül, és egy ideig szünetelünk
-        db.table("marketing_sor").update({"claimed_at": None}).eq("id", row["id"]).execute()
-        print(f"[marketing] Átmeneti küldési hiba, később újrapróbáljuk: {err}")
+        # Átmeneti hiba (SMTP-korlát, kapcsolat, vagy egy címzett szervere „próbáld később”): a címet
+        # DEFER_MINUTES-re hátrébb tesszük (a jövőbe mutató foglalás miatt addig a többiek mennek),
+        # és egy ideig szünetelünk. Ugyanaz a cím így nem akaszthatja meg az egész kampányt.
+        attempts = (row.get("attempts") or 0) + 1
+        if "attempts" in row and attempts >= MAX_TEMP_ATTEMPTS:
+            db.table("marketing_sor").update({"error": f"{attempts}x átmeneti hiba: {err}"[:300], "claimed_at": None,
+                                              "attempts": attempts}).eq("id", row["id"]).execute()
+            print(f"[marketing] Kihagyva {attempts} átmeneti hiba után ({row['email']}): {err}")
+            return "error"
+        patch = {"claimed_at": _iso(now + timedelta(minutes=DEFER_MINUTES))}
+        if "attempts" in row:
+            patch["attempts"] = attempts
+        db.table("marketing_sor").update(patch).eq("id", row["id"]).execute()
+        print(f"[marketing] Átmeneti küldési hiba ({attempts}. próbálkozás), később újrapróbáljuk: {err}")
         return "retry"
     db.table("marketing_sor").update({"error": (err or "hiba")[:300], "claimed_at": None}).eq("id", row["id"]).execute()
     print(f"[marketing] Végleges hiba ({row['email']}): {err}")
