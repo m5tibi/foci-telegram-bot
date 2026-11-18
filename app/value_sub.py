@@ -37,6 +37,10 @@ from .templating import templates
 router = APIRouter()
 
 VALUE_OPEN = os.environ.get("VALUE_OPEN", "false").lower() == "true"
+# Indulás előtti éles próbához: ezek a fiókok VALUE_OPEN nélkül is előfizethetnek, ÉLES módban
+# (vesszővel elválasztott e-mail címek; felülírható a VALUE_EARLY_EMAILS környezeti változóval)
+VALUE_EARLY_EMAILS = {e.strip().lower() for e in
+                      os.environ.get("VALUE_EARLY_EMAILS", "tvargabusiness@gmail.com").split(",") if e.strip()}
 VALUE_CHANNEL_ID = os.environ.get("VALUE_CHANNEL_ID", "").strip()
 VALUE_PRICE_ID = os.environ.get("VALUE_PRICE_ID", "").strip()
 VALUE_TEST_PRICE_ID = os.environ.get("VALUE_TEST_PRICE_ID", "").strip()
@@ -69,6 +73,11 @@ def _g(o, k, default=None):
 
 def _key(livemode: bool):
     return os.environ.get("STRIPE_SECRET_KEY") if livemode else os.environ.get("STRIPE_TEST_SECRET_KEY")
+
+
+def _can_buy(user) -> bool:
+    """Indíthat-e előfizetést: ha nyitva van, bárki; addig a teszt fiók (teszt mód) és a korai fiókok (éles)."""
+    return VALUE_OPEN or _is_test_user(user) or ((user or {}).get("email") or "").lower() in VALUE_EARLY_EMAILS
 
 
 def _is_test_user(user) -> bool:
@@ -486,7 +495,7 @@ async def value_page(request: Request, payment: str = None):
     return templates.TemplateResponse(request=request, name="value.html", context={
         "user": user, "row": row, "allowed": has_access(user, row), "can_join": can_join(user, row),
         "legacy_until": hu_dt(legacy_until(user).isoformat()) if legacy_until(user) and not is_allowed(row) else None,
-        "can_buy": VALUE_OPEN or test, "test_mode": test,
+        "can_buy": _can_buy(user), "test_mode": test,
         "price": price_info(livemode=not test),
         "trial_days": VALUE_TRIAL_DAYS if not (row and row.get("trial_used")) else 0,
         "period_end": hu_dt(row.get("current_period_end")) if row else None,
@@ -500,7 +509,7 @@ async def value_checkout(request: Request):
     if not user:
         return RedirectResponse(url="/#login-register", status_code=303)
     test = _is_test_user(user)
-    if not (VALUE_OPEN or test):
+    if not _can_buy(user):
         return RedirectResponse(url="/value", status_code=303)
     row = get_row(user["id"])
     if has_access(user, row):
