@@ -505,12 +505,18 @@ async def value_checkout(request: Request):
     row = get_row(user["id"])
     if has_access(user, row):
         return RedirectResponse(url="/value", status_code=303)
+    # ÁSZF elfogadása és az azonnali kezdés kérése (elállási jog, 45/2014. Korm. rendelet) – kötelező
+    form = await request.form()
+    if form.get("accept_terms") != "1":
+        return RedirectResponse(url="/value?payment=terms", status_code=303)
+    accepted_at = datetime.now(pytz.utc).isoformat()
     price_id = VALUE_TEST_PRICE_ID if test else VALUE_PRICE_ID
     if not price_id:
         await _alert("⚠️ *VALUE PÉNZTÁR*: nincs beállítva az ár (VALUE_PRICE_ID / VALUE_TEST_PRICE_ID)")
         return RedirectResponse(url="/value?payment=error", status_code=303)
     meta = {"user_id": str(user["id"]), "product": "value"}
-    sub_data = {"metadata": meta}
+    # Az elfogadás bizonyítéka a Stripe-előfizetésen is megmarad
+    sub_data = {"metadata": {**meta, "terms_accepted_at": accepted_at, "terms_version": "2026-11-18"}}
     if VALUE_TRIAL_DAYS and not (row and row.get("trial_used")):
         sub_data["trial_period_days"] = VALUE_TRIAL_DAYS
     params = {
