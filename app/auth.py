@@ -15,7 +15,7 @@ from .database import get_db, get_admin_db, s_get
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # A felhasznalok tábla (jelszó-hash, reset token) csak service key-jel érhető el,
-# az anon kulcs nyilvános (docs/free_tips.html), ezért azzal nem szabad olvasni.
+# az anon kulcs nyilvános lehet, ezért azzal nem szabad olvasni.
 supabase = get_admin_db()
 
 from .templating import templates
@@ -150,6 +150,8 @@ async def handle_registration(request: Request, email: str = Form(...), password
         }).execute()
         
         if insert_res.data:
+            # Rögtön be is jelentkeztetjük, hogy a köszönőoldal után egyből előfizethessen
+            request.session["user_id"] = insert_res.data[0]["id"]
             return RedirectResponse(url="/koszonjuk-a-regisztraciot.html", status_code=303)
         else:
             raise Exception("Insert failed")
@@ -175,7 +177,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         
         _attempts.pop(email_key, None)
         request.session["user_id"] = user_res.data['id']
-        return RedirectResponse(url="/vip", status_code=303)
+        return RedirectResponse(url="/value", status_code=303)
     except Exception as e:
         return RedirectResponse(url="/?login_error=true#login-register", status_code=303)
 

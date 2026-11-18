@@ -120,6 +120,19 @@ def is_allowed(row, now=None) -> bool:
     return False
 
 
+def legacy_until(user, now=None):
+    """A régi (éves / örökös) VIP-tagság vége, ha még él: ők a lejáratig a Value-csatornát is megkapják."""
+    if not user or user.get("subscription_status") != "active":
+        return None
+    end = _parse(user.get("subscription_expires_at"))
+    return end if end and end > (now or datetime.now(pytz.utc)) else None
+
+
+def has_access(user, row, now=None) -> bool:
+    """Bent lehet-e a csatornában: élő Value-előfizetés vagy még érvényes régi VIP-tagság."""
+    return is_allowed(row, now) or bool(legacy_until(user, now))
+
+
 # ── Adatbázis ────────────────────────────────────────────────────────────────
 
 def get_row(user_id):
@@ -188,10 +201,22 @@ async def ensure_invite(row) -> str:
     return link.invite_link
 
 
-async def offer_join(user, row) -> bool:
-    """Ha az előfizetés él és a Telegram össze van kötve, a bot elküldi a csatlakozási linket."""
-    if not user or not row or not user.get("chat_id") or not is_allowed(row) or row.get("member"):
+def _mark_invited(user_id):
+    try:
+        save_row(user_id, {"invited_at": datetime.now(pytz.utc).isoformat()})
+    except Exception as e:   # régi tábla invited_at oszlop nélkül: nem akadályozza a meghívást
+        print(f"[value] invited_at mentési hiba: {e}")
+
+
+async def offer_join(user, row, force=True) -> bool:
+    """Ha van hozzáférése és a Telegram össze van kötve, a bot elküldi a csatlakozási linket.
+    force=False: csak akkor, ha még nem kapott meghívót (a régi tagok automatikus meghívásához)."""
+    if not user or not user.get("chat_id") or not has_access(user, row) or (row or {}).get("member"):
         return False
+    if not force and (row or {}).get("invited_at"):
+        return False
+    if not row:
+        row = save_row(user["id"], {"email": user.get("email")})
     try:
         link = await ensure_invite(row)
     except Exception as e:
@@ -203,6 +228,7 @@ async def offer_join(user, row) -> bool:
               "✅ Az előfizetésed aktív!\n\nCsatlakozz a „Mondom a Tutit! · Value” csatornához az alábbi gombbal. "
               "A csatlakozási kérelmedet a bot automatikusan jóváhagyja.",
               url=link, button="📈 Csatlakozás a csatornához")
+    _mark_invited(row["user_id"])
     return True
 
 
@@ -232,7 +258,7 @@ async def handle_join_request(update, context=None):
     tg_id = req.from_user.id
     user = await asyncio.to_thread(_user_by_chat, tg_id)
     row = await asyncio.to_thread(get_row, user["id"]) if user else None
-    if row and is_allowed(row):
+    if user and has_access(user, row):
         await req.approve()
         await asyncio.to_thread(save_row, user["id"], {"member": True, "telegram_user_id": tg_id,
                                                        "joined_at": datetime.now(pytz.utc).isoformat()})
@@ -257,7 +283,7 @@ async def on_telegram_linked(user_id, chat_id):
     try:
         row = await asyncio.to_thread(get_row, user_id)
         user = await asyncio.to_thread(_user_by_id, user_id)
-        if row and user:
+        if user:   # Value-előfizető vagy érvényes régi VIP-tag
             await offer_join({**user, "chat_id": chat_id}, row)
     except Exception as e:
         print(f"[value] Összekötés utáni meghívó hiba ({user_id}): {e}")
@@ -280,9 +306,17 @@ async def _sync_from_stripe(row, sub=None):
     if sub is None:
         sub = stripe.Subscription.retrieve(row["subscription_id"], api_key=_key(row.get("livemode", True)))
     row = save_row(row["user_id"], sub_fields(sub))
-    if row.get("member") and not is_allowed(row):
-        await remove_member(row, f"Előfizetés állapota: {row.get('status')}")
+    await _enforce(row)
     return row
+
+
+async def _enforce(row, user=None):
+    """Kiléptetés, ha tag, de már se Value-előfizetése, se érvényes régi VIP-tagsága nincs."""
+    if not row.get("member"):
+        return
+    user = user or _user_by_id(row["user_id"])
+    if not has_access(user, row):
+        await remove_member(row, f"Előfizetés állapota: {row.get('status') or 'régi tagság lejárt'}")
 
 
 async def handle_stripe_event(event) -> bool:
@@ -331,9 +365,9 @@ async def handle_stripe_event(event) -> bool:
             await _alert(f"⚠️ *VALUE LEMONDÁS*\n👤 {email}\n📅 Tag marad eddig: {hu_dt(row.get('current_period_end'))}")
         elif prev.get("status") == "trialing" and row.get("status") == "active":
             await _alert(f"✅ *VALUE PRÓBAIDŐ → FIZETŐS*\n👤 {email}")
-        if row.get("member") and not is_allowed(row):
-            await remove_member(row, f"Előfizetés állapota: {row.get('status')}")
-        elif is_allowed(row) and not is_allowed(prev) and not row.get("member"):
+        if row.get("member"):
+            await _enforce(row)
+        elif is_allowed(row) and not is_allowed(prev):
             await offer_join(_user_by_id(user_id), row)   # most vált jogosulttá (pl. új előfizetés)
         return True
 
@@ -375,14 +409,24 @@ async def reconcile_once():
     (pl. ha egy webhook elveszett, vagy a türelmi idő lejárt)."""
     rows = get_admin_db().table(TABLE).select("*").execute().data or []
     for row in rows:
-        if not row.get("subscription_id"):
-            continue
-        if row.get("status") in ("canceled", "incomplete_expired") and not row.get("member"):
-            continue
         try:
+            if not row.get("subscription_id"):
+                await _enforce(row)              # régi VIP-tag: a tagsága lejártával kikerül
+                continue
+            if row.get("status") in ("canceled", "incomplete_expired") and not row.get("member"):
+                continue
             await _sync_from_stripe(row)
         except Exception as e:
             print(f"[value] Egyeztetési hiba ({row.get('email')}): {e}")
+    # Régi éves / örökös VIP-tagok: automatikus meghívó (egyszer), ha a Telegram össze van kötve
+    by_user = {r["user_id"]: r for r in rows}
+    legacy = get_admin_db().table("felhasznalok").select("*").eq("subscription_status", "active").execute().data or []
+    for user in legacy:
+        if legacy_until(user) and user.get("chat_id"):
+            try:
+                await offer_join(user, by_user.get(str(user["id"])), force=False)
+            except Exception as e:
+                print(f"[value] Régi tag meghívási hiba ({user.get('email')}): {e}")
 
 
 async def reconcile_loop():
@@ -430,7 +474,8 @@ async def value_page(request: Request, payment: str = None):
             print(f"[value] Lekérési hiba: {e}")
     test = _is_test_user(user)
     return templates.TemplateResponse(request=request, name="value.html", context={
-        "user": user, "row": row, "allowed": is_allowed(row),
+        "user": user, "row": row, "allowed": has_access(user, row),
+        "legacy_until": hu_dt(legacy_until(user).isoformat()) if legacy_until(user) and not is_allowed(row) else None,
         "can_buy": VALUE_OPEN or test, "test_mode": test,
         "price": price_info(livemode=not test),
         "trial_days": VALUE_TRIAL_DAYS if not (row and row.get("trial_used")) else 0,
@@ -448,7 +493,7 @@ async def value_checkout(request: Request):
     if not (VALUE_OPEN or test):
         return RedirectResponse(url="/value", status_code=303)
     row = get_row(user["id"])
-    if is_allowed(row):
+    if has_access(user, row):
         return RedirectResponse(url="/value", status_code=303)
     price_id = VALUE_TEST_PRICE_ID if test else VALUE_PRICE_ID
     if not price_id:
@@ -501,9 +546,10 @@ async def value_join(request: Request):
     """A csatlakozási link (a weboldalról is elérhető, ha a Telegram-üzenet elveszett)."""
     user = get_current_user(request)
     row = get_row(user["id"]) if user else None
-    if not user or not is_allowed(row) or not user.get("chat_id"):
+    if not user or not has_access(user, row) or not user.get("chat_id"):
         return RedirectResponse(url="/value", status_code=303)
     try:
+        row = row or save_row(user["id"], {"email": user.get("email")})
         link = await ensure_invite(row)
     except Exception as e:
         print(f"[value] Meghívó hiba ({user.get('email')}): {e}")

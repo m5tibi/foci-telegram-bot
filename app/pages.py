@@ -1,5 +1,6 @@
 # app/pages.py
-"""Nyilvános oldalak: leiratkozás, statikus jogi oldalak, VIP zóna."""
+"""Nyilvános oldalak: főoldal, statikus (jogi, tipp-szótár) oldalak, e-mail leiratkozás,
+és a megszűnt régi oldalak átirányítása."""
 import os
 import os as _os
 import re as _re
@@ -9,21 +10,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from .database import get_admin_db
 from .auth import get_current_user, is_admin_user
-from .tip_dates import enrich_tips
-from bot import get_tip_details
 
 router = APIRouter()
 from .templating import templates
 _BASE_DIR = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 from .site import SITE_URL
-
-def calculate_roi(records):
-    """Kiszámítja a befektetésarányos megtérülést a lezárt szelvények alapján."""
-    if not records: return 0
-    total_staked = len(records)
-    total_return = sum([float(r.get('eredo_odds', 0)) for r in records if r.get('status') == 'Nyert'])
-    if total_staked == 0: return 0
-    return round(((total_return - total_staked) / total_staked) * 100, 1)
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
@@ -115,201 +106,60 @@ async def resubscribe(token: str = None):
   <p style="font-size:22px;font-weight:900;color:#D4AF37;margin:0 0 18px;">⚽ Mondom a Tutit!</p>
   <h1 style="font-size:20px;color:#9AE6B4;margin:0 0 12px;">Újra feliratkoztál! ✅</h1>
   <p style="color:#A0A0C0;font-size:15px;margin:0 0 28px;">
-      Ezentúl ismét kapsz email értesítőt az új tippekről és elemzésekről.</p>
+      Ezentúl ismét kapsz tőlünk e-mailt az újdonságokról.</p>
   <a href="{SITE_URL}" style="display:inline-block;background:#D4AF37;color:#08080E;
      font-weight:800;padding:12px 28px;border-radius:50px;text-decoration:none;">
     Vissza a weboldalra</a>
 </div></body></html>""")
 
 
+def _docs_file(name: str):
+    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
+        p = _os.path.join(base, "docs", name)
+        if _os.path.exists(p):
+            with open(p, encoding="utf-8") as _f:
+                return _f.read()
+    return None
+
+
 @router.get("/", response_class=HTMLResponse)
-# A blog és az ingyenes tippek oldala a "/index.html" címre linkel – ezt is itt szolgáljuk ki
-# (különben a statikus fájlkiszolgáló adná, a szüneteltetés jelölése nélkül)
+# A "/index.html" címet is itt szolgáljuk ki (régi linkek), ne a statikus fájlkiszolgáló adja
 @router.get("/index.html", response_class=HTMLResponse)
 async def read_root(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/vip")
-    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
-        p = _os.path.join(base, "docs", "index.html")
-        if _os.path.exists(p):
-            with open(p, encoding="utf-8") as _f:
-                html = _f.read()
-            from app.site import SUBSCRIPTIONS_OPEN
-            if not SUBSCRIPTIONS_OPEN:   # előfizetés szünetel: a CSS elrejti a vásárlásra hívó részeket
-                # A </head> utáni valódi <body> címke (a <head>-ben szövegként is előfordulhat)
-                head_end = html.find("</head>")
-                html = html[:head_end] + _re.sub(r"<body(\s[^>]*)?>", '<body class="subs-paused">', html[head_end:], count=1)
-            return HTMLResponse(html)
-    return templates.TemplateResponse(request=request, name="login.html", context={"user": user})
-
-@router.get("/free_tips.html", response_class=HTMLResponse)
-async def free_tips_page():
-    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
-        p = _os.path.join(base, "docs", "free_tips.html")
-        if _os.path.exists(p):
-            with open(p, encoding="utf-8") as _f:
-                return HTMLResponse(_f.read())
-    return HTMLResponse("Not found", status_code=404)
-
-@router.get("/adatvedelem.html", response_class=HTMLResponse)
-async def adatvedelem_page():
-    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
-        p = _os.path.join(base, "docs", "adatvedelem.html")
-        if _os.path.exists(p):
-            with open(p, encoding="utf-8") as _f:
-                return HTMLResponse(_f.read())
-    return HTMLResponse("Not found", status_code=404)
-
-@router.get("/tipp-szotar.html", response_class=HTMLResponse)
-async def tipp_szotar_page():
-    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
-        p = _os.path.join(base, "docs", "tipp-szotar.html")
-        if _os.path.exists(p):
-            with open(p, encoding="utf-8") as _f:
-                return HTMLResponse(_f.read())
-    return HTMLResponse("Not found", status_code=404)
-
-@router.get("/aszf.html", response_class=HTMLResponse)
-async def aszf_page():
-    for base in [_BASE_DIR, _os.getcwd(), "/opt/render/project/src"]:
-        p = _os.path.join(base, "docs", "aszf.html")
-        if _os.path.exists(p):
-            with open(p, encoding="utf-8") as _f:
-                return HTMLResponse(_f.read())
-    return HTMLResponse("Not found", status_code=404)
-
-@router.get("/vip", response_class=HTMLResponse)
-async def vip_area(request: Request):
-    """VIP zóna: szigorú jogosultság ellenőrzéssel és fájl lekéréssel."""
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/", status_code=303)
-    
-    db = get_admin_db()
-    
-    # --- JOGOSULTSÁG ELLENŐRZÉS ---
-    now_utc = datetime.now(pytz.utc)
-    expires_at_str = user.get("subscription_expires_at")
-    expires_at = None
-    
-    if expires_at_str:
-        try:
-            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-        except Exception:
-            expires_at = None
-
-    is_active_member = (user.get("subscription_status") == "active") and (expires_at and expires_at > now_utc)
-    is_admin = is_admin_user(user)
-    access_granted = is_active_member or is_admin
-    
-    # ROI számítás
-    all_past_vip = db.table("manual_slips").select("*").in_("status", ["Nyert", "Veszített"]).execute()
-    roi_value = calculate_roi(all_past_vip.data)
-
-    todays_slips, tomorrows_slips, active_manual, active_free = [], [], [], []
-    analysis_files, free_analysis_files = [], []
-    msg = ""
-
-    # Adatok betöltése
+    # Bejelentkezve rögtön a Value oldal – kivéve, ha a menüből a főoldalt kérik (?home=1)
+    if get_current_user(request) and not request.query_params.get("home"):
+        return RedirectResponse(url="/value", status_code=303)
+    html = _docs_file("index.html")
+    if html is None:
+        return templates.TemplateResponse(request=request, name="login.html", context={"user": get_current_user(request)})
+    # A Value ára a Stripe-ból (gyorsítótárazva), a próbaidő a beállításból
+    from app.value_sub import price_info, VALUE_TRIAL_DAYS
     try:
-        tz = pytz.timezone('Europe/Budapest')
-        now_local = datetime.now(tz)
-        today_str = now_local.strftime("%Y-%m-%d")
-        tomorrow_str = (now_local + timedelta(days=1)).strftime("%Y-%m-%d")
+        p = price_info(livemode=True)
+    except Exception:
+        p = None
+    html = html.replace("__VALUE_PRICE__", f"{p['amount']} / {p['interval']}" if p else "")
+    html = html.replace("__TRIAL_DAYS__", str(VALUE_TRIAL_DAYS or 3))
+    return HTMLResponse(html)
 
-        # 1. Ingyenes fájlok lekérése (KORLÁTOZÁS NÉLKÜL - Így a május 13-i is látszik!)
-        f_analysis_res = db.table("elemzesek").select("*").eq("category", "free").order("created_at", desc=True).execute()
-        free_analysis_files = f_analysis_res.data or []
 
-        # 2. Ingyenes manuális szelvények lekérése
-        f_res = db.table("free_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute()
-        active_free = enrich_tips(f_res.data or [])
+def _static_page(name: str):
+    async def handler():
+        html = _docs_file(name)
+        return HTMLResponse(html) if html is not None else HTMLResponse("Not found", status_code=404)
+    return handler
 
-        if access_granted:
-            # 3. VIP Automata tippek
-            resp = db.table("napi_tuti").select("*").eq("is_admin_only", False).order('created_at', desc=True).limit(15).execute()
-            if resp.data:
-                all_ids = []
-                for sz in resp.data:
-                    ids = sz.get('tipp_id_k', [])
-                    if isinstance(ids, list): all_ids.extend(ids)
+for _name in ("adatvedelem.html", "aszf.html", "tipp-szotar.html"):
+    router.add_api_route(f"/{_name}", _static_page(_name), methods=["GET"], response_class=HTMLResponse)
 
-                if all_ids:
-                    query = db.table("meccsek").select("*").in_("id", list(set(all_ids)))
-                    
-                    # KRITIKUS MÓDOSÍTÁS: A lezárt/kiértékelt bot tippeket már nem engedjük át a weboldalra!
-                    if not is_admin:
-                        query = query.eq("eredmeny", "Folyamatban")
-                    else:
-                        query = query.in_("eredmeny", ["Folyamatban", "Tipp leadva"])
-                    
-                    meccsek_res = query.execute()
-                    mm = {m['id']: m for m in meccsek_res.data} if meccsek_res.data else {}
 
-                    for sz in resp.data:
-                        meccs_list = []
-                        for tid in sz.get('tipp_id_k', []):
-                            m = mm.get(tid)
-                            if m:
-                                try:
-                                    dt = datetime.fromisoformat(m['kezdes'].replace('Z', '+00:00')).astimezone(tz)
-                                    m['kezdes_str'] = dt.strftime('%b %d. %H:%M')
-                                except Exception:
-                                    m['kezdes_str'] = m.get('kezdes', 'Nincs időpont')
-                                m['tipp_str'] = get_tip_details(m.get('tipp', ''))
-                                meccs_list.append(m)
-                        
-                        if meccs_list:
-                            sz['meccsek'] = meccs_list
-                            t_neve = sz.get('tipp_neve', '')
-                            if tomorrow_str in t_neve:
-                                tomorrows_slips.append(sz)
-                            else:
-                                todays_slips.append(sz)
+# Megszűnt régi oldalak (VIP-tippek, ingyenes tippek, blog, szerencsekerék) → az új Value oldal.
+# Régi e-mailekben, könyvjelzőkben és a Google-ben még szerepelnek.
+_GONE = ["/vip", "/free_tips.html", "/blog.html", "/blog/mi-az-a-value-bet.html",
+         "/szerencsekerek", "/szerencsekerek-szabalyzat.html"]
 
-            # 4. VIP Manuális szelvények
-            m_res = db.table("manual_slips").select("*").in_("status", ["Folyamatban", "Kiküldve"]).execute()
-            active_manual = enrich_tips(m_res.data or [])
+async def _gone_redirect():
+    return RedirectResponse(url="/value", status_code=301)
 
-            # 5. VIP Fájlok lekérése (KORLÁTOZÁS NÉLKÜL az előfizetőknek is)
-            analysis_res = db.table("elemzesek").select("*").eq("category", "vip").order("created_at", desc=True).execute()
-            analysis_files = analysis_res.data or []
-            
-        else:
-            if expires_at:
-                expiry_date = expires_at.astimezone(tz).strftime('%Y-%m-%d %H:%M')
-                msg = f"Az előfizetésed lejárt ({expiry_date}). Kérjük, újítsd meg a hozzáférésedet!"
-            else:
-                msg = "Aktív VIP előfizetés szükséges a zárt tartalmakhoz."
-
-    except Exception as e:
-        print(f"Hiba az adatok lekérésekor: {e}")
-        msg = "Hiba történt az adatok betöltésekor."
-
-    # Privát bucketek (VIP szelvényképek, elemzések) → rövid ideig érvényes aláírt linkek
-    try:
-        from app.storage_utils import sign_urls
-        sign_urls(active_manual, "image_url")
-        sign_urls(analysis_files + free_analysis_files, "file_url")
-    except Exception as e:
-        print(f"[vip] Aláírt link hiba: {e}")
-
-    # Szerencsekerék a nem előfizetőknek: pörgethet-e ezen a héten, és van-e beváltható kedvezménye
-    wheel = None
-    from app.site import SUBSCRIPTIONS_OPEN
-    if not is_active_member and SUBSCRIPTIONS_OPEN:
-        try:
-            from app.wheel import get_active_discount, _this_week_spin
-            won = get_active_discount(user["id"])
-            wheel = {"can_spin": not _this_week_spin(user["id"]), "discount": won[1] if won else None}
-        except Exception as e:
-            print(f"[vip] Szerencsekerék lekérési hiba: {e}")
-
-    return templates.TemplateResponse(request=request, name="vip_tippek.html", context={
-        "request": request, "user": user, "is_subscribed": access_granted, "wheel": wheel,
-        "todays_slips": todays_slips, "tomorrows_slips": tomorrows_slips,
-        "active_manual_slips": active_manual, "active_free_slips": active_free,
-        "analysis_files": analysis_files, "free_analysis_files": free_analysis_files,
-        "roi": roi_value, "daily_status_message": msg
-    })
+for _path in _GONE:
+    router.add_api_route(_path, _gone_redirect, methods=["GET"], include_in_schema=False)

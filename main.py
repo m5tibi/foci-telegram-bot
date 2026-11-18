@@ -21,15 +21,13 @@ from app.stripe_logic import router as stripe_router
 from app.admin import router as admin_router
 from app.profile import router as profile_router
 from app.pages import router as pages_router
-from app.ai_tips import router as ai_tips_router, _auto_check_loop
-from app.wheel import router as wheel_router
 from app.value_sub import router as value_router, reconcile_loop as _value_reconcile, VALUE_CHANNEL_ID
 from bot import add_handlers
 
 api = FastAPI(title="Mondom a Tutit! Moduláris")
 _BASE_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _docs_path = _os.path.join(_BASE_DIR, "docs")
-# A főoldalt mindig az app/pages.py read_root adja (pl. előfizetés-szünetelés jelölése),
+# A főoldalt mindig az app/pages.py read_root adja (bejelentkezve átirányít),
 # a statikus másolata se legyen elérhető
 @api.get("/docs-static/index.html", include_in_schema=False)
 async def _docs_index_redirect():
@@ -71,8 +69,6 @@ api.include_router(admin_router)
 api.include_router(profile_router)
 # --- 4. Útvonalak modulokból ---
 api.include_router(pages_router)
-api.include_router(ai_tips_router)
-api.include_router(wheel_router)
 api.include_router(value_router)
 
 # Telepített csomagverziók a logban (ezek alapján rögzíthetők a requirements.txt-ben)
@@ -90,11 +86,6 @@ application = None
 @api.on_event("startup")
 async def startup():
     global application
-    import threading
-    # Automatikus AI eredmény ellenőrző háttérszál
-    t = threading.Thread(target=_auto_check_loop, daemon=True)
-    t.start()
-    print("[auto-eval] Automatikus eredmény ellenőrző elindítva (06:05 Budapest)")
     # Ütemezett marketing kampány-küldő (napi kerettel, egyenletesen elosztva)
     try:
         from app.marketing_queue import start_worker

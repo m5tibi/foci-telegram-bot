@@ -114,14 +114,6 @@ def _feedback(obj) -> str:
     feedback = getattr(details, 'feedback', None)
     return FEEDBACK_HU.get(feedback, "Nem adott visszajelzést") if feedback else "Nem adott visszajelzést"
 
-TEST_PRICE_IDS = {
-    "monthly": "price_1RyYhiGTueuLQQun5BgKYFCY", 
-    "weekly": "price_1TYNl9GTueuLQQunujGE5ikr", 
-    "daily": "price_1TYNklGTueuLQQunzWs7gjCD",
-    "semi_annual": "price_1TYOQrGTueuLQQunQkmvXw7U",
-    "annual": "price_1TYORBGTueuLQQunkAqqz2zo",
-    "lifetime": "price_1TYOROGTueuLQQunm191MLiR"
-}
 
 async def send_admin_alert(message: str):
     token = os.environ.get("TELEGRAM_TOKEN")
@@ -132,88 +124,8 @@ async def send_admin_alert(message: str):
     except Exception as e:
         print(f"Admin értesítési hiba: {e}")
 
-def _wheel_coupon(percent: int, api_key: str):
-    """A szerencsekerék kedvezményének Stripe kuponja (egyszeri, az első fizetésre);
-    ha még nincs ilyen a fiókban (élő/teszt), létrehozza. Hiba esetén None."""
-    coupon_id = f"SZERENCSEKEREK{percent}"
-    try:
-        stripe.Coupon.retrieve(coupon_id, api_key=api_key)
-        return coupon_id
-    except stripe.InvalidRequestError:
-        pass
-    except Exception as e:
-        print(f"[STRIPE] Kupon lekérési hiba ({coupon_id}): {e}")
-        return None
-    try:
-        stripe.Coupon.create(id=coupon_id, percent_off=percent, duration="once",
-                             name=f"Szerencsekerék –{percent}%", api_key=api_key)
-        return coupon_id
-    except Exception as e:
-        print(f"[STRIPE] Kupon létrehozási hiba ({coupon_id}): {e}")
-        return None
-
-@router.post("/create-checkout-session-web")
-async def create_checkout_web(request: Request, plan: str = Form(...)):
-    from app.auth import get_current_user
-    user = get_current_user(request)
-    if not user: return RedirectResponse(url="/", status_code=303)
-
-    is_technical_test = user['email'] == "m5tibi77@gmail.com"
-    # Átalakítás alatt nincs új vásárlás (a teszt fiók a Stripe teszt módban továbbra is kipróbálhatja)
-    from app.site import SUBSCRIPTIONS_OPEN
-    if not SUBSCRIPTIONS_OPEN and not is_technical_test:
-        return RedirectResponse(url="/vip", status_code=303)
-    active_key = STRIPE_TEST_SECRET_KEY if is_technical_test else (STRIPE_SECRET_KEY or STRIPE_TEST_SECRET_KEY)
-    
-    price_id = TEST_PRICE_IDS.get(plan) if is_technical_test else os.environ.get(f"STRIPE_PRICE_ID_{plan.upper()}", TEST_PRICE_IDS.get(plan))
-
-    try:
-        # Kizárólag a havi csomagnál 'subscription', az összes többinél 'payment' (egyszeri) mód fut le!
-        checkout_mode = 'subscription' if plan == 'monthly' else 'payment'
-
-        # A fizetési módokat (kártya, Apple/Google Pay stb.) a Stripe Dashboard adja;
-        # a payment_method_types paramétert az új Stripe API már nem fogadja el.
-        session_params = {
-            "line_items": [{'price': price_id, 'quantity': 1}],
-            "mode": checkout_mode,
-            "allow_promotion_codes": True,
-            "success_url": f"{RENDER_APP_URL}/vip?payment=success",
-            "cancel_url": f"{RENDER_APP_URL}/profile?payment=cancel",
-            "metadata": {"user_id": str(user['id']), "plan": plan},
-            "billing_address_collection": "required",
-        }
-        
-        # Szerencsekeréken nyert kedvezmény: a havi tagság első hónapjára automatikusan
-        # levonjuk (a Stripe nem enged egyszerre kézi kuponkódot és előre megadott kedvezményt)
-        if plan == 'monthly':
-            from app.wheel import get_active_discount
-            won = get_active_discount(user['id'])
-            coupon = _wheel_coupon(won[1], active_key) if won else None
-            if coupon:
-                session_params.pop("allow_promotion_codes", None)
-                session_params["discounts"] = [{"coupon": coupon}]
-                session_params["metadata"]["wheel_spin_id"] = str(won[0]["id"])
-
-        if checkout_mode == 'subscription':
-            session_params["tax_id_collection"] = {"enabled": True}
-            if user.get("stripe_customer_id"):
-                session_params["customer"] = user["stripe_customer_id"]
-                session_params["customer_update"] = {"name": "auto", "address": "auto"}
-            else:
-                session_params["customer_email"] = user['email']
-        else:
-            session_params["customer_email"] = user['email']
-
-        # api_key kérésenként (a globális stripe.api_key átállítása párhuzamos kéréseknél összekeveredhet)
-        checkout_session = stripe.checkout.Session.create(api_key=active_key, **session_params)
-        return RedirectResponse(url=checkout_session.url, status_code=303)
-    except Exception as e:
-        print(f"Checkout hiba: {str(e)}")
-        # Az admin azonnal tudjon róla – egy hibás pénztár minden vásárlást megakaszt
-        await send_admin_alert(
-            f"⚠️ *PÉNZTÁR HIBA*\n👤 {user.get('email')}\n📦 Csomag: {plan}\n💬 {str(e)[:300]}"
-        )
-        return RedirectResponse(url="/profile?error=checkout", status_code=303)
+# A régi (napi/heti/havi/féléves/éves/örökös) csomagok pénztára megszűnt; új előfizetés csak a
+# Value-csatornára van (app/value_sub.py). A régi előfizetők eseményeit a webhook továbbra is kezeli.
 
 @router.post("/stripe-webhook")
 async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -314,13 +226,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             
                 cust_details = getattr(obj, 'customer_details', {})
                 email = get_val(cust_details, 'email', 'Ismeretlen')
-                wheel_line = ""
-                spin_id = get_val(metadata, "wheel_spin_id")
-                if spin_id:
-                    from app.wheel import mark_discount_used
-                    mark_discount_used(spin_id)
-                    wheel_line = "\n🎡 *Szerencsekerék-kedvezménnyel*"
-                await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}{wheel_line}")
+                await send_admin_alert(f"💰 *ÚJ VÁSÁRLÁS!*\n\n👤 *Felhasználó:* {email}\n📦 *Csomag:* {plan_display}\n⏳ *Időtartam:* {dur_text}")
 
         elif event.type in ['invoice.paid', 'invoice.payment_succeeded']:
             inv_id = getattr(obj, 'id', None)

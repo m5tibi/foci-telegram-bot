@@ -19,8 +19,7 @@ requests==2.34.2
 python-dateutil
 pytz
 
-# Adatkezelés és Logisztika
-openpyxl
+# Telegram és fizetés
 python-telegram-bot==22.8
 # Rögzítve: a Render minden deploynál friss csomagot telepít, egy új Stripe
 # verzió már eltörte a fizetést (2026-10). Frissítés előtt tesztelni kell!

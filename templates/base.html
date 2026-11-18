@@ -431,25 +431,25 @@
     </head>
 <body>
     <nav class="navbar">
-        <a href="/vip" class="nav-logo">VIP Zóna</a>
+        <a href="/" class="nav-logo">Mondom a Tutit! <span style="color:#D4AF37">· Value</span></a>
         <div class="nav-toggle" id="nav-toggle">
             <span></span>
             <span></span>
             <span></span>
         </div>
         <div class="nav-links" id="nav-links">
-    <a href="https://mondomatutit.hu/free_tips.html">Ingyenes Tippek</a>
+    <a href="/value">📈 Value előfizetés</a>
+    <a href="/?home=1#hogyan">Hogyan működik?</a>
     <a href="/tipp-szotar.html">📖 Tipp-szótár</a>
-    
+    <a href="https://t.me/MondomATutit" target="_blank" rel="noopener">✈️ Ingyenes csatorna</a>
     {% if user %}
-        <a href="/vip?t={{ range(1, 99999) | random }}">VIP Tippek</a>
         <a href="/profile">Profil</a>
         {% if is_admin_user(user) %}
-            <a href="/admin/upload">Admin Feltöltés</a>
+            <a href="/admin/marketing-email">Admin</a>
         {% endif %}
         <a href="/logout">Kijelentkezés</a>
     {% else %}
-        <a href="https://mondomatutit.hu/#login-register">Bejelentkezés</a>
+        <a href="/#login-register">Bejelentkezés</a>
     {% endif %}
         </div>
     </nav>
