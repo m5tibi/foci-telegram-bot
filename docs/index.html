@@ -3,539 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mondom a Tutit! – Adat-alapú sportfogadás, AI-elemzéssel</title>
-    <meta name="description" content="1200+ megosztott tipp, AI és statisztika alapú foci elemzések. Csatlakozz a VIP zónához és hozz érzelemmentes, adatokon alapuló döntéseket!">
-    <link rel="icon" type="image/png" href="images/favicon.png">
+    <title>Mondom a Tutit! · Value – Pinnacle-alapú value-tippek Telegramon</title>
+    <meta name="description" content="Value-tippek a piac valós ára alapján: a Pinnacle árrés nélküli oddsához mért jelzések privát Telegram-csatornában, tétjavaslattal és minimum odds-szal. 3 nap ingyenes próba.">
+    <meta property="og:title" content="Mondom a Tutit! · Value">
+    <meta property="og:description" content="Pinnacle-alapú value-tippek privát Telegram-csatornában. Csak akkor jelzünk, ha egy iroda oddsa érdemben a valós ár felett van.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mondomatutit.hu/">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
-
     <style>
         :root {
-            --gold:        #D4AF37;
-            --gold-lt:     #F2D060;
-            --gold-dim:    rgba(212,175,55,.12);
-            --gold-border: rgba(212,175,55,.30);
-            --tg:          #2AABEE;
-            --tg-dim:      rgba(42,171,238,.12);
-            --tg-border:   rgba(42,171,238,.30);
-            --bg:          #09090F;
-            --bg-card:     #111118;
-            --bg-card2:    #18181F;
-            --border:      rgba(255,255,255,.07);
-            --text:        #E4E4EE;
-            --muted:       #78788A;
-            --white:       #FFFFFF;
-            --r:           12px;
+            --gold: #D4AF37; --gold-lt: #F2D060;
+            --gold-dim: rgba(212,175,55,.12); --gold-border: rgba(212,175,55,.30);
+            --bg: #09090F; --bg-card: #111118; --bg-card2: #18181F;
+            --text: #E4E4EE; --text-dim: #A0A0B8; --green: #48BB78; --tg: #2AABEE;
         }
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
         html { scroll-behavior: smooth; }
-        body {
-            font-family: 'Outfit', system-ui, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.65;
-            overflow-x: hidden;
-        }
-        a { text-decoration: none; }
-        img { display: block; max-width: 100%; }
-
-        /* FLOATING TELEGRAM */
-        .float-tg {
-            position: fixed;
-            bottom: 24px; right: 22px;
-            z-index: 900;
-            display: flex; align-items: center; gap: 8px;
-            background: var(--tg);
-            color: #fff;
-            font-weight: 700; font-size: .88rem;
-            padding: 12px 18px 12px 14px;
-            border-radius: 50px;
-            box-shadow: 0 6px 24px rgba(42,171,238,.45);
-            transition: transform .2s, box-shadow .2s, bottom .3s ease;
-        }
-        .float-tg:hover { transform: translateY(-3px); box-shadow: 0 10px 32px rgba(42,171,238,.55); }
-        .float-tg svg { width: 20px; height: 20px; flex-shrink: 0; }
-        .float-tg-label { display: none; }
-        @media (min-width: 480px) { .float-tg-label { display: inline; } }
-
-        /* BUTTONS */
-        .btn {
-            display: inline-flex; align-items: center; gap: 9px;
-            font-family: inherit; font-weight: 700; font-size: 1rem;
-            padding: 14px 28px; border-radius: 50px; border: none;
-            cursor: pointer;
-            transition: transform .2s, box-shadow .2s, background .2s, color .2s;
-        }
-        .btn:hover { transform: translateY(-3px); }
-        .btn svg { width: 19px; height: 19px; flex-shrink: 0; }
-        .btn-gold {
-            background: linear-gradient(135deg, var(--gold), var(--gold-lt));
-            color: #08080E;
-            box-shadow: 0 4px 20px rgba(212,175,55,.35);
-        }
-        .btn-gold:hover { box-shadow: 0 8px 30px rgba(212,175,55,.5); }
-        .btn-tg {
-            background: transparent;
-            color: var(--tg);
-            border: 2px solid var(--tg);
-        }
-        .btn-tg:hover { background: var(--tg); color: #fff; }
-        .btn-tg-solid {
-            background: var(--tg);
-            color: #fff;
-            box-shadow: 0 4px 20px rgba(42,171,238,.35);
-        }
-        .btn-tg-solid:hover { box-shadow: 0 8px 30px rgba(42,171,238,.5); }
-
-        /* LAYOUT */
-        .container { max-width: 1080px; margin: 0 auto; padding: 0 22px; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Outfit', -apple-system, 'Segoe UI', sans-serif; line-height: 1.6; }
+        a { color: inherit; }
+        .container { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
         .section { padding: 72px 0; }
-        .eyebrow {
-            display: block; text-align: center;
-            font-size: .7rem; font-weight: 700;
-            letter-spacing: .18em; text-transform: uppercase;
-            color: var(--gold); margin-bottom: 10px;
-        }
-        .eyebrow-tg { color: var(--tg); }
-        .section-title {
-            text-align: center;
-            font-size: clamp(1.75rem, 3.8vw, 2.6rem);
-            font-weight: 800; line-height: 1.15;
-            color: var(--white); margin-bottom: 12px;
-        }
+        .eyebrow { display: inline-block; font-size: .78rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); margin-bottom: 10px; }
+        .section-title { font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 800; line-height: 1.2; margin: 0 0 14px; }
         .section-title span { color: var(--gold); }
-        .section-sub {
-            text-align: center; max-width: 550px;
-            margin: 0 auto 48px;
-            color: var(--muted); font-size: .97rem;
-        }
+        .lead { color: var(--text-dim); max-width: 640px; margin: 0 0 30px; font-size: 1.05rem; }
+        .center { text-align: center; } .center .lead { margin-left: auto; margin-right: auto; }
 
-        /* HERO */
-        .hero {
-            position: relative;
-            min-height: 100svh;
-            display: flex; align-items: center; justify-content: center;
-            text-align: center;
-            padding: 80px 22px;
-            overflow: hidden;
-        }
-        .hero-bg {
-            position: absolute; inset: 0;
-            background:
-                linear-gradient(160deg, rgba(3,7,20,.80) 0%, rgba(7,15,40,.87) 55%, rgba(3,7,20,.93) 100%),
-                url('images/hero-background.jpg') no-repeat center / cover;
-        }
-        .hero-pitch {
-            position: absolute; inset: 0;
-            width: 100%; height: 100%;
-            opacity: .09;
-            z-index: 0;
-            pointer-events: none;
-        }
-        .hero-inner {
-            position: relative; z-index: 1;
-            max-width: 780px; margin: 0 auto;
-        }
-        .hero-badge {
-            display: inline-block;
-            background: var(--gold-dim);
-            border: 1px solid var(--gold-border);
-            color: var(--gold);
-            font-size: .72rem; font-weight: 700;
-            letter-spacing: .15em; text-transform: uppercase;
-            padding: 6px 16px; border-radius: 50px;
-            margin-bottom: 26px;
-        }
-        .hero h1 {
-            font-size: clamp(2rem, 5.5vw, 3.9rem);
-            font-weight: 900; line-height: 1.12;
-            color: var(--white); margin-bottom: 18px;
-        }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 28px; border-radius: 50px; font-weight: 800; font-size: 1rem; text-decoration: none; border: 0; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-gold { background: linear-gradient(135deg, var(--gold), var(--gold-lt)); color: #09090F; box-shadow: 0 6px 24px rgba(212,175,55,.3); }
+        .btn-ghost { background: transparent; color: var(--text); border: 1px solid rgba(255,255,255,.2); }
+        .btn-tg { background: var(--tg); color: #fff; }
+        .btn svg { width: 18px; height: 18px; }
+
+        /* Felső sáv */
+        .topbar { position: sticky; top: 0; z-index: 50; background: rgba(9,9,15,.88); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,.06); }
+        .topbar .container { display: flex; align-items: center; justify-content: space-between; height: 62px; gap: 12px; }
+        .brand { font-weight: 900; font-size: 1.1rem; text-decoration: none; white-space: nowrap; }
+        .brand span { color: var(--gold); }
+        .topnav { display: flex; gap: 22px; align-items: center; }
+        .topnav a { text-decoration: none; color: var(--text-dim); font-weight: 600; font-size: .95rem; }
+        .topnav a:hover { color: var(--text); }
+        .topnav .btn { padding: 9px 18px; font-size: .9rem; color: #09090F; }
+        @media (max-width: 760px) { .topnav a:not(.btn):not(.login) { display: none; } .topnav { gap: 14px; } }
+        @media (max-width: 480px) { .brand { font-size: .95rem; } .topnav .btn { padding: 8px 12px; font-size: .82rem; } .topnav a { font-size: .85rem; } }
+        @media (max-width: 360px) { .brand span { display: none; } }
+
+        /* Hero */
+        .hero { position: relative; overflow: hidden; padding: 84px 0 70px; }
+        .hero::before { content: ""; position: absolute; inset: 0; background:
+            radial-gradient(800px 380px at 15% -10%, rgba(212,175,55,.16), transparent 60%),
+            radial-gradient(700px 400px at 100% 20%, rgba(42,171,238,.10), transparent 60%); pointer-events: none; }
+        .hero-grid { position: relative; display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: center; }
+        @media (max-width: 880px) { .hero-grid { grid-template-columns: 1fr; } }
+        .hero-badge { display: inline-block; background: var(--gold-dim); border: 1px solid var(--gold-border); color: var(--gold-lt); padding: 6px 14px; border-radius: 30px; font-size: .85rem; font-weight: 700; margin-bottom: 18px; }
+        .hero h1 { font-size: clamp(2rem, 5.4vw, 3.3rem); line-height: 1.08; font-weight: 900; margin: 0 0 18px; }
         .hero h1 em { font-style: normal; color: var(--gold); }
-        .hero-sub {
-            font-size: clamp(.97rem, 1.8vw, 1.15rem);
-            color: var(--muted); max-width: 600px;
-            margin: 0 auto 36px;
-        }
-        .hero-ctas {
-            display: flex; gap: 14px;
-            justify-content: center; flex-wrap: wrap;
-        }
-        .scroll-hint {
-            position: absolute; bottom: 30px; left: 50%;
-            transform: translateX(-50%);
-            display: flex; flex-direction: column; align-items: center; gap: 5px;
-            color: var(--muted); font-size: .68rem;
-            letter-spacing: .14em; text-transform: uppercase;
-            animation: bob 2.2s ease-in-out infinite;
-            opacity: .55;
-        }
-        @keyframes bob { 0%,100%{transform:translateX(-50%) translateY(0)} 55%{transform:translateX(-50%) translateY(7px)} }
+        .hero-sub { color: var(--text-dim); font-size: 1.12rem; margin: 0 0 28px; max-width: 560px; }
+        .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+        .hero-note { margin-top: 16px; color: var(--text-dim); font-size: .92rem; }
+        .hero-note b { color: var(--text); }
+        .price-tag:empty { display: none; }
 
-        /* STATS STRIP */
-        .stats-strip {
-            background: linear-gradient(90deg, rgba(212,175,55,.04), rgba(212,175,55,.09), rgba(212,175,55,.04));
-            border-top: 1px solid var(--gold-border);
-            border-bottom: 1px solid var(--gold-border);
-            padding: 18px 22px;
-        }
-        .stats-inner {
-            max-width: 860px; margin: 0 auto;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 14px 28px;
-        }
-        @media (max-width: 560px) {
-            .stats-inner {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        .stat { 
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .stat-n {
-            display: block;
-            font-size: 1.9rem; font-weight: 900;
-            color: var(--gold); line-height: 1.05;
-        }
-        .stat-l {
-            display: block;
-            font-size: .68rem; font-weight: 600;
-            color: var(--muted); text-transform: uppercase; letter-spacing: .1em;
-            margin-top: 2px;
-        }
-        @keyframes spin-ball {
-            from { transform: rotate(0deg); }
-            to   { transform: rotate(360deg); }
-        }
-        .stat-ball { display: inline-block; }
-        .stat-ball.spinning { animation: spin-ball 1.1s linear infinite; }
-        .stat-ai { font-family: 'Courier New', monospace; letter-spacing: .06em; }
-        .stat-ai.glitching { color: var(--gold-lt); }
+        /* Példa jelzés (Telegram-üzenet kinézet) */
+        .tg-card { background: #17212B; border-radius: 16px; padding: 18px 18px 12px; box-shadow: 0 20px 60px rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.06); max-width: 420px; justify-self: center; width: 100%; }
+        .tg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .tg-ava { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), #8a6d12); display: grid; place-items: center; font-weight: 900; color: #09090F; }
+        .tg-name { font-weight: 700; font-size: .95rem; } .tg-name small { display: block; color: #7f91a4; font-weight: 400; font-size: .8rem; }
+        .tg-msg { background: #182533; border-radius: 12px; padding: 14px 16px; font-size: .95rem; line-height: 1.55; }
+        .tg-msg .row { display: block; } .tg-msg .muted { color: #8ea3b8; }
+        .tg-msg code { background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 4px; font-family: inherit; }
+        .tg-msg .hl { color: var(--green); font-weight: 700; }
+        .tg-foot { text-align: right; color: #6d8094; font-size: .75rem; margin-top: 6px; }
+        .tg-label { text-align: center; color: var(--text-dim); font-size: .8rem; margin-top: 10px; }
 
-        /* AUTH */
-        .auth-section {
-            padding: 52px 22px;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border);
-        }
-        .auth-box {
-            max-width: 420px; margin: 0 auto;
-            background: var(--bg-card2);
-            border: 1px solid var(--gold-border);
-            border-radius: var(--r);
-            padding: 32px;
-            box-shadow: 0 0 50px rgba(212,175,55,.09);
-        }
-        .auth-box-title {
-            text-align: center;
-            font-size: 1.15rem; font-weight: 800;
-            color: var(--white); margin-bottom: 22px;
-        }
-        .auth-tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 22px;
-        }
-        .auth-tabs button {
-            flex: 1; padding: 11px;
-            border: none; background: none;
-            font-family: inherit; font-size: .97rem; font-weight: 600;
-            color: var(--muted); cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: color .2s, border-color .2s;
-        }
-        .auth-tabs button.active { color: var(--gold); border-bottom-color: var(--gold); }
-        .auth-content { display: none; }
-        .auth-content.active { display: block; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label {
-            display: block; margin-bottom: 5px;
-            font-size: .8rem; font-weight: 600; color: var(--muted);
-        }
-        .form-group input {
-            width: 100%; padding: 11px 14px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--bg); color: var(--text);
-            font-family: inherit; font-size: .97rem;
-            transition: border-color .2s;
-        }
-        .form-group input:focus { outline: none; border-color: var(--gold-border); }
-        .auth-submit {
-            width: 100%; padding: 13px;
-            background: linear-gradient(135deg, var(--gold), var(--gold-lt));
-            color: #08080E;
-            font-family: inherit; font-size: 1rem; font-weight: 800;
-            border: none; border-radius: 8px; cursor: pointer;
-            transition: box-shadow .2s, transform .2s;
-        }
-        .auth-submit:hover { box-shadow: 0 6px 24px rgba(212,175,55,.4); transform: translateY(-2px); }
-        .forgot-link {
-            display: block; text-align: right;
-            margin-top: 9px; font-size: .78rem;
-            color: var(--muted);
-            text-decoration: underline; text-underline-offset: 3px;
-        }
-        .auth-divider {
-            margin-top: 20px; padding-top: 18px;
-            border-top: 1px solid var(--border);
-            text-align: center; font-size: .82rem; color: var(--muted);
-        }
-        .auth-divider a { color: var(--tg); font-weight: 600; }
-        .form-error {
-            color: #FF6B6B; font-size: .82rem;
-            margin-top: 10px; text-align: center;
-        }
+        /* Kártyák */
+        .grid { display: grid; gap: 16px; }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .card { background: var(--bg-card); border: 1px solid rgba(255,255,255,.07); border-radius: 16px; padding: 22px; }
+        .card h3 { margin: 8px 0 6px; font-size: 1.1rem; }
+        .card p { margin: 0; color: var(--text-dim); font-size: .96rem; }
+        .ico { font-size: 1.6rem; }
+        .step-n { width: 34px; height: 34px; border-radius: 50%; background: var(--gold-dim); border: 1px solid var(--gold-border); color: var(--gold); display: grid; place-items: center; font-weight: 800; }
 
-        /* STORY */
-        .story-section { padding: 72px 22px; }
-        .story-inner {
-            max-width: 680px; margin: 0 auto;
-            text-align: center; color: var(--muted); font-size: .97rem;
-        }
-        .story-inner p { margin-bottom: 14px; }
-        .story-inner strong { color: var(--text); }
+        /* Value magyarázat */
+        .explain { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; }
+        @media (max-width: 820px) { .explain { grid-template-columns: 1fr; } }
+        .calc { background: var(--bg-card2); border: 1px solid var(--gold-border); border-radius: 16px; padding: 22px; }
+        .calc-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed rgba(255,255,255,.1); }
+        .calc-row:last-child { border: 0; }
+        .calc-row b { color: var(--gold-lt); }
+        .calc-row .plus { color: var(--green); font-weight: 800; }
 
-        /* TELEGRAM MID */
-        .tg-mid {
-            background:
-                radial-gradient(ellipse 75% 55% at 50% 0%, rgba(42,171,238,.28) 0%, transparent 62%),
-                radial-gradient(ellipse 45% 50% at 50% 55%, rgba(42,171,238,.10) 0%, transparent 68%),
-                linear-gradient(160deg, #060F1C 0%, #0D1E35 50%, #060F1C 100%);
-            border-top: 1px solid var(--tg-border);
-            border-bottom: 1px solid var(--tg-border);
-            padding: 64px 22px;
-            text-align: center;
-        }
-        .tg-mid h2 {
-            font-size: clamp(1.6rem, 3.5vw, 2.3rem);
-            font-weight: 800; color: var(--white);
-            margin-bottom: 12px;
-        }
-        .tg-mid h2 span { color: var(--tg); }
-        .tg-mid-sub {
-            color: #8AAEC4; max-width: 500px;
-            margin: 0 auto 26px; font-size: .97rem;
-        }
-        .tg-chips {
-            display: flex; justify-content: center;
-            gap: 10px; flex-wrap: wrap;
-            margin-bottom: 32px;
-        }
-        .chip {
-            background: var(--tg-dim);
-            border: 1px solid var(--tg-border);
-            color: var(--tg);
-            padding: 6px 15px; border-radius: 50px;
-            font-size: .82rem; font-weight: 600;
-        }
+        /* Előfizetés + belépés */
+        .join { background: linear-gradient(180deg, var(--bg-card2), var(--bg)); border-top: 1px solid rgba(255,255,255,.06); }
+        .join-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+        @media (max-width: 860px) { .join-grid { grid-template-columns: 1fr; } }
+        .offer { background: var(--bg-card); border: 1px solid var(--gold-border); border-radius: 18px; padding: 28px; }
+        .offer .price { font-size: 2.3rem; font-weight: 900; color: var(--gold-lt); line-height: 1.1; }
+        .offer .price:empty { display: none; }
+        .offer ul { list-style: none; padding: 0; margin: 18px 0 0; }
+        .offer li { padding: 7px 0 7px 28px; position: relative; color: var(--text); }
+        .offer li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 900; }
+        .trial { display: inline-block; margin-top: 10px; background: rgba(72,187,120,.12); border: 1px solid rgba(72,187,120,.35); color: #9AE6B4; padding: 5px 12px; border-radius: 20px; font-weight: 700; font-size: .9rem; }
 
-        /* HOW */
-        .how-section {
-            background: var(--bg-card);
-            border-top: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
-        }
-        .steps {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 24px;
-        }
-        .step-card {
-            background: var(--bg-card2);
-            border: 1px solid var(--border);
-            border-radius: var(--r);
-            padding: 28px 24px;
-            transition: border-color .25s, transform .25s;
-        }
-        .step-card:hover { border-color: var(--gold-border); transform: translateY(-4px); }
-        .step-num {
-            font-size: 2.8rem; font-weight: 900;
-            color: var(--gold); opacity: .22;
-            line-height: 1; margin-bottom: 10px;
-        }
-        .step-ico { font-size: 1.9rem; margin-bottom: 12px; }
-        .step-card h3 { font-size: 1.05rem; font-weight: 700; color: var(--white); margin-bottom: 7px; }
-        .step-card p { font-size: .88rem; color: var(--muted); }
+        .auth-box { background: var(--bg-card); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 26px; }
+        .auth-box-title { margin: 0 0 14px; font-weight: 800; font-size: 1.15rem; }
+        .auth-tabs { display: flex; background: var(--bg-card2); border-radius: 12px; padding: 4px; margin-bottom: 18px; }
+        .auth-tabs button { flex: 1; background: none; border: 0; color: var(--text-dim); padding: 10px; border-radius: 9px; font: inherit; font-weight: 700; cursor: pointer; }
+        .auth-tabs button.active { background: var(--gold); color: #09090F; }
+        .auth-content { display: none; } .auth-content.active { display: block; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: .88rem; color: var(--text-dim); margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: #0d0d14; color: var(--text); font: inherit; }
+        .form-group input:focus { outline: none; border-color: var(--gold); }
+        .auth-submit { width: 100%; padding: 13px; border: 0; border-radius: 10px; background: linear-gradient(135deg, var(--gold), var(--gold-lt)); color: #09090F; font: inherit; font-weight: 800; cursor: pointer; }
+        .forgot-link { display: block; text-align: center; margin-top: 12px; color: var(--text-dim); font-size: .88rem; }
+        .form-error { color: #FC8181; font-size: .9rem; margin: 10px 0 0; text-align: center; }
+        .auth-hint { color: var(--text-dim); font-size: .86rem; margin: 12px 0 0; text-align: center; }
 
-        /* FEATURES */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 18px;
-        }
-        .feat {
-            display: flex; align-items: flex-start; gap: 15px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--r);
-            padding: 22px;
-            transition: border-color .25s, transform .25s;
-        }
-        .feat:hover { border-color: var(--gold-border); transform: translateY(-3px); }
-        .feat-ico { font-size: 1.55rem; flex-shrink: 0; margin-top: 1px; }
-        .feat h4 { font-size: .97rem; font-weight: 700; color: var(--white); margin-bottom: 4px; }
-        .feat p { font-size: .83rem; color: var(--muted); }
-        .disclaimer {
-            margin-top: 38px; padding: 18px 22px;
-            background: rgba(212,175,55,.05);
-            border: 1px solid rgba(212,175,55,.18);
-            border-radius: var(--r);
-            text-align: center; font-size: .82rem; color: var(--muted);
-        }
-        .disclaimer strong { color: rgba(212,175,55,.85); }
+        /* Őszinte rész + GYIK */
+        .honest { background: var(--bg-card2); border-left: 4px solid var(--gold); border-radius: 12px; padding: 22px 24px; color: var(--text-dim); }
+        .honest b { color: var(--text); }
+        .faq-item { border-bottom: 1px solid rgba(255,255,255,.08); }
+        .faq-btn { width: 100%; background: none; border: 0; color: var(--text); font: inherit; font-weight: 700; font-size: 1.02rem; text-align: left; padding: 18px 0; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+        .faq-btn i { font-style: normal; color: var(--gold); transition: transform .2s; }
+        .faq-body { display: none; color: var(--text-dim); padding: 0 0 18px; }
+        .faq-item.open .faq-body { display: block; } .faq-item.open .faq-btn i { transform: rotate(45deg); }
 
-        /* GALLERY */
-        .gallery-section {
-            background: var(--bg-card);
-            border-top: 1px solid var(--border);
-        }
-        .splide__slide img {
-            width: 100%; height: auto;
-            border-radius: 8px;
-            box-shadow: 0 4px 18px rgba(0,0,0,.45);
-        }
-        .splide__arrow { background: var(--gold-dim); border: 1px solid var(--gold-border); }
-        .splide__arrow svg { fill: var(--gold); }
-        .splide__arrow:hover { background: var(--gold); }
-        .splide__arrow:hover svg { fill: #08080E; }
+        .tg-free { text-align: center; }
+        footer { border-top: 1px solid rgba(255,255,255,.06); padding: 36px 0 120px; text-align: center; color: var(--text-dim); font-size: .9rem; }
+        footer .links { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
+        footer a { color: var(--text-dim); }
 
-        /* FAQ */
-        .faq-list { max-width: 700px; margin: 0 auto; }
-        .faq-item { border-bottom: 1px solid var(--border); }
-        .faq-item:first-child { border-top: 1px solid var(--border); }
-        .faq-btn {
-            width: 100%; background: none; border: none;
-            display: flex; align-items: center; justify-content: space-between; gap: 12px;
-            padding: 19px 0; cursor: pointer;
-            font-family: inherit; font-size: .97rem; font-weight: 600;
-            color: var(--text); text-align: left;
-        }
-        .faq-icon {
-            color: var(--gold); font-size: 1.4rem; font-style: normal;
-            flex-shrink: 0; transition: transform .3s;
-        }
-        .faq-item.open .faq-icon { transform: rotate(45deg); }
-        .faq-body {
-            max-height: 0; overflow: hidden;
-            transition: max-height .32s ease;
-            font-size: .9rem; color: var(--muted);
-        }
-        .faq-body p { padding-bottom: 18px; }
-        .faq-item.open .faq-body { max-height: 280px; }
-
-        /* FINAL CTA */
-        .final-section {
-            background: linear-gradient(135deg, #0C0900, #141000, #0C0900);
-            border-top: 1px solid var(--gold-border);
-        }
-        .final-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px; max-width: 820px; margin: 0 auto;
-        }
-        @media (max-width: 620px) { .final-grid { grid-template-columns: 1fr; } }
-
-        /* Előfizetés szünetel (a szerver a body elemre "subs-paused" osztályt tesz, lásd app/pages.py) */
-        .paused-only { display: none; }
-        body.subs-paused .subs-only { display: none !important; }
-        body.subs-paused .paused-only { display: inline; }
-        body.subs-paused p.paused-only, body.subs-paused div.paused-only { display: block; }
-
-        /* Szerencsekerék kedvcsináló */
-        .wheel-teaser { padding: 56px 0 8px; }
-        .wheel-card {
-            display: flex; align-items: center; gap: 34px; flex-wrap: wrap; justify-content: center;
-            background: linear-gradient(135deg, rgba(212,175,55,.10), var(--bg-card));
-            border: 1px solid var(--gold-border); border-radius: 20px; padding: 30px 26px;
-        }
-        .wheel-mini { width: 170px; height: 170px; flex: 0 0 auto; animation: wheel-idle 14s linear infinite; }
-        @keyframes wheel-idle { to { transform: rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) { .wheel-mini { animation: none; } }
-        .wheel-copy { flex: 1 1 280px; max-width: 520px; }
-        .wheel-copy h2 { font-size: 1.7rem; margin: 6px 0 10px; }
-        .wheel-copy h2 span { color: var(--gold); }
-        .wheel-copy p { color: var(--text-dim, #A0A0B8); margin: 0 0 18px; }
-        .wheel-prizes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
-        .wheel-prizes span { background: var(--gold-dim); border: 1px solid var(--gold-border); color: var(--gold-lt);
-            border-radius: 20px; padding: 4px 12px; font-size: .85rem; font-weight: 600; }
-        .final-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--r);
-            padding: 34px 26px; text-align: center;
-        }
-        .final-card.gold { border-color: var(--gold-border); box-shadow: 0 0 36px rgba(212,175,55,.10); }
-        .final-card.tg  { border-color: var(--tg-border);  box-shadow: 0 0 36px rgba(42,171,238,.08); }
-        .final-card-ico { font-size: 2.8rem; margin-bottom: 12px; }
-        .final-card h3 { font-size: 1.2rem; font-weight: 800; color: var(--white); margin-bottom: 8px; }
-        .final-card p { font-size: .87rem; color: var(--muted); margin-bottom: 24px; }
-        .final-card .btn { width: 100%; justify-content: center; }
-
-        /* FOOTER */
-        footer {
-            background: #060610;
-            border-top: 1px solid var(--border);
-            padding: 42px 22px 36px;
-            text-align: center;
-        }
-        .footer-brand {
-            font-size: 1.15rem; font-weight: 900;
-            color: var(--gold); margin-bottom: 20px;
-        }
-        .footer-tg {
-            display: inline-flex; align-items: center; gap: 8px;
-            background: var(--tg-dim); border: 1px solid var(--tg-border);
-            color: var(--tg); padding: 10px 20px; border-radius: 50px;
-            font-weight: 700; margin-bottom: 26px;
-            transition: background .2s;
-        }
-        .footer-tg:hover { background: rgba(42,171,238,.22); }
-        .footer-tg svg { width: 17px; height: 17px; }
-        .footer-links { margin-bottom: 16px; }
-        .footer-links a {
-            color: var(--muted); margin: 0 10px; font-size: .88rem;
-            transition: color .2s;
-        }
-        .footer-links a:hover { color: var(--text); }
-        .footer-copy { font-size: .75rem; color: #33334A; }
-
-        /* COOKIE */
-        #cookie-banner {
-            position: fixed; bottom: 0; left: 0; width: 100%;
-            background: var(--bg-card2);
-            border-top: 1px solid var(--gold-border);
-            padding: 16px 22px;
-            display: none; align-items: center; justify-content: center;
-            gap: 18px; z-index: 850;
-            box-shadow: 0 -4px 20px rgba(0,0,0,.5);
-        }
-        #cookie-banner p {
-            margin: 0; flex-grow: 1; max-width: 680px;
-            font-size: .82rem; color: var(--muted);
-        }
-        #cookie-banner p a { color: var(--gold); }
-        .cookie-btns { display: flex; gap: 9px; flex-shrink: 0; }
-        .cookie-btn {
-            padding: 9px 17px; border: none; border-radius: 7px;
-            cursor: pointer; font-family: inherit; font-size: .82rem; font-weight: 700;
-        }
-        #cookie-accept { background: var(--gold); color: #08080E; }
-        #cookie-decline { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
-
-        @media (max-width: 768px) {
-            .section { padding: 52px 0; }
-            #cookie-banner { flex-direction: column; text-align: center; }
-        }
+        #cookie-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; display: none; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; background: #18181F; border-top: 1px solid var(--gold-border); padding: 16px 20px; }
+        #cookie-banner p { margin: 0; color: var(--text-dim); font-size: .9rem; max-width: 640px; }
+        #cookie-banner a { color: var(--gold); }
+        .cookie-btn { border: 0; border-radius: 8px; padding: 9px 18px; font: inherit; font-weight: 700; cursor: pointer; }
+        #cookie-decline { background: #2D2D38; color: var(--text-dim); } #cookie-accept { background: var(--gold); color: #09090F; }
     </style>
 
-    <!-- Facebook Pixel -->
+    <!-- Facebook Pixel (csak süti-hozzájárulás után indul, lásd lent) -->
     <script>
         !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
         n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
@@ -543,483 +155,282 @@
         t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
         (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
     </script>
-    <noscript><img height="1" width="1" style="display:none"
-        src="https://www.facebook.com/tr?id=1858049415130011&ev=PageView&noscript=1"/></noscript>
 </head>
 <body>
 
-<!-- ① LEBEGŐ TELEGRAM GOMB -->
-<a href="https://t.me/MondomATutit" target="_blank" class="float-tg" aria-label="Telegram csatorna">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
-    <span class="float-tg-label">Ingyenes csatorna</span>
-</a>
+<header class="topbar">
+    <div class="container">
+        <a class="brand" href="/">Mondom a Tutit! <span>· Value</span></a>
+        <nav class="topnav">
+            <a href="#hogyan">Hogyan működik?</a>
+            <a href="#gyik">GYIK</a>
+            <a href="/tipp-szotar.html">Tipp-szótár</a>
+            <a href="#belepes" class="login" onclick="openTabByName('login')">Belépés</a>
+            <a href="#belepes" class="btn btn-gold" onclick="openTabByName('register')">Kipróbálom</a>
+        </nav>
+    </div>
+</header>
 
-<!-- ② HERO -->
+<!-- HERO -->
 <section class="hero">
-    <div class="hero-bg"></div>
-
-    <!-- CSS-only focipálya vonalminta (SVG, nulla betöltési idő) -->
-    <svg class="hero-pitch" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 680" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <g fill="none" stroke="rgba(212,175,55,1)" stroke-width="3.5" stroke-linecap="round">
-            <!-- Külső határvonal -->
-            <rect x="4" y="4" width="1042" height="672"/>
-            <!-- Középvonal -->
-            <line x1="525" y1="4" x2="525" y2="676"/>
-            <!-- Középkör -->
-            <circle cx="525" cy="340" r="91.5"/>
-            <!-- Középpont -->
-            <circle cx="525" cy="340" r="4" fill="rgba(212,175,55,1)" stroke="none"/>
-            <!-- Bal büntető terület -->
-            <rect x="4" y="138" width="161" height="404"/>
-            <!-- Jobb büntető terület -->
-            <rect x="885" y="138" width="161" height="404"/>
-            <!-- Bal kapusterület -->
-            <rect x="4" y="248" width="51" height="184"/>
-            <!-- Jobb kapusterület -->
-            <rect x="995" y="248" width="51" height="184"/>
-            <!-- Bal büntető pont -->
-            <circle cx="110" cy="340" r="4" fill="rgba(212,175,55,1)" stroke="none"/>
-            <!-- Jobb büntető pont -->
-            <circle cx="940" cy="340" r="4" fill="rgba(212,175,55,1)" stroke="none"/>
-            <!-- Bal büntető ív -->
-            <path d="M 165,267 A 91.5,91.5 0 0,1 165,413"/>
-            <!-- Jobb büntető ív -->
-            <path d="M 885,267 A 91.5,91.5 0 0,0 885,413"/>
-            <!-- Sarokívek -->
-            <path d="M 14,4 A 10,10 0 0,1 4,14"/>
-            <path d="M 1036,4 A 10,10 0 0,0 1046,14"/>
-            <path d="M 1046,666 A 10,10 0 0,0 1036,676"/>
-            <path d="M 4,666 A 10,10 0 0,1 14,676"/>
-        </g>
-    </svg>
-    <div class="hero-inner">
-        <div class="hero-badge">⚽ AI és statisztika alapú foci elemzés</div>
-        <h1>Hagyj fel a megérzésekkel.<br><em>Az adatok vezérelnek.</em></h1>
-        <p class="hero-sub">
-            Algoritmusunk naponta pásztázza a fogadási piacokat és megtalálja az alulértékelt esélyeket.
-            Átlátható, adat-alapú tippek – emberi felügyelettel.
-        </p>
-        <div class="hero-ctas">
-            <a href="#login-register" class="btn btn-gold">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21H19.44a2 2 0 0 0 1.94-1.515L22 17"/></svg>
-                <span class="subs-only">VIP Előfizetés</span><span class="paused-only">VIP Zóna belépés</span>
-            </a>
-            <a href="https://t.me/MondomATutit" target="_blank" class="btn btn-tg">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
-                Ingyenes csatorna
-            </a>
+    <div class="container hero-grid">
+        <div>
+            <div class="hero-badge">📈 Pinnacle-alapú value-tippek</div>
+            <h1>Ne a megérzésre fogadj, hanem a <em>valós árra</em>.</h1>
+            <p class="hero-sub">Rendszerünk folyamatosan összeveti az irodák oddsait a világ legélesebb piacának, a Pinnacle-nek
+                árrés nélküli árával – és csak akkor jelez a privát Telegram-csatornában, ha egy odds érdemben a valós ár felett van.</p>
+            <div class="hero-ctas">
+                <a href="#belepes" class="btn btn-gold" onclick="openTabByName('register')">Kipróbálom __TRIAL_DAYS__ napig ingyen →</a>
+                <a href="#hogyan" class="btn btn-ghost">Hogyan működik?</a>
+            </div>
+            <p class="hero-note"><b class="price-tag">__VALUE_PRICE__</b> · __TRIAL_DAYS__ nap ingyenes próba · bármikor lemondható · 18+</p>
         </div>
-    </div>
-    <div class="scroll-hint">
-        <span>Görgess</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+        <div>
+            <div class="tg-card" aria-label="Példa egy jelzésre">
+                <div class="tg-head"><div class="tg-ava">MT</div><div class="tg-name">Mondom a Tutit! · Value<small>privát csatorna</small></div></div>
+                <div class="tg-msg">
+                    <span class="row">⚽ <b>#128</b> · Labdarúgás · Bundesliga</span>
+                    <span class="row"><code>Hazai FC</code> – <code>Vendég SV</code></span>
+                    <span class="row muted">Kezdés: 20:30</span><br>
+                    <span class="row">🎯 Tipp: <b>Vendég SV győzelem</b></span>
+                    <span class="row">Odds most <b>2,25</b> · fair 2,08 · előny <span class="hl">+8,2%</span></span>
+                    <span class="row">✅ Csak akkor, ha az odds ≥ <b>2,13</b></span>
+                    <span class="row">💰 Tét: <b>0,75 egység</b></span>
+                </div>
+                <div class="tg-foot">18:42 ✓✓</div>
+            </div>
+            <p class="tg-label">Kitalált példa a jelzések felépítésére</p>
+        </div>
     </div>
 </section>
 
-<!-- ③ STATISZTIKA SÁV -->
-<div class="stats-strip">
-    <div class="stats-inner">
-        <div class="stat"><span class="stat-n" data-count="1200" data-suffix="+">1200+</span><span class="stat-l">Megosztott tipp</span></div>
-        <div class="stat"><span class="stat-n" data-count="1100" data-suffix="+">1100+</span><span class="stat-l">Telegram követő</span></div>
-        <div class="stat"><span class="stat-n stat-ball">⚽</span><span class="stat-l">Foci fókusz</span></div>
-        <div class="stat"><span class="stat-n stat-ai">AI</span><span class="stat-l">Statisztika alapú elemzés</span></div>
+<!-- MI AZ A VALUE? -->
+<section class="section" style="padding-top:30px">
+    <div class="container explain">
+        <div>
+            <span class="eyebrow">Mi az a value?</span>
+            <h2 class="section-title">Ugyanazt a meccset <span>drágábban</span> adja valaki</h2>
+            <p class="lead">A Pinnacle a világ egyik legnagyobb „éles” fogadóirodája: a profi fogadók pénze miatt az oddsai a legpontosabbak közé tartoznak. Ha az
+                árrést levesszük róla, megkapjuk egy kimenetel valós esélyét. Amikor egy másik iroda ennél magasabb oddsot kínál,
+                az <b>value</b> – hosszú távon ez a nyereséges fogadás alapja.</p>
+        </div>
+        <div class="calc">
+            <div class="calc-row"><span>Pinnacle valós esély (árrés nélkül)</span><b>48,1%</b></div>
+            <div class="calc-row"><span>Ennek megfelelő „fair” odds</span><b>2,08</b></div>
+            <div class="calc-row"><span>Egy iroda által kínált odds</span><b>2,25</b></div>
+            <div class="calc-row"><span>Előny (várható érték)</span><span class="plus">+8,2%</span></div>
+            <div class="calc-row" style="color:var(--text-dim);font-size:.9rem"><span>Jelzés csak legalább 2% előnynél megy ki.</span></div>
+        </div>
     </div>
-</div>
+</section>
 
-<!-- ③/b SZERENCSEKERÉK -->
-<section class="wheel-teaser subs-only">
+<!-- HOGYAN MŰKÖDIK -->
+<section class="section" id="hogyan">
     <div class="container">
-        <div class="wheel-card">
-            <svg class="wheel-mini" viewBox="0 0 200 200" aria-hidden="true"><path d="M100,100 L100.0,4.0 A96,96 0 0,1 156.4,22.3 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(18 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−10%</text><path d="M100,100 L156.4,22.3 A96,96 0 0,1 191.3,70.3 Z" fill="#18181F"/><path d="M100,100 L191.3,70.3 A96,96 0 0,1 191.3,129.7 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(90 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−20%</text><path d="M100,100 L191.3,129.7 A96,96 0 0,1 156.4,177.7 Z" fill="#18181F"/><text x="100" y="22" transform="rotate(126 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#F2D060">1 nap</text><path d="M100,100 L156.4,177.7 A96,96 0 0,1 100.0,196.0 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(162 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−30%</text><path d="M100,100 L100.0,196.0 A96,96 0 0,1 43.6,177.7 Z" fill="#18181F"/><path d="M100,100 L43.6,177.7 A96,96 0 0,1 8.7,129.7 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(234 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">−10%</text><path d="M100,100 L8.7,129.7 A96,96 0 0,1 8.7,70.3 Z" fill="#18181F"/><text x="100" y="22" transform="rotate(270 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#F2D060">−50%</text><path d="M100,100 L8.7,70.3 A96,96 0 0,1 43.6,22.3 Z" fill="#D4AF37"/><text x="100" y="22" transform="rotate(306 100 100)" text-anchor="middle" font-size="10" font-weight="700" fill="#09090F">3 nap</text><path d="M100,100 L43.6,22.3 A96,96 0 0,1 100.0,4.0 Z" fill="#18181F"/><circle cx="100" cy="100" r="96" fill="none" stroke="#F2D060" stroke-width="3"/><circle cx="100" cy="100" r="16" fill="#09090F" stroke="#D4AF37" stroke-width="3"/></svg>
-            <div class="wheel-copy">
-                <span class="eyebrow">🎡 Heti szerencsekerék</span>
-                <h2>Pörgess hetente <span>ingyen</span>, és nyerj!</h2>
-                <p>Regisztrált tagjaink minden héten egyszer megpörgethetik a kereket. A nyeremény lehet kedvezmény a havi VIP előfizetésre vagy ingyenes VIP napok.</p>
-                <div class="wheel-prizes"><span>akár −50% az előfizetésre</span><span>1–3 nap ingyen VIP</span></div>
-                <a href="#login-register" class="btn btn-gold" onclick="var b=document.querySelectorAll('.auth-tabs button')[1]; if(b) b.click();">Regisztrálok és pörgetek</a>
-                <p style="font-size:.78rem;margin:12px 0 0">Ha már van fiókod, jelentkezz be, és a VIP oldalon megtalálod a kereket. <a href="/docs-static/szerencsekerek-szabalyzat.html" style="color:var(--gold)">Játékszabályzat</a></p>
-            </div>
+        <div class="center">
+            <span class="eyebrow">Hogyan működik?</span>
+            <h2 class="section-title">A szkennertől <span>a Telegramodig</span></h2>
+            <p class="lead">Nincs megérzés és nincs „biztos tipp” – egy szabályokhoz kötött rendszer, amelynek minden jelzése mérhető.</p>
+        </div>
+        <div class="grid grid-4">
+            <div class="card"><div class="step-n">1</div><h3>Folyamatos szkennelés</h3><p>A rendszer 10 percenként átnézi a ligák oddsait, és mindegyiket a Pinnacle aktuális árához méri.</p></div>
+            <div class="card"><div class="step-n">2</div><h3>Szigorú szűrés</h3><p>Legalább 2% előny, 1,50–5,00 közötti odds, meccsenként legfeljebb egy tipp. Ami nem fér bele, nem megy ki.</p></div>
+            <div class="card"><div class="step-n">3</div><h3>Azonnali jelzés</h3><p>A tipp rögtön megjelenik a csatornában: odds, valós ár, előny, minimum odds és tétjavaslat.</p></div>
+            <div class="card"><div class="step-n">4</div><h3>Nyílt elszámolás</h3><p>Minden reggel 9-kor eredményposzt: a tegnapi tippek és a csatorna összesítője.</p></div>
         </div>
     </div>
 </section>
 
-<!-- ④ AUTH BOX -->
-<section id="login-register" class="auth-section">
-    <div class="auth-box">
-        <p class="auth-box-title">👑 VIP Zóna belépés</p>
-        <div class="auth-tabs">
-            <button class="active" onclick="openTab(event,'login')">Bejelentkezés</button>
-            <button onclick="openTab(event,'register')">Regisztráció</button>
-        </div>
-        <div id="login" class="auth-content active">
-            <form action="/login" method="post">
-                <div class="form-group">
-                    <label for="l-email">E-mail cím</label>
-                    <input type="email" id="l-email" name="email" placeholder="te@email.com" required>
-                </div>
-                <div class="form-group">
-                    <label for="l-pw">Jelszó</label>
-                    <input type="password" id="l-pw" name="password" required>
-                </div>
-                <button type="submit" class="auth-submit">Bejelentkezés →</button>
-                <a href="/forgot-password" class="forgot-link">Elfelejtettem a jelszavam</a>
-            </form>
-        </div>
-        <div id="register" class="auth-content">
-            <form action="/register" method="post">
-                <div class="form-group">
-                    <label for="r-email">E-mail cím</label>
-                    <input type="email" id="r-email" name="email" placeholder="te@email.com" required>
-                </div>
-                <div class="form-group">
-                    <label for="r-pw">Jelszó</label>
-                    <input type="password" id="r-pw" name="password" required minlength="8">
-                </div>
-                <button type="submit" class="auth-submit">Regisztráció & Tovább →</button>
-            </form>
-        </div>
-        <div class="auth-divider">
-            Még nem biztos?
-            <a href="https://t.me/MondomATutit" target="_blank">Csatlakozz ingyen a Telegram csatornánkhoz ↗</a>
-        </div>
-    </div>
-</section>
-
-<!-- ⑤ STORY -->
-<section class="story-section">
+<!-- MIT KAPSZ -->
+<section class="section" style="padding-top:20px">
     <div class="container">
-        <span class="eyebrow">Miért jött létre?</span>
-        <h2 class="section-title">Elegem lett a <span>találgatásból</span></h2>
-        <div class="story-inner">
-            <p>Szia, <strong>Varga Tibor</strong> vagyok. Fogadtam évekig megérzésekre, "tuti tippekre" – és pontosan tudtam, milyen érzés, amikor a logika elveszik az érzelmekben.</p>
-            <p>Ezért fejlesztettem egy AI-alapú rendszert, ami <strong>forma, statisztika és piaci adatok alapján</strong> keresi a legjobb lehetőségeket. Néha ez value bet, néha egyszerűen egy jól megalapozott, statisztikailag erős tipp – de mindig adat vezérli, nem megérzés.</p>
-            <p>Ezt a rendszert osztom meg veled a VIP zónán keresztül.</p>
+        <div class="center">
+            <span class="eyebrow">Mit kapsz?</span>
+            <h2 class="section-title">Minden, ami egy <span>fegyelmezett</span> fogadáshoz kell</h2>
+        </div>
+        <div class="grid grid-3">
+            <div class="card"><div class="ico">🔒</div><h3>Privát Telegram-csatorna</h3><p>A jelzések értesítésként érkeznek a telefonodra – nem kell oldalakat figyelned.</p></div>
+            <div class="card"><div class="ico">✅</div><h3>Minimum odds</h3><p>Minden tipphez megadjuk, milyen odds alatt már nem éri meg – így nem fogadsz rossz áron.</p></div>
+            <div class="card"><div class="ico">💰</div><h3>Tétjavaslat egységben</h3><p>Negyed Kelly alapján, 0,25 egységre kerekítve, legfeljebb 1 egység. Alsóbb osztályban és kupában fél tét.</p></div>
+            <div class="card"><div class="ico">🔔</div><h3>Követő jelzés</h3><p>Ha egy már kiküldött tipp oddsa tovább javul, külön szólunk.</p></div>
+            <div class="card"><div class="ico">🎯</div><h3>CLV-mérés</h3><p>A fő mutatónk, hogy jobb oddsot kaptál-e a záróárnál. Ez rövid távon is megmutatja, valódi-e az előny.</p></div>
+            <div class="card"><div class="ico">🏦</div><h3>Irodafüggetlen</h3><p>Csak tippeket adunk, irodát nem ajánlunk: ott fogadsz, ahol a megadott odds elérhető (pl. a legális vegas.hu-n is).</p></div>
         </div>
     </div>
 </section>
 
-<!-- ⑥ TELEGRAM MID-PAGE -->
-<section class="tg-mid">
-    <span class="eyebrow eyebrow-tg">Ingyenes hozzáférés</span>
-    <h2>Nem vagy kész a VIP-re?<br><span>Csatlakozz ingyen.</span></h2>
-    <p class="tg-mid-sub">Telegram csatornánkon megnézheted eredményeinket, és jelezzük, ha új VIP elemzés vagy ingyenes tipp jelent meg a weboldalon. Időszakos akcióinkról, újdonságainkról is értesülhetsz, illetve kérdés esetén közvetlenül írhatsz is nekünk.</p>
-    <div class="tg-chips">
-        <span class="chip">🏆 Nyertes szelvények</span>
-        <span class="chip">🔔 Értesítés új tippekről</span>
-        <span class="chip">👥 1000+ követő</span>
-        <span class="chip">🚪 Belépő a VIP zónába</span>
-    </div>
-    <a href="https://t.me/MondomATutit" target="_blank" class="btn btn-tg-solid" style="font-size:1.05rem;padding:15px 32px;">
-        <svg viewBox="0 0 24 24" fill="currentColor" style="width:22px;height:22px"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
-        @MondomATutit – Csatlakozás
-    </a>
-</section>
-
-<!-- ⑦ HOGYAN KÉSZÜLNEK A TIPPEK -->
-<section class="how-section section">
-    <div class="container">
-        <span class="eyebrow">A folyamat</span>
-        <h2 class="section-title">Így készülnek a tippek</h2>
-        <p class="section-sub">Átlátható, háromszintes folyamat – emberi felügyelettel minden lépésnél.</p>
-        <div class="steps">
-            <div class="step-card">
-                <div class="step-num">01</div>
-                <div class="step-ico">🤖</div>
-                <h3>AI elemzés</h3>
-                <p>Az algoritmusunk forma- és statisztikai adatok alapján vizsgálja a meccseket, és megkeresi a legjobb fogadási lehetőségeket – érzelemmentesen, kizárólag számok alapján.</p>
+<!-- ELŐFIZETÉS + BELÉPÉS -->
+<section class="section join" id="belepes">
+    <div class="container join-grid">
+        <div class="offer">
+            <span class="eyebrow">Előfizetés</span>
+            <div class="price price-tag">__VALUE_PRICE__</div>
+            <span class="trial">🎁 Az első __TRIAL_DAYS__ nap ingyenes</span>
+            <ul>
+                <li>Hozzáférés a privát Value-csatornához</li>
+                <li>Minden jelzés, tétjavaslattal és minimum odds-szal</li>
+                <li>Napi eredmény és összesítő</li>
+                <li>Havi előfizetés, bármikor lemondható</li>
+                <li>A próbaidő alatt nem terhelünk; ha lemondod, nem is fogunk</li>
+            </ul>
+            <p style="color:var(--text-dim);font-size:.9rem;margin:16px 0 0">Így indul: regisztráció → előfizetés bankkártyával (Stripe) →
+                Telegram összekötése a profilodban → a bot küld egy csatlakozási linket.</p>
+        </div>
+        <div class="auth-box">
+            <p class="auth-box-title">Kezdjük el!</p>
+            <div class="auth-tabs">
+                <button onclick="openTab(event,'register')" class="active">Regisztráció</button>
+                <button onclick="openTab(event,'login')">Bejelentkezés</button>
             </div>
-            <div class="step-card">
-                <div class="step-num">02</div>
-                <div class="step-ico">🧠</div>
-                <h3>Emberi szűrő</h3>
-                <p>Az AI javaslatait egy józan ész alapú szűrőn futtatjuk át. Ha összességében logikusnak tűnik és illeszkedik a stratégiánkba, bekerül a VIP zónába.</p>
+            <div id="register" class="auth-content active">
+                <form action="/register" method="post">
+                    <div class="form-group">
+                        <label for="r-email">E-mail cím</label>
+                        <input type="email" id="r-email" name="email" placeholder="te@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="r-pw">Jelszó (legalább 8 karakter)</label>
+                        <input type="password" id="r-pw" name="password" required minlength="8">
+                    </div>
+                    <button type="submit" class="auth-submit">Regisztráció és tovább →</button>
+                    <p class="auth-hint">A regisztráció ingyenes; a próbaidőhöz a következő lépésben kérjük a kártyádat.</p>
+                </form>
             </div>
-            <div class="step-card">
-                <div class="step-num">03</div>
-                <div class="step-ico">⚡</div>
-                <h3>Azonnali elérés</h3>
-                <p>A jóváhagyott szerkesztői szelvények és ingyenes tippek azonnal megjelennek a weboldalon, a Telegram csatornán pedig jelezzük, hogy elkészült – te hozod meg a végső döntést.</p>
+            <div id="login" class="auth-content">
+                <form action="/login" method="post">
+                    <div class="form-group">
+                        <label for="l-email">E-mail cím</label>
+                        <input type="email" id="l-email" name="email" placeholder="te@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="l-pw">Jelszó</label>
+                        <input type="password" id="l-pw" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-submit">Bejelentkezés →</button>
+                    <a href="/forgot-password" class="forgot-link">Elfelejtettem a jelszavam</a>
+                </form>
             </div>
         </div>
     </div>
 </section>
 
-<!-- ⑧ FEATURES -->
+<!-- ŐSZINTÉN -->
 <section class="section">
-    <div class="container">
-        <span class="eyebrow">Mit tartalmaz?</span>
-        <h2 class="section-title">A VIP előfizetés <span>tartalma</span></h2>
-        <p class="section-sub">Minden, ami a fegyelmezett, adat-alapú fogadáshoz kell.</p>
-        <div class="features-grid">
-            <div class="feat"><div class="feat-ico">📊</div><div><h4>Szerkesztői VIP tippek</h4><p>AI és statisztika alapján összeállított, emberi logikával szűrt single és kombi szelvények – Excel táblában és részletes PDF elemzéssel.</p></div></div>
-            <div class="feat"><div class="feat-ico">🆓</div><div><h4>Ingyenes tippek</h4><p>Néha ingyenes tippeket is megosztunk – ezek a weboldalon érhetők el, és a Telegram csatornán jelezzük, ha megjelent egy ilyen.</p></div></div>
-            <div class="feat"><div class="feat-ico">📈</div><div><h4>Adat- és statisztika alapú megközelítés</h4><p>A tippek forma, statisztika és piaci adatok elemzésén alapulnak – megérzések és szurkolói elfogultság nélkül.</p></div></div>
-            <div class="feat"><div class="feat-ico">🧊</div><div><h4>Érzelemmentes döntések</h4><p>Kizárólag számok és adatok döntenek – nem a kedvenc csapat, nem az aktuális hangulat.</p></div></div>
-            <div class="feat"><div class="feat-ico">🔔</div><div><h4>Telegram értesítő</h4><p>Összekapcsolt fiókkal Telegram értesítést kapsz a szerkesztői szelvényekről és az ingyenes tippekről. Az Excel/PDF tartalmakról a csatornán adunk hírt.</p></div></div>
-            <div class="feat"><div class="feat-ico">🔄</div><div><h4>Rugalmas csomagok</h4><p>Napi, heti, havi, féléves és éves lehetőség, valamint örök tagság is elérhető. A havi előfizetés automatikusan megújul, a többi egyszeri fizetés – bármikor lemondható kötelezettség nélkül.</p></div></div>
-        </div>
-        <div class="disclaimer">
-            <strong>⚠️ Fontos:</strong> A sportfogadás kockázattal jár. Rendszerünk a valószínűségeket maximalizálja adatelemzéssel, de 100%-os garanciát senki sem adhat. Mindig játssz felelősségteljesen, és csak olyan összeget tegyél fel, amelyet elveszíteni is tudsz!
+    <div class="container" style="max-width:820px">
+        <div class="honest">
+            <b>Őszintén:</b> a value-fogadás hosszú távú játék. Egy-egy nap vagy hét lehet veszteséges akkor is, ha minden tipp
+            valódi előnnyel ment ki – ez a szórás. Ezért mérjük a CLV-t, és ezért javaslunk kis, egységben megadott téteket.
+            Nyereséget senki nem garantálhat. <b>Csak 18 éven felülieknek</b>, és csak annyit tegyél fel, amennyit nyugodtan elveszíthetsz.
         </div>
     </div>
 </section>
 
-<!-- ⑨ GALÉRIA -->
-
-
-<!-- ⑩ GYIK -->
-<section class="section">
-    <div class="container">
-        <span class="eyebrow">Kérdések</span>
-        <h2 class="section-title">Amit a legtöbben kérdeznek</h2>
-        <div class="faq-list" style="margin-top:36px;">
-            <div class="faq-item open">
-                <button class="faq-btn">Milyen tippeket kapok?<i class="faq-icon">+</i></button>
-                <div class="faq-body"><p>Főként futball tippeket osztunk meg: AI és statisztika alapján összeállított, emberi logikával ellenőrzött single vagy kombi fogadások. Ezek Excel táblában és részletes PDF stratégiai leírással érkeznek. Emellett időnként ingyenes tippeket is megosztunk a weboldalon.</p></div>
-            </div>
-            <div class="faq-item">
-                <button class="faq-btn">Mikor érkeznek a tippek?<i class="faq-icon">+</i></button>
-                <div class="faq-body"><p>Nincs fix időpont. Minden tippet minőség-ellenőrzésnek vetünk alá, ezért a nap bármely szakában megjelenhetnek, amint elkészültek. A mennyiség helyett a minőségre fókuszálunk.</p></div>
-            </div>
-            <div class="faq-item">
-                <button class="faq-btn">Garantált a nyeremény?<i class="faq-icon">+</i></button>
-                <div class="faq-body"><p>Nem. A sportfogadás kockázattal jár. Rendszerünk a valószínűségeket maximalizálja adatelemzéssel, de 100%-os garanciát senki sem adhat. Mindig játssz felelősségteljesen!</p></div>
-            </div>
-            <div class="faq-item">
-                <button class="faq-btn">Hogyan mondhatom le az előfizetést?<i class="faq-icon">+</i></button>
-                <div class="faq-body"><p>Csak a havi előfizetés újul meg automatikusan – ezt a Profil menüpontban egyetlen kattintással lemondhatod a Stripe biztonságos ügyfélportálján. A többi csomag (napi, heti, féléves, éves) egyszeri fizetés, nem újul meg automatikusan. Minden esetben a már kifizetett időszak végéig megmarad a hozzáférésed.</p></div>
-            </div>
-            <div class="faq-item">
-                <button class="faq-btn">Mi a különbség a VIP és az ingyenes Telegram csatorna közt?<i class="faq-icon">+</i></button>
-                <div class="faq-body"><p>A Telegram csatornán megnézheted eredményeinket, és jelezzük, ha új VIP elemzés vagy ingyenes tipp jelent meg a weboldalon. A tényleges tippek, Excel táblák és PDF elemzések kizárólag a weboldalon érhetők el – regisztráció és (VIP tartalomnál) előfizetés után.</p></div>
-            </div>
-        </div>
+<!-- GYIK -->
+<section class="section" id="gyik" style="padding-top:10px">
+    <div class="container" style="max-width:820px">
+        <div class="center"><span class="eyebrow">GYIK</span><h2 class="section-title">Amit a legtöbben <span>kérdeznek</span></h2></div>
+        <div class="faq-item"><button class="faq-btn">Mi az az „egység”?<i>+</i></button>
+            <div class="faq-body"><p>A tétjavaslat mértékegysége: a fogadásra szánt kereted egy állandó része, pl. 1–2%-a. Ha 1 egység nálad 1000 Ft, akkor a „0,75 egység” 750 Ft-ot jelent. Így a tétek a kereted méretéhez igazodnak.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Mi az a CLV, és miért fontos?<i>+</i></button>
+            <div class="faq-body"><p>Closing Line Value: mennyivel jobb oddsot kaptál, mint a meccs kezdése előtti utolsó (záró) Pinnacle-ár. Aki rendszeresen a záróár felett fogad, az hosszú távon nyer – ezt már néhány száz tipp után is jól lehet mérni, míg a ROI-t sokáig a szerencse torzítja.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Hol fogadjak?<i>+</i></button>
+            <div class="faq-body"><p>Ezt rád bízzuk – irodát nem ajánlunk. Ott fogadj, ahol a tipp legalább a megadott minimum odds-szal elérhető; ha sehol nincs meg, hagyd ki. Magyarországon legálisan pl. a vegas.hu-n fogadhatsz.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Mennyi tipp jön?<i>+</i></button>
+            <div class="faq-body"><p>Ahány valódi value-lehetőség akad – ez a piactól függ, napi szinten jellemzően néhány. Mennyiségre nem optimalizálunk: amelyik tipp nem éri el a küszöböt, nem megy ki.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Hogyan működik a próbaidő és a lemondás?<i>+</i></button>
+            <div class="faq-body"><p>Az első __TRIAL_DAYS__ napban nem terhelünk. Ha a próbaidő vége előtt lemondod, egyáltalán nem fizetsz; ha nem, onnantól havonta megújul. Lemondani a profilodban egy kattintással lehet, és a kifizetett időszak végéig a csatornában maradsz.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Miért kell a Telegramot összekötni?<i>+</i></button>
+            <div class="faq-body"><p>A csatorna privát: a bot csak annak a Telegram-fióknak hagyja jóvá a csatlakozást, amelyik egy aktív előfizetéshez tartozik. Így a meghívó továbbküldve sem ér semmit, és lemondás után a hozzáférés is rendben megszűnik.</p></div></div>
+        <div class="faq-item"><button class="faq-btn">Régi VIP-tag vagyok. Mi lesz velem?<i>+</i></button>
+            <div class="faq-body"><p>Ha még érvényes (pl. éves vagy örökös) tagságod van, a lejáratáig külön díj nélkül eléred a Value-csatornát is. Jelentkezz be, és a profilodban kösd össze a Telegramodat – a bot elküldi a meghívót.</p></div></div>
     </div>
 </section>
 
-<!-- ⑪ ZÁRÓ CTA -->
-<section class="final-section section">
+<!-- INGYENES CSATORNA -->
+<section class="section tg-free" style="padding-top:10px">
     <div class="container">
-        <h2 class="section-title" style="margin-bottom:36px;">Válaszd a hozzád <span>illő utat</span></h2>
-        <div class="final-grid">
-            <div class="final-card gold">
-                <div class="final-card-ico">👑</div>
-                <h3>VIP Előfizetés</h3>
-                <p>Teljes hozzáférés a szerkesztői szelvényekhez, Excel és PDF elemzésekhez, valamint ingyenes tippekhez.</p>
-                <p class="paused-only" style="color:var(--gold-lt);font-weight:600">🛠️ Az előfizetés átalakítás miatt átmenetileg szünetel – hamarosan megújult csomagokkal jelentkezünk!</p>
-                <a href="#login-register" class="btn btn-gold"><span class="subs-only">Regisztráció & Előfizetés</span><span class="paused-only">Belépés meglévő tagoknak</span></a>
-            </div>
-            <div class="final-card tg">
-                <div class="final-card-ico">📣</div>
-                <h3>Ingyenes Telegram</h3>
-                <p>Csatlakozz a csatornánkhoz ingyen, kötelezettség nélkül – és döntsd el magad.</p>
-                <a href="https://t.me/MondomATutit" target="_blank" class="btn btn-tg">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
-                    Csatlakozás – ingyenesen
-                </a>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- FOOTER -->
-<footer>
-    <div class="footer-brand">⚽ Mondom a Tutit!</div>
-    <div>
-        <a href="https://t.me/MondomATutit" target="_blank" class="footer-tg">
+        <p style="color:var(--text-dim);margin:0 0 14px">Előbb csak ismerkednél? Kövesd az ingyenes csatornánkat – ott jelezzük az újdonságokat és az eredményeket.</p>
+        <a href="https://t.me/MondomATutit" target="_blank" rel="noopener" class="btn btn-tg">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
-            @MondomATutit Telegram csatorna
+            @MondomATutit – ingyenes csatorna
         </a>
     </div>
-    <div class="footer-links">
-        <a href="/tipp-szotar.html">📖 Tipp-szótár</a>
-        <a href="/aszf.html">ÁSZF</a>
-        <a href="/adatvedelem.html">Adatvédelmi Nyilatkozat</a>
+</section>
+
+<footer>
+    <div class="container">
+        <div style="font-weight:900;color:var(--text)">Mondom a Tutit! <span style="color:var(--gold)">· Value</span></div>
+        <div class="links">
+            <a href="/value">Előfizetés</a>
+            <a href="/tipp-szotar.html">Tipp-szótár</a>
+            <a href="/aszf.html">ÁSZF</a>
+            <a href="/adatvedelem.html">Adatvédelem</a>
+        </div>
+        <p style="margin:0">© 2026 Mondom a Tutit! · Csak 18 éven felülieknek · A sportfogadás kockázattal jár.</p>
     </div>
-    <p class="footer-copy">© 2025 Mondom a Tutit! | Minden jog fenntartva. | A sportfogadás kockázattal jár.</p>
 </footer>
 
-<!-- COOKIE BANNER -->
 <div id="cookie-banner">
     <p>Weboldalunk sütiket használ a felhasználói élmény javítása, valamint analitikai és marketing célokból.
        <a href="/adatvedelem.html" target="_blank">Adatvédelmi Nyilatkozat</a></p>
-    <div class="cookie-btns">
+    <div>
         <button id="cookie-decline" class="cookie-btn">Elutasítom</button>
         <button id="cookie-accept" class="cookie-btn">Elfogadom</button>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
 <script>
-function initPixel() { fbq('init','1858049415130011'); fbq('track','PageView'); }
+function initPixel() { fbq('init', '1858049415130011'); fbq('track', 'PageView'); }
 
-function openTab(evt, name) {
-    document.querySelectorAll('.auth-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.auth-tabs button').forEach(el => el.classList.remove('active'));
-    document.getElementById(name).classList.add('active');
-    evt.currentTarget.classList.add('active');
+function openTabByName(name) {
+    document.querySelectorAll('.auth-content').forEach(el => el.classList.toggle('active', el.id === name));
+    document.querySelectorAll('.auth-tabs button').forEach(el =>
+        el.classList.toggle('active', el.getAttribute('onclick').indexOf("'" + name + "'") >= 0));
 }
+function openTab(evt, name) { openTabByName(name); }
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Cookie
-    const banner  = document.getElementById('cookie-banner');
-    const accept  = document.getElementById('cookie-accept');
-    const decline = document.getElementById('cookie-decline');
-    const floatTg = document.querySelector('.float-tg');
-
-    function setCookieLayout(visible) {
-        if (visible) {
-            banner.style.display = 'flex';
-            // Kis késleltetés, hogy a banner magassága már mérhető legyen
-            requestAnimationFrame(function() {
-                floatTg.style.bottom = (banner.offsetHeight + 12) + 'px';
-            });
-        } else {
-            banner.style.display = 'none';
-            floatTg.style.bottom = '24px';
-        }
-    }
-
-    function getCookie(n) {
-        const v = ('; ' + document.cookie).split('; ' + n + '=');
-        return v.length === 2 ? v.pop().split(';').shift() : null;
-    }
-    const consent = getCookie('user_cookie_consent');
-    let pixelOn = false;
-    if (consent === 'accepted') { initPixel(); pixelOn = true; }
-    else if (!consent) { setCookieLayout(true); }
-    accept.addEventListener('click', function () {
+    // Süti-hozzájárulás; a Facebook Pixel csak elfogadás után indul
+    var banner = document.getElementById('cookie-banner');
+    function getCookie(n) { var v = ('; ' + document.cookie).split('; ' + n + '='); return v.length === 2 ? v.pop().split(';').shift() : null; }
+    var consent = getCookie('user_cookie_consent'), pixelOn = false;
+    if (consent === 'accepted') { initPixel(); pixelOn = true; } else if (!consent) { banner.style.display = 'flex'; }
+    document.getElementById('cookie-accept').addEventListener('click', function () {
         document.cookie = 'user_cookie_consent=accepted; path=/; max-age=31536000';
-        setCookieLayout(false);
-        if (!pixelOn) { initPixel(); pixelOn = true; }
+        banner.style.display = 'none'; if (!pixelOn) { initPixel(); pixelOn = true; }
     });
-    decline.addEventListener('click', function () {
+    document.getElementById('cookie-decline').addEventListener('click', function () {
         document.cookie = 'user_cookie_consent=declined; path=/; max-age=31536000';
-        setCookieLayout(false);
+        banner.style.display = 'none';
     });
 
-    // Számlálóanimáció
-    function animateCounter(el, target, suffix, duration) {
-        var startTime = null;
-        function step(currentTime) {
-            if (!startTime) startTime = currentTime;
-            var elapsed = currentTime - startTime;
-            var progress = Math.min(elapsed / duration, 1);
-            var eased = 1 - Math.pow(1 - progress, 3);
-            el.textContent = Math.round(eased * target) + suffix;
-            if (progress < 1) requestAnimationFrame(step);
-        }
-        requestAnimationFrame(step);
-    }
-
-    function animateAI(el, duration) {
-        var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        var startTime = null;
-        var lastSwap = 0;
-        el.classList.add('glitching');
-        function step(now) {
-            if (!startTime) startTime = now;
-            var progress = Math.min((now - startTime) / duration, 1);
-            if (progress >= 1) {
-                el.textContent = 'AI';
-                el.classList.remove('glitching');
-                return;
-            }
-            if (now - lastSwap > 75) {
-                lastSwap = now;
-                var c1 = progress > 0.72 ? 'A' : chars[Math.floor(Math.random() * chars.length)];
-                var c2 = progress > 0.88 ? 'I' : chars[Math.floor(Math.random() * chars.length)];
-                el.textContent = c1 + c2;
-            }
-            requestAnimationFrame(step);
-        }
-        requestAnimationFrame(step);
-    }
-
-    var countersStarted = false;
-    var statsObserver = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-            if (entry.isIntersecting && !countersStarted) {
-                countersStarted = true;
-                var duration = 4800;
-
-                // Számlálók
-                document.querySelectorAll('[data-count]').forEach(function(el) {
-                    animateCounter(el, parseInt(el.dataset.count), el.dataset.suffix || '', duration);
-                });
-
-                // Focilabda forgás
-                var ball = document.querySelector('.stat-ball');
-                if (ball) {
-                    ball.classList.add('spinning');
-                    setTimeout(function() { ball.classList.remove('spinning'); }, duration);
-                }
-
-                // AI glitch
-                var aiEl = document.querySelector('.stat-ai');
-                if (aiEl) animateAI(aiEl, duration);
-
-                statsObserver.disconnect();
-            }
-        });
-    }, { threshold: 0.4 });
-
-    var statsStrip = document.querySelector('.stats-strip');
-    if (statsStrip) statsObserver.observe(statsStrip);
-
-    // Galéria
-    const list = document.querySelector('#image-carousel .splide__list');
-    if (list) {
-        for (let i = 1; i <= 99; i++) {
-            const n = String(i).padStart(2, '0');
-            const li = document.createElement('li'); li.className = 'splide__slide';
-            const img = document.createElement('img');
-            img.src = './images/wins/win' + n + '.jpg';
-            img.alt = 'Nyerő szelvény ' + i; img.loading = 'lazy';
-            li.appendChild(img); list.appendChild(li);
-        }
-        new Splide('#image-carousel', {
-            type:'loop', perPage:3, perMove:1, gap:'1rem', pagination:false,
-            breakpoints: { 768:{perPage:2}, 560:{perPage:1} }
-        }).mount();
-    }
-
-    // FAQ accordion
-    document.querySelectorAll('.faq-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            var item = btn.closest('.faq-item');
-            var isOpen = item.classList.contains('open');
-            document.querySelectorAll('.faq-item').forEach(function(i) { i.classList.remove('open'); });
-            if (!isOpen) item.classList.add('open');
+    // GYIK
+    document.querySelectorAll('.faq-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var item = btn.closest('.faq-item'), open = item.classList.contains('open');
+            document.querySelectorAll('.faq-item').forEach(function (i) { i.classList.remove('open'); });
+            if (!open) item.classList.add('open');
         });
     });
 
-    // Hash-alapú tab nyitás (pl. mondomatutit.hu#register)
-    if (window.location.hash === '#register') {
-        document.querySelector('.auth-tabs button:last-child').click();
-    }
+    // Régi linkek: #login-register, #register, #login
+    var h = window.location.hash;
+    if (h === '#login-register' || h === '#login') { openTabByName('login'); document.getElementById('belepes').scrollIntoView(); }
+    if (h === '#register') { openTabByName('register'); document.getElementById('belepes').scrollIntoView(); }
 
-    // URL hibák megjelenítése
+    // Hibaüzenetek a bejelentkezésnél / regisztrációnál
     var params = new URLSearchParams(window.location.search);
-    if (params.get('login_error')) {
-        var msg = document.createElement('p'); msg.className = 'form-error';
-        msg.textContent = params.get('login_error') === 'too_many'
-            ? 'Túl sok sikertelen próbálkozás. Kérjük, próbáld újra 15 perc múlva.'
-            : 'Hibás e-mail cím vagy jelszó.';
-        document.getElementById('login').querySelector('form').appendChild(msg);
+    function showError(tab, text) {
+        var p = document.createElement('p'); p.className = 'form-error'; p.textContent = text;
+        document.getElementById(tab).querySelector('form').appendChild(p);
+        openTabByName(tab); document.getElementById('belepes').scrollIntoView();
     }
-    if (params.get('register_error') === 'email_exists') {
-        var msg2 = document.createElement('p'); msg2.className = 'form-error';
-        msg2.textContent = 'Ez az e-mail cím már regisztrálva van.';
-        document.getElementById('register').querySelector('form').appendChild(msg2);
-        document.querySelector('.auth-tabs button:last-child').click();
-    }
-    if (params.get('register_error') === 'weak_password') {
-        var msg3 = document.createElement('p'); msg3.className = 'form-error';
-        msg3.textContent = 'A jelszónak legalább 8 karakter hosszúnak kell lennie.';
-        document.getElementById('register').querySelector('form').appendChild(msg3);
-        document.querySelector('.auth-tabs button:last-child').click();
-    }
+    if (params.get('login_error')) showError('login', params.get('login_error') === 'too_many'
+        ? 'Túl sok sikertelen próbálkozás. Kérjük, próbáld újra 15 perc múlva.' : 'Hibás e-mail cím vagy jelszó.');
+    var re = params.get('register_error');
+    if (re === 'email_exists') showError('register', 'Ez az e-mail cím már regisztrálva van – jelentkezz be.');
+    else if (re === 'weak_password') showError('register', 'A jelszónak legalább 8 karakter hosszúnak kell lennie.');
+    else if (re) showError('register', 'A regisztráció most nem sikerült, kérjük, próbáld újra.');
 });
 </script>
 </body>

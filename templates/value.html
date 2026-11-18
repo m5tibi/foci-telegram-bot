@@ -47,23 +47,26 @@
     {% if allowed %}
       <h2 style="margin-top:0">✅ Az előfizetésed aktív</h2>
       <p style="color:var(--text-medium);margin:0 0 6px">
-        {% if row.status == 'trialing' %}Próbaidő eddig: <b>{{ period_end }}</b>{% if not row.cancel_at_period_end %}, utána automatikusan indul a havi előfizetés{% endif %}.
+        {% if legacy_until %}A korábbi VIP-tagságod alapján a csatorna eddig érhető el: <b>{{ legacy_until }}</b>.
+        {% elif row.status == 'trialing' %}Próbaidő eddig: <b>{{ period_end }}</b>{% if not row.cancel_at_period_end %}, utána automatikusan indul a havi előfizetés{% endif %}.
         {% elif row.cancel_at_period_end %}Lemondva – a csatorna eddig érhető el: <b>{{ period_end }}</b>.
         {% elif row.status == 'past_due' %}⚠️ A legutóbbi fizetés sikertelen volt – kérjük, frissítsd a kártyádat, különben a hozzáférés megszűnik.
         {% else %}Következő megújulás: <b>{{ period_end }}</b>.{% endif %}
       </p>
       <ol class="v-steps">
-        <li class="done">Előfizetés ✓</li>
+        <li class="done">{{ 'Korábbi VIP-tagság' if legacy_until else 'Előfizetés' }} ✓</li>
         <li class="{{ 'done' if user.chat_id else '' }}">Telegram összekötése{% if user.chat_id %} ✓{% endif %}</li>
-        <li class="{{ 'done' if row.member else '' }}">Csatlakozás a csatornához{% if row.member %} ✓{% endif %}</li>
+        <li class="{{ 'done' if row and row.member else '' }}">Csatlakozás a csatornához{% if row and row.member %} ✓{% endif %}</li>
       </ol>
       <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         {% if not user.chat_id %}
           <a class="v-btn tg" href="/profile#telegram">🔗 Telegram összekötése</a>
-        {% elif not row.member %}
+        {% elif not (row and row.member) and can_join %}
           <form method="POST" action="/value/join" style="margin:0"><button class="v-btn tg" type="submit">📈 Csatlakozás a csatornához</button></form>
+        {% elif not (row and row.member) %}
+          <p style="color:#F2D060;margin:0">⏳ A csatorna-meghívót hamarosan elküldjük Telegramon – nincs teendőd.</p>
         {% endif %}
-        <a class="v-btn ghost" href="/value/portal">Előfizetés kezelése / lemondás</a>
+        {% if row and row.subscription_id %}<a class="v-btn ghost" href="/value/portal">Előfizetés kezelése / lemondás</a>{% endif %}
       </div>
       {% if not user.chat_id %}<p class="v-note">Az összekötés után a bot Telegramon elküldi a csatlakozási linket.</p>{% endif %}
 

@@ -2,6 +2,7 @@
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sikeres Regisztráció!</title>
     <style>
         body { font-family: sans-serif; background-color: #1A202C; color: #E2E8F0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; text-align: center; }
@@ -12,7 +13,7 @@
 <body>
     <div class="container">
         <h1>Köszönjük a regisztrációdat!</h1>
-        <p>Egy pillanat, és átirányítunk a bejelentkezéshez...</p>
+        <p>Be is jelentkeztél – egy pillanat, és átirányítunk a Value előfizetéshez...</p>
     </div>
 
     <script>
@@ -40,7 +41,7 @@
             
             // Az átirányítás előtt várunk 3 másodpercet, hogy a Pixelnek legyen ideje lefutni.
             setTimeout(function() {
-                window.location.href = "https://mondomatutit.hu/#login-register";
+                window.location.href = "/value";
             }, 3000); // Időtartam növelve 2000ms-ról 3000ms-ra
         }
 
