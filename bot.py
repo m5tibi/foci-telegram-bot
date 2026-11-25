@@ -811,9 +811,10 @@ def add_handlers(application: Application):
 
     application.add_handler(CommandHandler("start", start))
     # Value fizetős csatorna: csak aktív előfizető csatlakozási kérelmét hagyjuk jóvá
-    from telegram.ext import ChatJoinRequestHandler
-    from app.value_sub import handle_join_request
+    from telegram.ext import ChatJoinRequestHandler, ChatMemberHandler
+    from app.value_sub import handle_join_request, handle_member_update
     application.add_handler(ChatJoinRequestHandler(handle_join_request))
+    application.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
     application.add_handler(CommandHandler("admin", admin_menu))
     application.add_handler(CommandHandler("stat", stat_command))
     application.add_handler(broadcast_conv)

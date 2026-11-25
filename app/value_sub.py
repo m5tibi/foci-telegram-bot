@@ -308,6 +308,43 @@ async def handle_join_request(update, context=None):
         print(f"[value] Elutasító üzenet hiba ({tg_id}): {e}")
 
 
+def _get_rows_by_tg(tg_id):
+    return get_admin_db().table(TABLE).select("*").eq("telegram_user_id", tg_id).eq("member", True).execute().data or []
+
+
+async def handle_member_update(update, context=None):
+    """Bot: valaki magától kilépett a fizetős csatornából (vagy kitették) -> nem tag többé, így újra kaphat meghívót."""
+    cm = update.chat_member
+    if not cm or not VALUE_CHANNEL_ID or str(cm.chat.id) != VALUE_CHANNEL_ID:
+        return
+    new = cm.new_chat_member.status
+    if new not in ("left", "kicked"):
+        return
+    tg_id = cm.new_chat_member.user.id
+    rows = await asyncio.to_thread(_get_rows_by_tg, tg_id)
+    for row in rows:
+        await asyncio.to_thread(save_row, row["user_id"], {"member": False,
+                                                          "removed_at": datetime.now(pytz.utc).isoformat()})
+        if new == "left":   # a saját kiléptetésünkről (kicked) a remove_member már szólt
+            await _alert(f"👋 *VALUE KILÉPETT* (saját maga)\n👤 {row.get('email')}")
+
+
+async def _check_still_member(row):
+    """Egyeztetéskor: ha a bot szerint tag, de valójában már nincs a csatornában, javítjuk az adatbázist."""
+    bot, tg = _bot(), row.get("telegram_user_id")
+    if not (row.get("member") and tg and bot and VALUE_CHANNEL_ID):
+        return row
+    try:
+        m = await bot.get_chat_member(chat_id=VALUE_CHANNEL_ID, user_id=tg)
+    except Exception as e:
+        print(f"[value] Tagság-ellenőrzési hiba ({row.get('email')}): {e}")
+        return row
+    if m.status in ("left", "kicked"):
+        print(f"[value] {row.get('email')}: már nincs a csatornában – tagság törölve")
+        return save_row(row["user_id"], {"member": False, "removed_at": datetime.now(pytz.utc).isoformat()})
+    return row
+
+
 async def on_telegram_linked(user_id, chat_id):
     """A /start <token> összekötés után: ha van élő előfizetése, rögtön megkapja a meghívót."""
     try:
@@ -440,6 +477,7 @@ async def reconcile_once():
     rows = get_admin_db().table(TABLE).select("*").execute().data or []
     for row in rows:
         try:
+            row = await _check_still_member(row)
             if not row.get("subscription_id"):
                 await _enforce(row)              # régi VIP-tag: a tagsága lejártával kikerül
                 continue
