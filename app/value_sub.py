@@ -46,7 +46,7 @@ VALUE_PRICE_ID = os.environ.get("VALUE_PRICE_ID", "").strip()
 VALUE_TEST_PRICE_ID = os.environ.get("VALUE_TEST_PRICE_ID", "").strip()
 VALUE_TRIAL_DAYS = int(os.environ.get("VALUE_TRIAL_DAYS", "3") or 0)
 VALUE_GRACE_DAYS = int(os.environ.get("VALUE_GRACE_DAYS", "2") or 0)
-# A régi éves / örökös VIP-tagok meghívása a csatornába (amíg false: nem kapnak meghívót, és a bot
+# A régi féléves / éves / örökös VIP-tagok meghívása a csatornába (amíg false: nem kapnak meghívót, és a bot
 # sem engedi be őket; a /value oldal jelzi, hogy hamarosan megkapják). Bekapcsolás: VALUE_LEGACY_INVITES=true
 VALUE_LEGACY_INVITES = os.environ.get("VALUE_LEGACY_INVITES", "false").lower() == "true"
 TEST_EMAIL = "m5tibi77@gmail.com"   # a Stripe teszt módot használó technikai fiók (mint a régi pénztárban)
@@ -136,7 +136,7 @@ def is_allowed(row, now=None) -> bool:
 
 
 def legacy_until(user, now=None):
-    """A régi (éves / örökös) VIP-tagság vége, ha még él: ők a lejáratig a Value-csatornát is megkapják."""
+    """A régi (féléves / éves / örökös) VIP-tagság vége, ha még él: ők a lejáratig a Value-csatornát is megkapják."""
     if not user or user.get("subscription_status") != "active":
         return None
     end = _parse(user.get("subscription_expires_at"))
@@ -234,12 +234,10 @@ def join_text(user, row, now=None) -> str:
     if not end:
         return ("✅ Az előfizetésed aktív!\n\nCsatlakozz a „Mondom a Tutit! · Value” csatornához az alábbi gombbal. "
                 "A csatlakozási kérelmedet a bot automatikusan jóváhagyja.")
-    meddig = ("korlátlan ideig" if end.year >= 2049
-              else f"a tagságod lejártáig ({end.astimezone(BUDAPEST).strftime('%Y. %m. %d.')})")
     return ("🎁 Köszönjük, hogy VIP-tagunk vagy!\n\n"
             "A régi VIP-tippek helyett elindult az új „Mondom a Tutit! · Value” csatorna: matematikai alapú value-tippek, "
             "tétjavaslattal, minimum oddsszal és minden reggel eredményekkel.\n\n"
-            f"A VIP-tagságod alapján {meddig} díjmentesen hozzáférsz, nem kell előfizetned. "
+            "A VIP-tagságod idejére díjmentesen hozzáférsz, nem kell előfizetned. "
             "Csatlakozz az alábbi gombbal, a kérelmedet a bot automatikusan jóváhagyja.")
 
 
@@ -450,7 +448,7 @@ async def reconcile_once():
             await _sync_from_stripe(row)
         except Exception as e:
             print(f"[value] Egyeztetési hiba ({row.get('email')}): {e}")
-    # Régi éves / örökös VIP-tagok: automatikus meghívó (egyszer), ha a Telegram össze van kötve
+    # Régi féléves / éves / örökös VIP-tagok: automatikus meghívó (egyszer), ha a Telegram össze van kötve
     if not VALUE_LEGACY_INVITES:
         return
     by_user = {r["user_id"]: r for r in rows}

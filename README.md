@@ -8,7 +8,7 @@ az előfizetést és a csatornatagságot kezeli).
 - `main.py` – FastAPI alkalmazás összerakása, middleware-ek, Telegram webhook, háttérfolyamatok
 - `app/pages.py` – főoldal, statikus oldalak (ÁSZF, adatvédelem, tipp-szótár), leiratkozás, régi címek átirányítása
 - `app/value_sub.py` – Value-előfizetés: `/value` oldal, Stripe Checkout (havi, próbaidővel), webhook-események,
-  csatornatagság (jóváhagyást kérő meghívó, kiléptetés), 6 óránkénti egyeztetés; a régi éves / örökös VIP-tagok
+  csatornatagság (jóváhagyást kérő meghívó, kiléptetés), 6 óránkénti egyeztetés; a régi féléves / éves / örökös VIP-tagok
   a lejáratukig szintén bejutnak
 - `app/auth.py`, `app/profile.py` – regisztráció, belépés, profil, Telegram-összekötés
 - `app/stripe_logic.py` – Stripe webhook (a value-eseményeket az `app/value_sub.py` kapja; a régi VIP-előfizetők
