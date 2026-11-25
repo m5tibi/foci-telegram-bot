@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 import os as _os
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from telegram.ext import Application, PicklePersistence
@@ -98,28 +98,60 @@ async def startup():
         application = Application.builder().token(token).persistence(persistence).build()
         add_handlers(application)
         await application.initialize()
-        if VALUE_CHANNEL_ID:
-            # A fizetős csatorna csatlakozási kérelmeit a webhooknak is meg kell kapnia
-            try:
-                info = await application.bot.get_webhook_info()
-                allowed = list(info.allowed_updates or [])
-                if info.url and allowed and "chat_join_request" not in allowed:
-                    await application.bot.set_webhook(url=info.url, allowed_updates=allowed + ["chat_join_request"])
-                    print("[value] Webhook: chat_join_request engedélyezve")
-            except Exception as e:
-                print(f"[value] Webhook ellenőrzési hiba: {e}")
+        await _ensure_webhook(application.bot)
     if VALUE_CHANNEL_ID:
         asyncio.create_task(_value_reconcile())
         asyncio.create_task(_value_reminders())       # próbaidő vége előtti Telegram-emlékeztető
         print("[value] Előfizetés-egyeztetés (6 óránként) és próbaidő-emlékeztető (30 percenként) elindítva")
 
-@api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}")
-async def process_telegram_update(request: Request):
+# --- Telegram webhook ---
+# A webhook címe NEM a bot tokenje (az a Render-logba is bekerülne), hanem egy állandó útvonal;
+# a hitelesítést a Telegram által minden kérésben elküldött titkos fejléc adja
+# (X-Telegram-Bot-Api-Secret-Token). A titok a tokenből és a SESSION_SECRET_KEY-ből képződik,
+# így nem kell hozzá külön beállítás, és tokencserekor magától megváltozik.
+WEBHOOK_PATH = "/telegram-webhook"
+
+
+def _webhook_secret() -> str:
+    import hmac, hashlib
+    token = os.environ.get("TELEGRAM_TOKEN") or ""
+    return hmac.new(SESSION_SECRET_KEY.encode(), token.encode(), hashlib.sha256).hexdigest()[:48]
+
+
+async def _ensure_webhook(bot):
+    """Induláskor beállítja a webhookot (új token után sem kell kézzel / workflow-val)."""
+    from app.site import SITE_URL as _public_url
+    url = _public_url + WEBHOOK_PATH
+    try:
+        await bot.set_webhook(url=url, secret_token=_webhook_secret(),
+                              allowed_updates=telegram.Update.ALL_TYPES)
+        print(f"[telegram] Webhook beállítva: {url}")
+    except Exception as e:
+        print(f"[telegram] Webhook beállítási hiba: {e}")
+
+
+async def _handle_update(request: Request):
     if application:
         data = await request.json()
         update = telegram.Update.de_json(data, application.bot)
         await application.process_update(update)
     return {"status": "ok"}
+
+
+@api.post(WEBHOOK_PATH, include_in_schema=False)
+async def telegram_webhook(request: Request):
+    import hmac
+    got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(got, _webhook_secret()):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return await _handle_update(request)
+
+
+# Régi cím (a token az útvonalban) – csak átmenetileg, amíg a Telegram még ide küldhet
+# (a fenti _ensure_webhook induláskor átállítja); a token maga védi.
+@api.post(f"/{os.environ.get('TELEGRAM_TOKEN')}", include_in_schema=False)
+async def process_telegram_update(request: Request):
+    return await _handle_update(request)
 
 # --- 6. Statikus oldalak (docs/) tartalékként ---
 # Minden fenti útvonal elsőbbséget élvez; ami nem talált, azt a docs/ mappából

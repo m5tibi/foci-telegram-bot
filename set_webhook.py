@@ -1,4 +1,6 @@
 # set_webhook.py
+# MEGJEGYZÉS: a szerver induláskor maga beállítja a webhookot (main.py _ensure_webhook, /telegram-webhook
+# titkos fejléccel). Ezt a szkriptet nem kell futtatni; ha mégis, a régi (token az útvonalban) címre állít.
 import os
 import asyncio
 import telegram
