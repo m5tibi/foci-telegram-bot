@@ -27,7 +27,7 @@
     <div style="background: #2D3748; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
         <p><strong>E-mail címed:</strong> {{ user.email }}</p>
         {% if is_subscribed and user.subscription_expires_at %}
-        {# Régi (éves / örökös) VIP-tagok: a lejáratig a Value-csatornát is megkapják #}
+        {# Régi (féléves / éves / örökös) VIP-tagok: a lejáratig a Value-csatornát is megkapják #}
         {% set exp = user.subscription_expires_at[:10].replace('-', '. ') ~ '.' %}
         <p><strong>Korábbi VIP-tagság:</strong>
             <span style="color: #4CAF50; font-weight: bold;">Aktív ✅</span>
