@@ -228,6 +228,21 @@ def _mark_invited(user_id):
         print(f"[value] invited_at mentési hiba: {e}")
 
 
+def join_text(user, row, now=None) -> str:
+    """A meghívó szövege: a régi VIP-tagok külön magyarázatot kapnak az új csatornáról."""
+    end = None if is_allowed(row, now) else legacy_until(user, now)
+    if not end:
+        return ("✅ Az előfizetésed aktív!\n\nCsatlakozz a „Mondom a Tutit! · Value” csatornához az alábbi gombbal. "
+                "A csatlakozási kérelmedet a bot automatikusan jóváhagyja.")
+    meddig = ("korlátlan ideig" if end.year >= 2049
+              else f"a tagságod lejártáig ({end.astimezone(BUDAPEST).strftime('%Y. %m. %d.')})")
+    return ("🎁 Köszönjük, hogy VIP-tagunk vagy!\n\n"
+            "A régi VIP-tippek helyett elindult az új „Mondom a Tutit! · Value” csatorna: matematikai alapú value-tippek, "
+            "tétjavaslattal, minimum oddsszal és minden reggel eredményekkel.\n\n"
+            f"A VIP-tagságod alapján {meddig} díjmentesen hozzáférsz, nem kell előfizetned. "
+            "Csatlakozz az alábbi gombbal, a kérelmedet a bot automatikusan jóváhagyja.")
+
+
 async def offer_join(user, row, force=True) -> bool:
     """Ha van hozzáférése és a Telegram össze van kötve, a bot elküldi a csatlakozási linket.
     force=False: csak akkor, ha még nem kapott meghívót (a régi tagok automatikus meghívásához)."""
@@ -244,10 +259,7 @@ async def offer_join(user, row, force=True) -> bool:
         return False
     if not link:
         return False
-    await _dm(user["chat_id"],
-              "✅ Az előfizetésed aktív!\n\nCsatlakozz a „Mondom a Tutit! · Value” csatornához az alábbi gombbal. "
-              "A csatlakozási kérelmedet a bot automatikusan jóváhagyja.",
-              url=link, button="📈 Csatlakozás a csatornához")
+    await _dm(user["chat_id"], join_text(user, row), url=link, button="📈 Csatlakozás a csatornához")
     _mark_invited(row["user_id"])
     return True
 
