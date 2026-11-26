@@ -144,11 +144,16 @@ async def post_marketing_email(
             to_emails = _active_emails(res.data)
         elif target == "free":
             res = supabase.table("felhasznalok") \
-                .select("email, email_unsubscribed, subscription_status, subscription_expires_at") \
+                .select("id, email, email_unsubscribed, subscription_status, subscription_expires_at") \
                 .execute()
+            # Az élő Value-előfizetők (próbaidő is) sem „ingyenesek”: nekik nem megy az indulási / ajánló levél
+            from .value_sub import TABLE as VALUE_TABLE, is_allowed
+            vrows = supabase.table(VALUE_TABLE).select("*").execute().data or []
+            value_ids = {str(r["user_id"]) for r in vrows if is_allowed(r)}
             to_emails = _active_emails([
                 u for u in (res.data or [])
                 if not (u.get("subscription_status") == "active" and (u.get("subscription_expires_at") or "") > now_iso)
+                and str(u.get("id")) not in value_ids
             ])
         else:
             res = supabase.table("felhasznalok") \
