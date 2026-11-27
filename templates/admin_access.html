@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Ingyenes hozzáférés – Admin{% endblock %}
+{% block content %}
+<style>
+  .fa-wrap { max-width: 860px; margin: 20px auto; color: #E2E8F0; }
+  .fa-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
+  .fa-tabs a { padding: 8px 16px; border-radius: 20px; background: #2D3748; color: #E2E8F0; text-decoration: none; border: 1px solid #4A5568; }
+  .fa-tabs a.on { background: #D4AF37; color: #1A202C; font-weight: 700; border-color: #D4AF37; }
+  .fa-card { background: #2D3748; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; }
+  .fa-card label { display: block; margin: 10px 0 4px; color: #A0AEC0; font-size: .9rem; }
+  .fa-card input, .fa-card select { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #4A5568; background: #1A202C; color: #E2E8F0; }
+  .fa-btn { margin-top: 16px; border: 0; border-radius: 24px; padding: 11px 26px; font-weight: 800; cursor: pointer; background: linear-gradient(135deg, #D4AF37, #F2D060); color: #1A202C; }
+  .fa-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  .fa-table th, .fa-table td { padding: 8px 6px; border-bottom: 1px solid #4A5568; text-align: left; }
+  .fa-table th { color: #A0AEC0; font-weight: 600; }
+  .fa-revoke { background: #4A2222; color: #FEB2B2; border: 1px solid #C53030; border-radius: 16px; padding: 4px 12px; cursor: pointer; }
+  .fa-note { color: #A0AEC0; font-size: .85rem; margin-top: 10px; }
+  .fa-scroll { overflow-x: auto; }
+</style>
+<div class="container fa-wrap">
+  <div class="fa-tabs">
+    <a href="/admin/marketing-email">📧 Marketing e-mail</a>
+    <a class="on" href="/admin/ingyenes-hozzaferes">🎁 Ingyenes hozzáférés</a>
+  </div>
+  <h1 style="text-align:center;margin:0 0 18px">🎁 Ingyenes Value-hozzáférés</h1>
+
+  {% if message %}<div style="background:#2A433A;border:1px solid #38A169;border-radius:8px;padding:14px 18px;margin-bottom:18px;color:#9AE6B4;">✅ {{ message }}</div>{% endif %}
+  {% if error %}<div style="background:#4A2222;border:1px solid #C53030;border-radius:8px;padding:14px 18px;margin-bottom:18px;color:#FEB2B2;">❌ {{ error }}</div>{% endif %}
+
+  <div class="fa-card">
+    <form method="POST" action="/admin/ingyenes-hozzaferes">
+      <label for="fa-email">A felhasználó e-mail címe (regisztrált fiók)</label>
+      <input id="fa-email" type="email" name="email" required placeholder="valaki@gmail.com">
+      <label for="fa-dur">Időtartam</label>
+      <select id="fa-dur" name="duration" onchange="document.getElementById('fa-date-box').style.display = this.value === 'date' ? 'block' : 'none'">
+        <option value="7">1 hét</option>
+        <option value="30" selected>1 hónap (30 nap)</option>
+        <option value="90">3 hónap</option>
+        <option value="180">6 hónap</option>
+        <option value="365">1 év</option>
+        <option value="lifetime">Örökös</option>
+        <option value="date">Adott napig…</option>
+      </select>
+      <div id="fa-date-box" style="display:none">
+        <label for="fa-date">Lejárat napja (a nap végéig)</label>
+        <input id="fa-date" type="date" name="until">
+      </div>
+      <button class="fa-btn" type="submit">Hozzáférés megadása</button>
+    </form>
+    <p class="fa-note">Az időtartam mától számít, és felülírja a meglévő lejáratot. Ha a Telegram már össze van kötve, a bot azonnal
+      elküldi a csatlakozási linket; ha nincs, az összekötés után. Lejáratkor a bot automatikusan kilépteti.</p>
+  </div>
+
+  <div class="fa-card">
+    <h2 style="margin:0 0 10px;font-size:1.1rem">Érvényes kézi / régi VIP-hozzáférések ({{ members|length }})</h2>
+    {% if members %}
+    <div class="fa-scroll">
+    <table class="fa-table">
+      <tr><th>E-mail</th><th>Eddig</th><th>Telegram</th><th>Csatornában</th><th></th></tr>
+      {% for m in members %}
+      <tr>
+        <td>{{ m.email }}</td>
+        <td>{{ m.until }}</td>
+        <td>{{ '✅' if m.telegram else '–' }}</td>
+        <td>{{ '✅' if m.member else '–' }}</td>
+        <td>
+          <form method="POST" action="/admin/ingyenes-hozzaferes/{{ m.id }}/visszavon" style="margin:0"
+                onsubmit="return confirm('Biztosan visszavonod {{ m.email }} hozzáférését? Ha nincs Value-előfizetése, a bot kilépteti a csatornából.')">
+            <button class="fa-revoke" type="submit">Visszavonás</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    <p class="fa-note">A listában a régi (féléves / éves / örökös) VIP-tagok is szerepelnek – az ő hozzáférésüket csak indokolt esetben vond vissza.</p>
+    {% else %}<p class="fa-note">Nincs érvényes kézi hozzáférés.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}
