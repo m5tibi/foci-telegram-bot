@@ -13,7 +13,7 @@ az előfizetést és a csatornatagságot kezeli).
 - `app/auth.py`, `app/profile.py` – regisztráció, belépés, profil, Telegram-összekötés
 - `app/stripe_logic.py` – Stripe webhook (a value-eseményeket az `app/value_sub.py` kapja; a régi VIP-előfizetők
   eseményeit továbbra is ez kezeli), régi ügyfélportál
-- `app/admin.py`, `app/marketing_queue.py`, `app/email_utils.py` – marketing e-mail (ütemezett küldés)
+- `app/admin.py`, `app/marketing_queue.py`, `app/email_utils.py` – admin: marketing e-mail (ütemezett küldés) és ingyenes Value-hozzáférés (`/admin/ingyenes-hozzaferes`)
 - `bot.py` – Telegram bot (összekötés, csatlakozási kérelmek, admin menü)
 - `docs/` – statikus oldalak (főoldal, tipp-szótár, ÁSZF, adatvédelem, köszönőoldal)
 - `supabase/` – adatbázis-táblák és jogosultságok (`value_subscribers.sql`, `rls.sql`)
